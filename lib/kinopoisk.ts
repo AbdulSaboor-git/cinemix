@@ -1,0 +1,120 @@
+import { Film, FilmsResponse, Staff, VideosResponse, PersonDetail, FiltersResponse } from "@/types/kinopoisk";
+
+const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://kinopoiskapiunofficial.tech/api";
+
+const KEYS = (process.env.NEXT_PUBLIC_KINOPOISK_API_KEYS || "")
+  .split(",")
+  .map(k => k.trim())
+  .filter(Boolean);
+
+// Track exhausted keys with timestamp
+const exhausted = new Map<string, number>();
+
+function getKey(): string {
+  const now = Date.now();
+  // Clear keys that have reset after 24h
+  for (const [k, t] of exhausted) {
+    if (now - t > 24 * 60 * 60 * 1000) exhausted.delete(k);
+  }
+  const available = KEYS.filter(k => !exhausted.has(k));
+  if (!available.length) throw new Error("All API keys exhausted for today.");
+  return available[0];
+}
+
+function markExhausted(key: string) {
+  exhausted.set(key, Date.now());
+  console.warn(`[CineMix] Key ${key.slice(0, 8)}… exhausted. ${KEYS.filter(k => !exhausted.has(k)).length} remaining.`);
+}
+
+async function apiFetch<T>(path: string, revalidate = 3600): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < KEYS.length; attempt++) {
+    const key = getKey();
+    const res = await fetch(`${BASE_URL}${path}`, {
+      headers: { "X-API-KEY": key, "Content-Type": "application/json" },
+      next: { revalidate },
+    });
+
+    if (res.status === 402 || res.status === 429) {
+      markExhausted(key);
+      lastError = new Error(`Key exhausted: ${key.slice(0, 8)}…`);
+      continue;
+    }
+
+    if (!res.ok) throw new Error(`API error: ${res.status} ${path}`);
+    return res.json();
+  }
+
+  throw lastError ?? new Error("All API keys exhausted.");
+}
+
+function normalizeFilmsResponse(raw: Record<string, unknown>): FilmsResponse {
+  const items = (raw.items ?? raw.films ?? []) as Film[];
+  const normalized = items.map(f => ({
+    ...f,
+    kinopoiskId: f.kinopoiskId ?? f.filmId ?? 0,
+  }));
+  return {
+    items: normalized,
+    total: (raw.total as number) ?? normalized.length,
+    totalPages: (raw.totalPages as number) ?? 1,
+  };
+}
+
+export async function getTopFilms(
+  type: "TOP_100_POPULAR_FILMS" | "TOP_250_BEST_FILMS" | "TOP_AWAIT_FILMS" = "TOP_100_POPULAR_FILMS",
+  page = 1
+): Promise<FilmsResponse> {
+  const raw = await apiFetch<Record<string, unknown>>(`/v2.2/films/top?type=${type}&page=${page}`);
+  return normalizeFilmsResponse(raw);
+}
+
+export async function getFilmsByFilter(params: {
+  genres?: number;
+  countries?: number;
+  order?: "RATING" | "NUM_VOTE" | "YEAR";
+  type?: "ALL" | "FILM" | "TV_SHOW" | "TV_SERIES" | "MINI_SERIES";
+  ratingFrom?: number;
+  ratingTo?: number;
+  yearFrom?: number;
+  yearTo?: number;
+  keyword?: string;
+  page?: number;
+}): Promise<FilmsResponse> {
+  const q = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => v !== undefined && q.set(k, String(v)));
+  const raw = await apiFetch<Record<string, unknown>>(`/v2.2/films?${q.toString()}`);
+  return normalizeFilmsResponse(raw);
+}
+
+export async function getFilm(id: number): Promise<Film> {
+  return apiFetch(`/v2.2/films/${id}`);
+}
+
+export async function getFilmStaff(filmId: number): Promise<Staff[]> {
+  return apiFetch(`/v1/staff?filmId=${filmId}`);
+}
+
+export async function getFilmVideos(filmId: number): Promise<VideosResponse> {
+  return apiFetch(`/v2.2/films/${filmId}/videos`);
+}
+
+export async function searchFilms(keyword: string, page = 1): Promise<FilmsResponse> {
+  const raw = await apiFetch<Record<string, unknown>>(
+    `/v2.1/films/search-by-keyword?keyword=${encodeURIComponent(keyword)}&page=${page}`
+  );
+  return normalizeFilmsResponse(raw);
+}
+
+export async function getRelatedFilms(filmId: number): Promise<Film[]> {
+  return apiFetch(`/v2.1/films/${filmId}/sequels_and_prequels`);
+}
+
+export async function getPerson(personId: number): Promise<PersonDetail> {
+  return apiFetch(`/v1/staff/${personId}`, 86400);
+}
+
+export async function getFilters(): Promise<FiltersResponse> {
+  return apiFetch(`/v2.2/films/filters`, 86400);
+}
