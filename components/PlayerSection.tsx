@@ -207,12 +207,12 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
               inset: 0,
               top: isMobile ? "0%" : "-76%",
               width: "100%",
-              height: isMobile ? "100%" : "180%",
+              height: isMobile ? "300%" : "180%",
               border: "none",
               display: "block",
               background: "#000",
             }}
-            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            allow="autoplay; fullscreen; picture-in-picture; encrypted-media; "
             title={name}
           />
 
@@ -254,7 +254,7 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-            Close Player
+            Close
           </button>
         </div>
       )}
