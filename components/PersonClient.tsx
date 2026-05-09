@@ -68,11 +68,16 @@ export default function PersonClient({ personId }: { personId: string }) {
 
   const tabFilms =
     tab === "actor" ? actorFilms : tab === "director" ? directorFilms : films;
-  const sortedFilms = [...tabFilms].sort((a, b) => {
-    const rA = parseFloat(a.rating || "0") || 0;
-    const rB = parseFloat(b.rating || "0") || 0;
-    return rB - rA;
-  });
+  const sortedFilms = [...tabFilms]
+    .sort((a, b) => {
+      const rA = parseFloat(a.rating || "0") || 0;
+      const rB = parseFloat(b.rating || "0") || 0;
+      return rB - rA;
+    })
+    .filter((film, index, self) => {
+      // Keep only the first occurrence of each filmId
+      return self.findIndex(f => f.filmId === film.filmId) === index;
+    });
 
   const profession =
     person.profession ||
@@ -319,7 +324,7 @@ export default function PersonClient({ personId }: { personId: string }) {
                 border: `1px solid ${tab === "all" ? "var(--border)" : "transparent"}`,
               }}
             >
-              All
+              All ({films.length})
             </button>
           </div>
         )}
