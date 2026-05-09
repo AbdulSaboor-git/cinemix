@@ -61,7 +61,11 @@ export default function PersonClient({ personId }: { personId: string }) {
     );
 
   const name = person.nameEn || person.nameRu || "Unknown";
-  const films = person.films || [];
+  const films =
+    person.films?.filter((film, index, self) => {
+      // Keep only the first occurrence of each filmId
+      return self.findIndex((f) => f.filmId === film.filmId) === index;
+    }) || [];
 
   const actorFilms = films.filter((f) => f.professionKey === "ACTOR");
   const directorFilms = films.filter((f) => f.professionKey === "DIRECTOR");
@@ -76,7 +80,7 @@ export default function PersonClient({ personId }: { personId: string }) {
     })
     .filter((film, index, self) => {
       // Keep only the first occurrence of each filmId
-      return self.findIndex(f => f.filmId === film.filmId) === index;
+      return self.findIndex((f) => f.filmId === film.filmId) === index;
     });
 
   const profession =
