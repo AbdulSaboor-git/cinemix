@@ -63,19 +63,11 @@ export default function PersonClient({ personId }: { personId: string }) {
   const name = person.nameEn || person.nameRu || "Unknown";
   const films = person.films || [];
 
-  const actorFilms = films.filter(
-    (f) => f.professionKey === "ACTOR" && f.general,
-  );
-  const directorFilms = films.filter(
-    (f) => f.professionKey === "DIRECTOR" && f.general,
-  );
+  const actorFilms = films.filter((f) => f.professionKey === "ACTOR");
+  const directorFilms = films.filter((f) => f.professionKey === "DIRECTOR");
 
   const tabFilms =
-    tab === "actor"
-      ? actorFilms
-      : tab === "director"
-        ? directorFilms
-        : films.filter((f) => f.general);
+    tab === "actor" ? actorFilms : tab === "director" ? directorFilms : films;
   const sortedFilms = [...tabFilms].sort((a, b) => {
     const rA = parseFloat(a.rating || "0") || 0;
     const rB = parseFloat(b.rating || "0") || 0;
