@@ -16,7 +16,6 @@ export default function HeroBanner({ film }: { film: Film }) {
     film.ratingKinopoisk?.toFixed(1) ??
     film.ratingImdb?.toFixed(1) ??
     undefined;
-  console.log(film);
   return (
     <div
       style={{

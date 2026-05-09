@@ -1,4 +1,8 @@
-import { Film, FilmsResponse, Staff, VideosResponse, PersonDetail, FiltersResponse } from "@/types/kinopoisk";
+import {
+  Film, FilmsResponse, Staff, VideosResponse, PersonDetail,
+  FiltersResponse, FactsResponse, BoxOfficeResponse, SeasonsResponse,
+  SimilarsResponse, ReviewsResponse
+} from "@/types/kinopoisk";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://kinopoiskapiunofficial.tech/api";
 
@@ -7,12 +11,11 @@ const KEYS = (process.env.NEXT_PUBLIC_KINOPOISK_API_KEYS || "")
   .map(k => k.trim())
   .filter(Boolean);
 
-// Track exhausted keys with timestamp
+// Track exhausted keys with timestamp (24h window)
 const exhausted = new Map<string, number>();
 
 function getKey(): string {
   const now = Date.now();
-  // Clear keys that have reset after 24h
   for (const [k, t] of exhausted) {
     if (now - t > 24 * 60 * 60 * 1000) exhausted.delete(k);
   }
@@ -28,31 +31,29 @@ function markExhausted(key: string) {
 
 async function apiFetch<T>(path: string, revalidate = 3600): Promise<T> {
   let lastError: Error | null = null;
-
   for (let attempt = 0; attempt < KEYS.length; attempt++) {
     const key = getKey();
     const res = await fetch(`${BASE_URL}${path}`, {
       headers: { "X-API-KEY": key, "Content-Type": "application/json" },
       next: { revalidate },
     });
-
     if (res.status === 402 || res.status === 429) {
       markExhausted(key);
       lastError = new Error(`Key exhausted: ${key.slice(0, 8)}…`);
       continue;
     }
-
     if (!res.ok) throw new Error(`API error: ${res.status} ${path}`);
     return res.json();
   }
-
   throw lastError ?? new Error("All API keys exhausted.");
 }
 
 function normalizeFilmsResponse(raw: Record<string, unknown>): FilmsResponse {
+  // API v2.2/films returns `items`, v2.2/films/top returns `films`
   const items = (raw.items ?? raw.films ?? []) as Film[];
   const normalized = items.map(f => ({
     ...f,
+    // BUG FIX: top list uses filmId, not kinopoiskId
     kinopoiskId: f.kinopoiskId ?? f.filmId ?? 0,
   }));
   return {
@@ -61,6 +62,8 @@ function normalizeFilmsResponse(raw: Record<string, unknown>): FilmsResponse {
     totalPages: (raw.totalPages as number) ?? 1,
   };
 }
+
+// ─── Films ──────────────────────────────────────────────────────────────────
 
 export async function getTopFilms(
   type: "TOP_100_POPULAR_FILMS" | "TOP_250_BEST_FILMS" | "TOP_AWAIT_FILMS" = "TOP_100_POPULAR_FILMS",
@@ -104,11 +107,18 @@ export async function searchFilms(keyword: string, page = 1): Promise<FilmsRespo
   const raw = await apiFetch<Record<string, unknown>>(
     `/v2.1/films/search-by-keyword?keyword=${encodeURIComponent(keyword)}&page=${page}`
   );
+  // BUG FIX: search API returns `films` not `items`, and uses `filmId` not `kinopoiskId`
   return normalizeFilmsResponse(raw);
 }
 
 export async function getRelatedFilms(filmId: number): Promise<Film[]> {
-  return apiFetch(`/v2.1/films/${filmId}/sequels_and_prequels`);
+  // BUG FIX: Returns array directly (not wrapped), each item has filmId not kinopoiskId
+  const items = await apiFetch<Film[]>(`/v2.1/films/${filmId}/sequels_and_prequels`);
+  return items.map(f => ({ ...f, kinopoiskId: f.kinopoiskId ?? f.filmId ?? 0 }));
+}
+
+export async function getSimilarFilms(filmId: number): Promise<SimilarsResponse> {
+  return apiFetch(`/v2.2/films/${filmId}/similars`);
 }
 
 export async function getPerson(personId: number): Promise<PersonDetail> {
@@ -117,4 +127,38 @@ export async function getPerson(personId: number): Promise<PersonDetail> {
 
 export async function getFilters(): Promise<FiltersResponse> {
   return apiFetch(`/v2.2/films/filters`, 86400);
+}
+
+// ─── New endpoints not previously implemented ────────────────────────────────
+
+export async function getFilmFacts(filmId: number): Promise<FactsResponse> {
+  return apiFetch(`/v2.2/films/${filmId}/facts`);
+}
+
+export async function getFilmBoxOffice(filmId: number): Promise<BoxOfficeResponse> {
+  return apiFetch(`/v2.2/films/${filmId}/box_office`);
+}
+
+export async function getFilmSeasons(filmId: number): Promise<SeasonsResponse> {
+  return apiFetch(`/v2.2/films/${filmId}/seasons`);
+}
+
+export async function getFilmImages(filmId: number, type = "STILL", page = 1): Promise<{ total: number; totalPages: number; items: { imageUrl: string; previewUrl: string }[] }> {
+  return apiFetch(`/v2.2/films/${filmId}/images?type=${type}&page=${page}`);
+}
+
+export async function getFilmReviews(filmId: number, page = 1): Promise<ReviewsResponse> {
+  return apiFetch(`/v1/reviews?filmId=${filmId}&page=${page}`);
+}
+
+export async function searchPersons(name: string): Promise<{ total: number; items: { kinopoiskId: number; nameRu?: string; nameEn?: string; posterUrl?: string }[] }> {
+  const raw = await apiFetch<Record<string, unknown>>(
+    `/v1/persons?name=${encodeURIComponent(name)}`
+  );
+  return raw as { total: number; items: { kinopoiskId: number; nameRu?: string; nameEn?: string; posterUrl?: string }[] };
+}
+
+export async function getPremieres(year: number, month: string): Promise<FilmsResponse> {
+  const raw = await apiFetch<Record<string, unknown>>(`/v2.2/films/premieres?year=${year}&month=${month}`);
+  return normalizeFilmsResponse(raw);
 }

@@ -6,7 +6,9 @@ interface Props {
     order?: string;
     page?: string;
     genres?: string;
+    countries?: string;
     ratingFrom?: string;
+    ratingTo?: string;
     yearFrom?: string;
     yearTo?: string;
   }>;
@@ -20,7 +22,9 @@ export default async function BrowsePage({ searchParams }: Props) {
       order={p.order}
       page={p.page}
       genres={p.genres}
+      countries={p.countries}
       ratingFrom={p.ratingFrom}
+      ratingTo={p.ratingTo}
       yearFrom={p.yearFrom}
       yearTo={p.yearTo}
     />
