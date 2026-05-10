@@ -589,33 +589,35 @@ function FilmDetail({
 
   return (
     <div style={{ minHeight: "100vh" }}>
-      <button
-        onClick={() => window.history.back()}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          color: "var(--text-muted)",
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          fontSize: "13px",
-          marginBottom: 24,
-          padding: "6px clamp(16px,4vw,24px)",
-        }}
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
+      {!isMobile && (
+        <button
+          onClick={() => window.history.back()}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            color: "var(--text-muted)",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontSize: "13px",
+            marginBottom: 24,
+            padding: "6px clamp(16px,4vw,24px)",
+          }}
         >
-          <path d="M15 18l-6-6 6-6" />
-        </svg>
-        Back
-      </button>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+          Back
+        </button>
+      )}
       <PlayerSection filmId={filmId} film={film} />
 
       <div
