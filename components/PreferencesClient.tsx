@@ -230,6 +230,7 @@ function KeyField({
     <div
       style={{
         display: "flex",
+        flexWrap: "wrap",
         alignItems: "center",
         gap: 8,
         padding: "10px 24px",
@@ -479,11 +480,11 @@ export default function PreferencesClient() {
   };
 
   const handleSave = () => {
-    const hasKey = prefs.apiKeys.some((k) => k.trim().length > 0);
-    if (!hasKey) {
-      pushToast("Add at least one API key before saving.", "error");
-      return;
-    }
+    // const hasKey = prefs.apiKeys.some((k) => k.trim().length > 0);
+    // if (!hasKey) {
+    //   pushToast("Add at least one API key before saving.", "error");
+    //   return;
+    // }
     setSaving(true);
     try {
       const cleaned: Preferences = {
