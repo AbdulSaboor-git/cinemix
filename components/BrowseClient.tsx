@@ -320,11 +320,13 @@ export default function BrowseClient({
             }
           >
             <option value="">All Genres</option>
-            {genres.map((g) => (
-              <option key={g.id} value={g.id}>
-                {translateGenre(g.genre) || g.genre}
-              </option>
-            ))}
+            {genres
+              .filter((g) => g.id !== 28 && g.id !== 25)
+              .map((g) => (
+                <option key={g.id} value={g.id}>
+                  {translateGenre(g.genre) || g.genre}
+                </option>
+              ))}
           </select>
 
           {/* Country — previously MISSING */}
