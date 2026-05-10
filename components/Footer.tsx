@@ -63,6 +63,10 @@ export default function Footer() {
             <FooterLink href="/explore?genres=10">Comedy</FooterLink>
             <FooterLink href="/explore?genres=6">Sci-Fi</FooterLink>
           </FooterGroup>
+          <FooterGroup title="Settings">
+            <FooterLink href="/preferences">Preferences</FooterLink>
+            <FooterLink href="https://kinopoiskapiunofficial.tech" target="_blank">Get API Key</FooterLink>
+          </FooterGroup>
         </div>
       </div>
 
@@ -121,13 +125,17 @@ function FooterGroup({
 function FooterLink({
   href,
   children,
+  target,
 }: {
   href: string;
   children: React.ReactNode;
+  target?: string;
 }) {
   return (
     <Link
       href={href}
+      target={target}
+      rel={target === "_blank" ? "noreferrer" : undefined}
       style={{
         fontSize: "13px",
         color: "var(--text-muted)",

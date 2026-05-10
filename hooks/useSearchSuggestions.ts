@@ -2,6 +2,7 @@
 import { useState, useRef, useCallback } from "react";
 import { searchFilms } from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
+import { getPreferences } from "@/lib/preferences";
 
 export function useSearchSuggestions() {
   const [suggestions, setSuggestions] = useState<Film[]>([]);
@@ -10,7 +11,12 @@ export function useSearchSuggestions() {
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchSuggestions = useCallback((q: string, limit = 6) => {
+  const fetchSuggestions = useCallback((q: string, _limit?: number) => {
+    const prefs = getPreferences();
+    if (!prefs.searchSuggestionsEnabled) return;
+    const limit = _limit ?? prefs.suggestionLimit;
+    const debounce = prefs.suggestionDebounceMs;
+
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (q.trim().length < 2) {
       setSuggestions([]);
@@ -29,7 +35,7 @@ export function useSearchSuggestions() {
       } finally {
         setSugLoading(false);
       }
-    }, 300);
+    }, debounce);
   }, []);
 
   const clearSuggestions = useCallback(() => {

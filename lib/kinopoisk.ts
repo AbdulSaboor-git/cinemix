@@ -3,13 +3,9 @@ import {
   FiltersResponse, FactsResponse, BoxOfficeResponse, SeasonsResponse,
   SimilarsResponse, ReviewsResponse
 } from "@/types/kinopoisk";
+import { getApiKeys } from "@/lib/preferences";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://kinopoiskapiunofficial.tech/api";
-
-const KEYS = (process.env.NEXT_PUBLIC_KINOPOISK_API_KEYS || "")
-  .split(",")
-  .map(k => k.trim())
-  .filter(Boolean);
 
 // Track exhausted keys with timestamp (24h window)
 const exhausted = new Map<string, number>();
@@ -19,19 +15,22 @@ function getKey(): string {
   for (const [k, t] of exhausted) {
     if (now - t > 24 * 60 * 60 * 1000) exhausted.delete(k);
   }
-  const available = KEYS.filter(k => !exhausted.has(k));
+  const keys = getApiKeys();
+  const available = keys.filter(k => !exhausted.has(k));
   if (!available.length) throw new Error("All API keys exhausted for today.");
   return available[0];
 }
 
 function markExhausted(key: string) {
   exhausted.set(key, Date.now());
-  console.warn(`[CineMix] Key ${key.slice(0, 8)}… exhausted. ${KEYS.filter(k => !exhausted.has(k)).length} remaining.`);
+  const keys = getApiKeys();
+  console.warn(`[CineMix] Key ${key.slice(0, 8)}… exhausted. ${keys.filter(k => !exhausted.has(k)).length} remaining.`);
 }
 
 async function apiFetch<T>(path: string, revalidate = 3600): Promise<T> {
+  const keys = getApiKeys();
   let lastError: Error | null = null;
-  for (let attempt = 0; attempt < KEYS.length; attempt++) {
+  for (let attempt = 0; attempt < Math.max(keys.length, 1); attempt++) {
     const key = getKey();
     const res = await fetch(`${BASE_URL}${path}`, {
       headers: { "X-API-KEY": key, "Content-Type": "application/json" },

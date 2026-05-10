@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { translateText, translateHtml, isRussian, stripHtml } from "@/lib/translate";
+import { getPreferences } from "@/lib/preferences";
 
 /** Translate plain text (description, slogan, etc.) */
 export function useTranslate(text: string | undefined): string {
@@ -8,7 +9,8 @@ export function useTranslate(text: string | undefined): string {
 
   useEffect(() => {
     if (!text) { setTranslated(""); return; }
-    if (!isRussian(text)) { setTranslated(text); return; }
+    const prefs = getPreferences();
+    if (!prefs.autoTranslateEnabled || !isRussian(text)) { setTranslated(text); return; }
     translateText(text).then(setTranslated).catch(() => setTranslated(text));
   }, [text]);
 
@@ -25,7 +27,8 @@ export function useTranslateHtml(html: string | undefined): string {
   useEffect(() => {
     if (!html) { setTranslated(""); return; }
     const plain = stripHtml(html);
-    if (!isRussian(plain)) { setTranslated(plain); return; }
+    const prefs = getPreferences();
+    if (!prefs.autoTranslateEnabled || !isRussian(plain)) { setTranslated(plain); return; }
     translateHtml(html).then(setTranslated).catch(() => setTranslated(plain));
   }, [html]);
 
