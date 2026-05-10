@@ -3,10 +3,12 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { searchFilms } from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
-import { getEnglishName } from "@/lib/translate";
+import { getEnglishName, translateCountry } from "@/lib/translate";
+import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import FilmCard from "@/components/FilmCard";
 import Pagination from "@/components/Pagination";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function SearchClient({
   q,
@@ -17,16 +19,26 @@ export default function SearchClient({
 }) {
   const query = q || "";
   const page = Math.max(1, parseInt(pg || "1"));
+
   const [films, setFilms] = useState<Film[]>([]);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState(query);
-  const [suggestions, setSuggestions] = useState<Film[]>([]);
-  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
+
   const router = useRouter();
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const {
+    suggestions,
+    sugLoading,
+    sugVisible,
+    selectedIdx,
+    setSugVisible,
+    fetchSuggestions,
+    clearSuggestions,
+    handleKeyNav,
+  } = useSearchSuggestions();
 
   useEffect(() => {
     setSearch(query);
@@ -48,134 +60,256 @@ export default function SearchClient({
 
   const handleChange = (val: string) => {
     setSearch(val);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (val.trim().length < 2) {
-      setSuggestions([]);
-      return;
-    }
-
-    // Compute dropdown position from input rect
-    if (inputRef.current) {
-      const rect = inputRef.current.getBoundingClientRect();
-      setDropdownStyle({
-        position: "fixed",
-        top: rect.bottom + 4,
-        left: rect.left,
-        width: rect.width,
-        zIndex: 99999,
-      });
-    }
-
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const res = await searchFilms(val.trim(), 1);
-        setSuggestions(res.items.slice(0, 5));
-      } catch {
-        setSuggestions([]);
-      }
-    }, 300);
+    if (val !== query) fetchSuggestions(val, 5);
+    else clearSuggestions();
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (search.trim()) {
-      setSuggestions([]);
+    if (selectedIdx >= 0 && suggestions[selectedIdx]) {
+      const film = suggestions[selectedIdx];
+      router.push(`/film/${film.kinopoiskId ?? film.filmId}`);
+    } else if (search.trim()) {
       router.push(`/search?q=${encodeURIComponent(search.trim())}`);
     }
+    clearSuggestions();
   };
 
   return (
     <div
       style={{ paddingTop: "32px", paddingBottom: "80px", minHeight: "100vh" }}
     >
-      {/* Suggestions rendered at root level, outside everything */}
-      {suggestions.length > 0 && (
-        <div
-          style={{
-            ...dropdownStyle,
-            background: "#1a1a1a",
-            border: "1px solid #444",
-            borderRadius: "10px",
-            overflow: "hidden",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.8)",
-          }}
-        >
-          {suggestions.map((film, i) => {
-            const name = getEnglishName(
-              film.nameRu,
-              film.nameEn,
-              film.nameOriginal,
-            );
-            const id = film.kinopoiskId ?? film.filmId;
-            return (
-              <a
-                key={id ?? i}
-                href={`/film/${id}`}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "10px 14px",
-                  borderBottom:
-                    i < suggestions.length - 1 ? "1px solid #333" : "none",
-                  color: "#fff",
-                  textDecoration: "none",
-                  background: "#1a1a1a",
-                  cursor: "pointer",
-                }}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.background = "#2a2a2a")
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.background = "#1a1a1a")
-                }
-              >
-                {(film.posterUrlPreview || film.posterUrl) && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={film.posterUrlPreview || film.posterUrl}
-                    alt={name}
-                    style={{
-                      width: 30,
-                      height: 45,
-                      objectFit: "cover",
-                      borderRadius: 4,
-                      flexShrink: 0,
-                    }}
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = "none";
-                    }}
-                  />
-                )}
-                <span style={{ fontSize: "14px" }}>
-                  {name} {film.year ? `(${film.year})` : ""}
-                </span>
-              </a>
-            );
-          })}
-        </div>
-      )}
-
       <div style={{ padding: "0 clamp(16px,4vw,48px)", marginBottom: "40px" }}>
+        {/* Search box */}
         <form onSubmit={handleSubmit} style={{ marginBottom: "32px" }}>
-          <div style={{ maxWidth: "640px" }}>
+          <div style={{ position: "relative", maxWidth: "640px" }}>
             <input
               ref={inputRef}
               value={search}
               onChange={(e) => handleChange(e.target.value)}
+              onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
+              onFocus={() => suggestions.length > 0 && setSugVisible(true)}
+              // FIX: 300ms gives touchpad taps time to fire onClick before blur hides the list
+              onBlur={() => setTimeout(() => setSugVisible(false), 300)}
               placeholder="Search films, series, actors…"
               className="input"
               autoFocus={!query}
               style={{
                 fontSize: "16px",
-                padding: "14px 20px",
+                padding: "14px 20px 14px 48px",
                 borderRadius: "12px",
-                width: "100%",
               }}
             />
+            <svg
+              style={{
+                position: "absolute",
+                left: "16px",
+                top: "50%",
+                transform: "translateY(-50%)",
+                opacity: sugLoading ? 1 : 0.4,
+                pointerEvents: "none",
+              }}
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
+            </svg>
+            {search && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  clearSuggestions();
+                  inputRef.current?.focus();
+                }}
+                style={{
+                  position: "absolute",
+                  right: "12px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--text-muted)",
+                  padding: "4px",
+                }}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            )}
+
+            {/* Suggestions dropdown */}
+            {sugVisible && suggestions.length > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 8px)",
+                  left: 0,
+                  right: 0,
+                  background: "rgba(17,17,17,0.98)",
+                  backdropFilter: "blur(20px)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "12px",
+                  overflow: "hidden",
+                  zIndex: 50,
+                  boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
+                  animation: "slideDown 0.15s ease",
+                }}
+              >
+                {suggestions.map((film, i) => {
+                  // FIX: stable key — never fall back to index
+                  const id = film.kinopoiskId ?? film.filmId;
+                  const name = getEnglishName(
+                    film.nameRu,
+                    film.nameEn,
+                    film.nameOriginal,
+                  );
+                  const rating =
+                    film.ratingKinopoisk ?? film.ratingImdb ?? film.rating;
+                  return (
+                    <Link
+                      key={id}
+                      href={`/film/${id}`}
+                      style={{ textDecoration: "none" }}
+                      onClick={() => clearSuggestions()}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 12,
+                          padding: "10px 14px",
+                          background:
+                            i === selectedIdx
+                              ? "var(--bg-elevated)"
+                              : "transparent",
+                          borderBottom:
+                            i < suggestions.length - 1
+                              ? "1px solid var(--border)"
+                              : "none",
+                          cursor: "pointer",
+                        }}
+                        onMouseEnter={(e) =>
+                          ((e.currentTarget as HTMLElement).style.background =
+                            "var(--bg-elevated)")
+                        }
+                        onMouseLeave={(e) =>
+                          ((e.currentTarget as HTMLElement).style.background =
+                            i === selectedIdx
+                              ? "var(--bg-elevated)"
+                              : "transparent")
+                        }
+                      >
+                        <div
+                          style={{
+                            width: 36,
+                            height: 54,
+                            borderRadius: 6,
+                            overflow: "hidden",
+                            flexShrink: 0,
+                            background: "var(--surface)",
+                            position: "relative",
+                          }}
+                        >
+                          {/* FIX: next/image instead of <img> */}
+                          {(film.posterUrlPreview || film.posterUrl) && (
+                            <Image
+                              src={film.posterUrlPreview || film.posterUrl!}
+                              alt={name}
+                              fill
+                              style={{ objectFit: "cover" }}
+                              sizes="36px"
+                            />
+                          )}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p
+                            style={{
+                              fontSize: "14px",
+                              fontWeight: 600,
+                              color: "var(--text)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {name}
+                          </p>
+                          <div
+                            style={{ display: "flex", gap: 8, marginTop: 2 }}
+                          >
+                            {film.year && (
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  color: "var(--text-muted)",
+                                }}
+                              >
+                                {film.year}
+                              </span>
+                            )}
+                            {film.genres?.[0] && (
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  color: "var(--text-muted)",
+                                  textTransform: "capitalize",
+                                }}
+                              >
+                                {film.genres[0].genre}
+                              </span>
+                            )}
+                            {film.countries?.[0] && (
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  color: "var(--text-muted)",
+                                }}
+                              >
+                                {translateCountry(film.countries[0].country)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {rating && (
+                          <span
+                            style={{
+                              fontSize: "13px",
+                              color: "#f5c518",
+                              fontWeight: 700,
+                              fontFamily: "var(--font-display)",
+                            }}
+                          >
+                            {typeof rating === "number"
+                              ? rating.toFixed(1)
+                              : rating}
+                          </span>
+                        )}
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </form>
 
+        {/* Query header */}
         {query && (
           <div>
             <p
@@ -213,6 +347,7 @@ export default function SearchClient({
         )}
       </div>
 
+      {/* Results */}
       <div style={{ padding: "0 clamp(16px,4vw,48px)" }}>
         {!query ? (
           <div
@@ -226,7 +361,21 @@ export default function SearchClient({
               color: "var(--text-dim)",
             }}
           >
+            <svg
+              width="64"
+              height="64"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--text-muted)"
+              strokeWidth="1.5"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
+            </svg>
             <p style={{ fontSize: "18px" }}>Type to start searching</p>
+            <p style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+              Search for films, TV series, actors and more
+            </p>
           </div>
         ) : loading ? (
           <div className="film-grid">
@@ -249,8 +398,11 @@ export default function SearchClient({
             <p style={{ fontSize: "20px", marginBottom: 8 }}>
               No results for &ldquo;{query}&rdquo;
             </p>
+            <p style={{ fontSize: "14px", color: "var(--text-muted)" }}>
+              Try a different search term or explore by genre
+            </p>
             <Link
-              href="/browse"
+              href="/explore"
               style={{
                 color: "var(--accent)",
                 fontSize: "14px",
@@ -258,17 +410,16 @@ export default function SearchClient({
                 marginTop: 12,
               }}
             >
-              Browse all →
+              explore all →
             </Link>
           </div>
         ) : (
           <div className="film-grid">
-            {films.map((film, i) => (
-              <FilmCard
-                key={film.kinopoiskId ?? film.filmId ?? i}
-                film={film}
-              />
-            ))}
+            {films.map((film) => {
+              const id = film.kinopoiskId ?? film.filmId;
+              // FIX: stable key, never index
+              return <FilmCard key={id} film={film} />;
+            })}
           </div>
         )}
       </div>
