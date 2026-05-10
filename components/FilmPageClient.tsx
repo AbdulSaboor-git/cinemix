@@ -601,7 +601,7 @@ function FilmDetail({
           cursor: "pointer",
           fontSize: "13px",
           marginBottom: 24,
-          padding: 0,
+          padding: "clamp(20px,4vw,48px) clamp(16px,4vw,24px)",
         }}
       >
         <svg
