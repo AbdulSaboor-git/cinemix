@@ -205,7 +205,7 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
             style={{
               position: "absolute",
               inset: 0,
-              top: isMobile ? "0%" : "-76%",
+              top: isMobile ? "-20%" : "-89%",
               width: "100%",
               height: isMobile ? "300%" : "180%",
               border: "none",
@@ -225,7 +225,7 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
             }}
             style={{
               position: "absolute",
-              top: 16,
+              top: 10,
               right: 16,
               background: "rgba(0,0,0,0.8)",
               backdropFilter: "blur(8px)",
