@@ -4,91 +4,54 @@ import Link from "next/link";
 export default function Footer() {
   const year = new Date().getFullYear();
   return (
-    <footer
-      style={{
-        borderTop: "1px solid var(--border)",
-        padding: "40px clamp(16px,4vw,48px)",
-        background: "var(--bg-card)",
-        marginTop: "auto",
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 1400,
-          margin: "0 auto",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 32,
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-        }}
-      >
-        {/* Brand */}
-        <div>
-          <span
-            style={{
-              fontFamily: "var(--font-display)",
-              fontSize: "24px",
-              letterSpacing: "3px",
-              color: "var(--accent)",
-              display: "block",
-              marginBottom: 10,
-            }}
-          >
-            CINEMIX
-          </span>
-          <p
-            style={{
-              fontSize: "12px",
-              color: "var(--text-muted)",
-              maxWidth: 260,
-              lineHeight: 1.7,
-            }}
-          >
-            Discover and watch the greatest films and series of all time.
+    <footer className="border-t border-[var(--border)] bg-[var(--bg-card)] mt-auto">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-[var(--page-x)] py-10 sm:py-12">
+        <div className="flex flex-col gap-8 sm:gap-10 sm:flex-row sm:justify-between">
+          {/* Brand */}
+          <div className="max-w-full sm:max-w-[280px]">
+            <span className="font-display text-xl sm:text-2xl tracking-[3px] text-[var(--accent)] block mb-2 sm:mb-3">
+              CINEMIX
+            </span>
+            <p className="text-[13px] text-[var(--text-muted)] leading-[1.8] max-w-[320px]">
+              Discover and watch the greatest films and series of all time.
+            </p>
+          </div>
+
+          {/* Nav groups — 2-col grid on mobile, row on sm+ */}
+          <div className="grid grid-cols-3 gap-8 sm:flex sm:gap-14">
+            <FooterGroup title="Explore">
+              <FooterLink href="/explore?type=FILM">Movies</FooterLink>
+              <FooterLink href="/explore?type=TV_SERIES">Series</FooterLink>
+              <FooterLink href="/top250">Top 250</FooterLink>
+              <FooterLink href="/explore?order=YEAR">New Releases</FooterLink>
+            </FooterGroup>
+            <FooterGroup title="Genres">
+              <FooterLink href="/explore?genres=1">Action</FooterLink>
+              <FooterLink href="/explore?genres=2">Drama</FooterLink>
+              <FooterLink href="/explore?genres=10">Comedy</FooterLink>
+              <FooterLink href="/explore?genres=6">Sci-Fi</FooterLink>
+            </FooterGroup>
+            <FooterGroup title="Settings">
+              <FooterLink href="/preferences">Preferences</FooterLink>
+              <FooterLink
+                href="https://kinopoiskapiunofficial.tech"
+                target="_blank"
+              >
+                Get API Key
+              </FooterLink>
+            </FooterGroup>
+          </div>
+        </div>
+
+        {/* Bottom bar */}
+        <div className="mt-8 sm:mt-10 pt-5 sm:pt-6 border-t border-[var(--border)] flex flex-col sm:flex-row justify-between items-center gap-1 sm:gap-2">
+          <p className="text-[12px] text-[var(--text-muted)]">
+            © {year} CineMix. Data provided by Kinopoisk API.
+          </p>
+          <p className="text-[11px] text-[var(--text-muted)]">
+            For entertainment purposes only.
           </p>
         </div>
-
-        {/* Nav links */}
-        <div style={{ display: "flex", gap: 48, flexWrap: "wrap" }}>
-          <FooterGroup title="Explore">
-            <FooterLink href="/explore?type=FILM">Movies</FooterLink>
-            <FooterLink href="/explore?type=TV_SERIES">Series</FooterLink>
-            <FooterLink href="/top250">Top 250</FooterLink>
-            <FooterLink href="/explore?order=YEAR">New Releases</FooterLink>
-          </FooterGroup>
-          <FooterGroup title="Genres">
-            <FooterLink href="/explore?genres=1">Action</FooterLink>
-            <FooterLink href="/explore?genres=2">Drama</FooterLink>
-            <FooterLink href="/explore?genres=10">Comedy</FooterLink>
-            <FooterLink href="/explore?genres=6">Sci-Fi</FooterLink>
-          </FooterGroup>
-          <FooterGroup title="Settings">
-            <FooterLink href="/preferences">Preferences</FooterLink>
-            <FooterLink href="https://kinopoiskapiunofficial.tech" target="_blank">Get API Key</FooterLink>
-          </FooterGroup>
-        </div>
-      </div>
-
-      <div
-        style={{
-          maxWidth: 1400,
-          margin: "28px auto 0",
-          borderTop: "1px solid var(--border)",
-          paddingTop: 20,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 12,
-        }}
-      >
-        <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-          © {year} CineMix. Data provided by Kinopoisk API.
-        </p>
-        <p style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-          For entertainment purposes only.
-        </p>
       </div>
     </footer>
   );
@@ -103,21 +66,10 @@ function FooterGroup({
 }) {
   return (
     <div>
-      <p
-        style={{
-          fontSize: "11px",
-          fontWeight: 700,
-          textTransform: "uppercase",
-          letterSpacing: "1.5px",
-          color: "var(--text-dim)",
-          marginBottom: 12,
-        }}
-      >
+      <p className="text-[11px] font-bold uppercase tracking-[1.5px] text-[var(--text-dim)] mb-3 sm:mb-4">
         {title}
       </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {children}
-      </div>
+      <div className="flex flex-col gap-[10px]">{children}</div>
     </div>
   );
 }
@@ -136,18 +88,7 @@ function FooterLink({
       href={href}
       target={target}
       rel={target === "_blank" ? "noreferrer" : undefined}
-      style={{
-        fontSize: "13px",
-        color: "var(--text-muted)",
-        textDecoration: "none",
-        transition: "color 0.2s",
-      }}
-      onMouseEnter={(e) => {
-        (e.target as HTMLElement).style.color = "var(--text)";
-      }}
-      onMouseLeave={(e) => {
-        (e.target as HTMLElement).style.color = "var(--text-muted)";
-      }}
+      className="text-[13px] text-[var(--text-muted)] no-underline transition-colors duration-200 hover:text-[var(--text)]"
     >
       {children}
     </Link>

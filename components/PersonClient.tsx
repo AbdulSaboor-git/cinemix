@@ -3,15 +3,31 @@ import { useEffect, useState } from "react";
 import { getPerson } from "@/lib/kinopoisk";
 import { PersonDetail, PersonFilm } from "@/types/kinopoisk";
 import Link from "next/link";
+import { useTranslate } from "@/hooks/useTranslate";
 
 const PROF_LABELS: Record<string, string> = {
-  ACTOR: "Actor", DIRECTOR: "Director", WRITER: "Writer",
-  PRODUCER: "Producer", COMPOSER: "Composer", EDITOR: "Editor",
-  OPERATOR: "Cinematographer", DESIGN: "Production Design",
-  VOICE_DIRECTOR: "Voice Director", UNKNOWN: "",
+  ACTOR: "Actor",
+  DIRECTOR: "Director",
+  WRITER: "Writer",
+  PRODUCER: "Producer",
+  COMPOSER: "Composer",
+  EDITOR: "Editor",
+  OPERATOR: "Cinematographer",
+  DESIGN: "Production Design",
+  VOICE_DIRECTOR: "Voice Director",
+  UNKNOWN: "",
 };
-
-const PROF_ORDER = ["ACTOR", "DIRECTOR", "WRITER", "PRODUCER", "COMPOSER", "OPERATOR", "DESIGN", "EDITOR", "VOICE_DIRECTOR"];
+const PROF_ORDER = [
+  "ACTOR",
+  "DIRECTOR",
+  "WRITER",
+  "PRODUCER",
+  "COMPOSER",
+  "OPERATOR",
+  "DESIGN",
+  "EDITOR",
+  "VOICE_DIRECTOR",
+];
 
 export default function PersonClient({ personId }: { personId: string }) {
   const id = parseInt(personId);
@@ -22,32 +38,49 @@ export default function PersonClient({ personId }: { personId: string }) {
   const [showSpoilers, setShowSpoilers] = useState(false);
 
   useEffect(() => {
-    if (isNaN(id)) { setError(true); setLoading(false); return; }
+    if (isNaN(id)) {
+      setError(true);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     getPerson(id)
-      .then(p => setPerson(p))
+      .then((p) => setPerson(p))
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [id]);
 
   if (loading) return <LoadingSkeleton />;
-  if (error || !person) return (
-    <div style={{ minHeight: "80vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
-      <p style={{ fontSize: "22px", fontFamily: "var(--font-display)" }}>Person not found</p>
-      <Link href="/" style={{ color: "var(--accent)" }}>← Back to home</Link>
-    </div>
-  );
+  if (error || !person)
+    return (
+      <div className="min-h-[80vh] flex flex-col items-center justify-center gap-4 px-4 text-center">
+        <p className="text-[20px] sm:text-[22px] font-display">
+          Person not found
+        </p>
+        <Link href="/" className="text-[var(--accent)]">
+          ← Back to home
+        </Link>
+      </div>
+    );
 
   const name = person.nameEn || person.nameRu || "Unknown";
   const allFilms = person.films || [];
-
-  // BUG FIX: The original code filtered with `&& f.general` which hides most films.
-  // `general` flag just means it's a notable credit — we show ALL films and let user filter.
-  // Sort by rating desc, then group by profession key
   const sortFilms = (films: PersonFilm[]) =>
-    [...films].sort((a, b) => (parseFloat(b.rating || "0") || 0) - (parseFloat(a.rating || "0") || 0));
+    removeDuplicates(films).sort(
+      (a, b) =>
+        (parseFloat(b.rating || "0") || 0) - (parseFloat(a.rating || "0") || 0),
+    );
 
-  // Build available profession tabs from actual data
+  // remove films with duplicate filmId
+  const removeDuplicates = (films: PersonFilm[]) => {
+    const seen = new Set();
+    return films.filter((f) => {
+      if (seen.has(f.filmId)) return false;
+      seen.add(f.filmId);
+      return true;
+    });
+  };
+
   const profGroups: Record<string, PersonFilm[]> = {};
   for (const film of allFilms) {
     const key = film.professionKey || "UNKNOWN";
@@ -55,117 +88,140 @@ export default function PersonClient({ personId }: { personId: string }) {
     profGroups[key].push(film);
   }
 
-  const availableProfs = PROF_ORDER.filter(p => profGroups[p]?.length > 0);
-  const otherProfs = Object.keys(profGroups).filter(p => !PROF_ORDER.includes(p) && profGroups[p].length > 0);
-
-  const displayedFilms = activeProf === "ALL"
-    ? sortFilms(allFilms)
-    : sortFilms(profGroups[activeProf] || []);
-
-  const profession = person.profession ||
+  const availableProfs = PROF_ORDER.filter((p) => profGroups[p]?.length > 0);
+  const otherProfs = Object.keys(profGroups).filter(
+    (p) => !PROF_ORDER.includes(p) && profGroups[p].length > 0,
+  );
+  const displayedFilms =
+    activeProf === "ALL"
+      ? sortFilms(allFilms)
+      : sortFilms(profGroups[activeProf] || []);
+  const profession =
+    person.profession ||
     (availableProfs[0] ? PROF_LABELS[availableProfs[0]] : "");
 
   return (
-    <div style={{ minHeight: "100vh", paddingBottom: 80 }}>
+    <div className="min-h-screen pb-20">
       {/* Hero */}
-      <div style={{
-        background: "linear-gradient(to bottom, var(--bg-card), var(--bg))",
-        borderBottom: "1px solid var(--border)",
-        padding: "40px clamp(16px,4vw,48px) 40px",
-        marginBottom: 40,
-      }}>
-        <button onClick={() => window.history.back()}
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", fontSize: "13px", marginBottom: 24, padding: 0 }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6" /></svg>
+      <div className="bg-gradient-to-b from-[var(--bg-card)] to-[var(--bg)] border-b border-[var(--border)] mb-8 sm:mb-10 px-4 sm:px-[var(--page-x)] py-6 sm:py-10">
+        <button
+          onClick={() => window.history.back()}
+          className="inline-flex items-center gap-[6px] text-[var(--text-muted)] bg-transparent border-none cursor-pointer text-[13px] mb-5 sm:mb-6 p-0"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
           Back
         </button>
 
-        <div style={{ display: "flex", gap: "clamp(20px,4vw,40px)", alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div className="flex gap-5 sm:gap-[clamp(20px,4vw,40px)] items-start">
           {/* Photo */}
-          <div style={{
-            width: "clamp(120px,20vw,200px)", flexShrink: 0,
-            borderRadius: "var(--radius-lg)", overflow: "hidden",
-            border: "1px solid var(--border)",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-          }}>
+          <div className="rounded-[var(--radius-lg)] overflow-hidden border border-[var(--border)] shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex-shrink-0 w-[90px] sm:w-[130px] md:w-[200px]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={person.posterUrl || ""}
               alt={name}
-              style={{ width: "100%", aspectRatio: "2/3", objectFit: "cover", display: "block", background: "var(--surface)" }}
-              onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+              className="w-full aspect-[2/3] object-cover block bg-[var(--surface)]"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none";
+              }}
+              draggable={false}
             />
           </div>
 
           {/* Info */}
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="flex-1 min-w-0">
             {profession && (
-              <p style={{ fontSize: "12px", color: "var(--accent)", textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: 8 }}>
+              <p className="text-[11px] sm:text-[12px] text-[var(--accent)] uppercase tracking-[1.5px] font-semibold mb-1 sm:mb-2">
                 {profession}
               </p>
             )}
-            <h1 style={{
-              fontFamily: "var(--font-display)",
-              fontSize: "clamp(36px,6vw,64px)",
-              letterSpacing: "2px", lineHeight: 1,
-              marginBottom: 16,
-            }}>{name}</h1>
-            {person.nameRu && person.nameRu !== name && (
-              <p style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: 16, fontStyle: "italic" }}>{person.nameRu}</p>
-            )}
+            <h1 className="font-display leading-none tracking-[1px] sm:tracking-[2px] mb-2 sm:mb-4 text-[clamp(22px,5vw,64px)]">
+              {name}
+            </h1>
 
-            <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 16 }}>
+            {/* Info grid — 2-col on mobile */}
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-4 gap-y-3 sm:gap-6 mb-4">
               {person.sex && person.sex !== "UNKNOWN" && (
-                <InfoItem label="Gender" value={person.sex === "MALE" ? "Male" : "Female"} />
+                <InfoItem
+                  label="Gender"
+                  value={person.sex === "MALE" ? "Male" : "Female"}
+                />
               )}
               {person.birthday && (
-                <InfoItem label="Born" value={new Date(person.birthday).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })} />
+                <InfoItem
+                  label="Born"
+                  value={new Date(person.birthday).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  })}
+                />
               )}
-              {person.birthplace && <InfoItem label="From" value={person.birthplace} />}
-              {person.age && !person.death && <InfoItem label="Age" value={String(person.age)} />}
+              {person.birthplace && (
+                <InfoItem label="From" value={person.birthplace} />
+              )}
+              {person.age && !person.death && (
+                <InfoItem label="Age" value={String(person.age)} />
+              )}
               {person.death && (
-                <InfoItem label="Died" value={new Date(person.death).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })} />
+                <InfoItem
+                  label="Died"
+                  value={new Date(person.death).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  })}
+                />
               )}
-              {person.deathplace && <InfoItem label="Died in" value={person.deathplace} />}
+              {person.deathplace && (
+                <InfoItem label="Died in" value={person.deathplace} />
+              )}
               {person.hasAwards !== undefined && person.hasAwards > 0 && (
                 <InfoItem label="Awards" value={`${person.hasAwards}`} />
               )}
-              <InfoItem label="Total Credits" value={String(allFilms.length)} />
+              <InfoItem label="Credits" value={String(allFilms.length)} />
             </div>
 
-            {/* Spouses */}
             {person.spouses && person.spouses.length > 0 && (
-              <div style={{ marginTop: 8 }}>
-                <p style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 6 }}>Relationships</p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <div className="mt-2">
+                <p className="text-[11px] text-[var(--text-muted)] uppercase tracking-[0.8px] mb-[6px]">
+                  Relationships
+                </p>
+                <div className="flex flex-wrap gap-[6px] sm:gap-2">
                   {person.spouses.map((s, i) => (
-                    <span key={i} style={{
-                      fontSize: "12px", color: "var(--text-dim)",
-                      background: "var(--bg-card)", border: "1px solid var(--border)",
-                      borderRadius: "6px", padding: "4px 10px",
-                    }}>
-                      {s.name || "Unknown"}{s.divorced ? " (divorced)" : ""}
-                      {s.children ? ` · ${s.children} child${s.children !== 1 ? "ren" : ""}` : ""}
+                    <span
+                      key={i}
+                      className="text-[11px] sm:text-[12px] text-[var(--text-dim)] bg-[var(--bg-card)] border border-[var(--border)] rounded-[6px] px-[8px] sm:px-[10px] py-1"
+                    >
+                      {s.name || "Unknown"}
+                      {s.divorced ? " (divorced)" : ""}
+                      {s.children
+                        ? ` · ${s.children} child${s.children !== 1 ? "ren" : ""}`
+                        : ""}
                     </span>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Facts */}
             {person.facts && person.facts.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <p style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 6 }}>
+              <div className="mt-3 sm:mt-4">
+                <p className="text-[11px] text-[var(--text-muted)] uppercase tracking-[0.8px] mb-[6px]">
                   Facts
                 </p>
-                <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: 6 }}>
-                  {person.facts.slice(0, 3).map((fact, i) => (
-                    <li key={i} style={{
-                      fontSize: "13px", color: "var(--text-dim)",
-                      lineHeight: 1.6,
-                      paddingLeft: 12,
-                      borderLeft: "2px solid var(--accent)",
-                    }}
+                <ul className="list-none flex flex-col gap-[6px]">
+                  {person.facts.slice(0, 5).map((fact, i) => (
+                    <li
+                      key={i}
+                      className="text-[12px] sm:text-[13px] text-[var(--text-dim)] leading-[1.6] pl-3 border-l-2 border-[var(--accent)]"
                       dangerouslySetInnerHTML={{ __html: fact }}
                     />
                   ))}
@@ -177,24 +233,25 @@ export default function PersonClient({ personId }: { personId: string }) {
       </div>
 
       {/* Filmography */}
-      <div style={{ padding: "0 clamp(16px,4vw,48px)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 24 }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px,3vw,30px)", letterSpacing: "1.5px" }}>
+      <div className="px-4 sm:px-[var(--page-x)]">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-5 sm:mb-6">
+          <h2 className="font-display tracking-[1.5px] text-[clamp(18px,3vw,30px)]">
             FILMOGRAPHY
           </h2>
-          <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-            {displayedFilms.length} credit{displayedFilms.length !== 1 ? "s" : ""}
+          <span className="text-[12px] sm:text-[13px] text-[var(--text-muted)]">
+            {displayedFilms.length} credit
+            {displayedFilms.length !== 1 ? "s" : ""}
           </span>
         </div>
 
-        {/* Profession tabs */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 28, flexWrap: "wrap" }}>
+        {/* Prof tabs — horizontally scrollable on mobile */}
+        <div className="flex gap-[6px] mb-6 sm:mb-7 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-none flex-nowrap sm:flex-wrap">
           <ProfTab
             label={`All (${allFilms.length})`}
             active={activeProf === "ALL"}
             onClick={() => setActiveProf("ALL")}
           />
-          {availableProfs.map(p => (
+          {availableProfs.map((p) => (
             <ProfTab
               key={p}
               label={`${PROF_LABELS[p] || p} (${profGroups[p].length})`}
@@ -202,7 +259,7 @@ export default function PersonClient({ personId }: { personId: string }) {
               onClick={() => setActiveProf(p)}
             />
           ))}
-          {otherProfs.map(p => (
+          {otherProfs.map((p) => (
             <ProfTab
               key={p}
               label={`${PROF_LABELS[p] || p} (${profGroups[p].length})`}
@@ -213,23 +270,25 @@ export default function PersonClient({ personId }: { personId: string }) {
         </div>
 
         {displayedFilms.length === 0 ? (
-          <p style={{ color: "var(--text-muted)", fontSize: "15px" }}>No credits in this category.</p>
+          <p className="text-[var(--text-muted)] text-[14px] sm:text-[15px]">
+            No credits in this category.
+          </p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+          <div className="flex flex-col gap-[2px]">
             {displayedFilms.map((film, i) => (
-              <FilmEntry key={`${film.filmId}-${i}`} film={film} showSpoilers={showSpoilers} />
+              <FilmEntry
+                key={`${film.filmId}`}
+                film={film}
+                showSpoilers={showSpoilers}
+              />
             ))}
           </div>
         )}
 
-        {/* Spoiler toggle (for facts section if ever added here) */}
         <button
-          onClick={() => setShowSpoilers(v => !v)}
-          style={{
-            marginTop: 24, fontSize: "12px", color: "var(--text-muted)",
-            background: "none", border: "none", cursor: "pointer", padding: 0,
-            textDecoration: "underline",
-          }}
+          onClick={() => setShowSpoilers((v) => !v)}
+          className="mt-6 text-[12px] text-[var(--text-muted)] bg-transparent border-none cursor-pointer p-0 underline min-h-[40px]"
+          style={{ fontFamily: "var(--font-body)" }}
         >
           {showSpoilers ? "Hide character spoilers" : "Show character spoilers"}
         </button>
@@ -238,90 +297,96 @@ export default function PersonClient({ personId }: { personId: string }) {
   );
 }
 
-function ProfTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function ProfTab({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
-      style={{
-        padding: "8px 16px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
-        cursor: "pointer", fontFamily: "var(--font-body)", transition: "all var(--transition)",
-        background: active ? "var(--accent)" : "var(--bg-elevated)",
-        color: active ? "white" : "var(--text-dim)",
-        border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-      }}
+      className={`flex-shrink-0 px-3 sm:px-4 py-2 rounded-[8px] text-[12px] sm:text-[13px] font-semibold cursor-pointer transition-all duration-[180ms] min-h-[36px]
+        ${active ? "bg-[var(--accent)] text-white border border-[var(--accent)]" : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border border-[var(--border)] hover:border-[var(--border-hover)]"}`}
     >
       {label}
     </button>
   );
 }
 
-function FilmEntry({ film, showSpoilers }: { film: PersonFilm; showSpoilers: boolean }) {
+function FilmEntry({
+  film,
+  showSpoilers,
+}: {
+  film: PersonFilm;
+  showSpoilers: boolean;
+}) {
   const name = film.nameEn || film.nameRu || "Unknown";
   const rating = parseFloat(film.rating || "0") || null;
-  const profLabel = film.professionKey ? (
-    { ACTOR: "Actor", DIRECTOR: "Director", WRITER: "Writer", PRODUCER: "Producer",
-      COMPOSER: "Composer", OPERATOR: "DOP", DESIGN: "Prod. Design", EDITOR: "Editor" }[film.professionKey] || film.professionKey
-  ) : null;
+  const profLabel = film.professionKey
+    ? {
+        ACTOR: "Actor",
+        DIRECTOR: "Director",
+        WRITER: "Writer",
+        PRODUCER: "Producer",
+        COMPOSER: "Composer",
+        OPERATOR: "DOP",
+        DESIGN: "Prod. Design",
+        EDITOR: "Editor",
+      }[film.professionKey] || film.professionKey
+    : null;
 
   return (
-    <Link href={`/film/${film.filmId}`} style={{ textDecoration: "none" }}>
-      <div
-        style={{
-          display: "flex", alignItems: "center", gap: 16,
-          padding: "14px 16px", borderRadius: "10px",
-          border: "1px solid transparent", transition: "all 0.18s ease",
-        }}
-        onMouseEnter={e => {
-          (e.currentTarget as HTMLElement).style.background = "var(--bg-card)";
-          (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
-          (e.currentTarget as HTMLElement).style.transform = "translateX(4px)";
-        }}
-        onMouseLeave={e => {
-          (e.currentTarget as HTMLElement).style.background = "transparent";
-          (e.currentTarget as HTMLElement).style.borderColor = "transparent";
-          (e.currentTarget as HTMLElement).style.transform = "translateX(0)";
-        }}
-      >
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <p style={{ fontSize: "15px", fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+    <Link href={`/film/${film.filmId}`} className="no-underline">
+      <div className="flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-[12px] sm:py-[14px] rounded-[10px] border border-transparent transition-all duration-[180ms] cursor-pointer hover:bg-[var(--bg-card)] hover:border-[var(--border)] active:bg-[var(--bg-card)] sm:hover:translate-x-1">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-[13px] sm:text-[15px] font-semibold text-[var(--text)] overflow-hidden text-ellipsis whitespace-nowrap">
               {name}
             </p>
             {profLabel && (
-              <span style={{
-                fontSize: "10px", color: "var(--text-muted)",
-                background: "var(--surface)", borderRadius: "4px",
-                padding: "2px 6px", flexShrink: 0,
-              }}>{profLabel}</span>
+              <span className="text-[10px] text-[var(--text-muted)] bg-[var(--surface)] rounded-[4px] px-[6px] py-[2px] flex-shrink-0">
+                {profLabel}
+              </span>
             )}
             {!film.general && (
-              <span style={{
-                fontSize: "10px", color: "var(--text-muted)",
-                background: "var(--bg-elevated)", borderRadius: "4px",
-                padding: "2px 6px", flexShrink: 0,
-              }}>minor</span>
+              <span className="text-[10px] text-[var(--text-muted)] bg-[var(--bg-elevated)] rounded-[4px] px-[6px] py-[2px] flex-shrink-0">
+                minor
+              </span>
             )}
           </div>
-          {film.description && showSpoilers && (
-            <p style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: 2, fontStyle: "italic" }}>
-              as {film.description}
-            </p>
-          )}
-          {film.description && !showSpoilers && (
-            <p style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: 2, fontStyle: "italic" }}>
-              {film.description.length > 40 ? film.description.slice(0, 40) + "…" : film.description}
+          {film.description && (
+            <p className="text-[11px] sm:text-[12px] text-[var(--text-muted)] mt-[2px] italic">
+              {showSpoilers
+                ? film.description
+                : film.description.length > 40
+                  ? film.description.slice(0, 40) + "…"
+                  : film.description}
             </p>
           )}
         </div>
         {rating && rating > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+          <div className="flex items-center gap-1 flex-shrink-0">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="#f5c518">
               <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
             </svg>
-            <span style={{ fontFamily: "var(--font-display)", fontSize: "16px", color: "#f5c518", fontWeight: 700 }}>{rating.toFixed(1)}</span>
+            <span className="font-display text-[15px] sm:text-[16px] text-[#f5c518]">
+              {rating.toFixed(1)}
+            </span>
           </div>
         )}
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" style={{ flexShrink: 0 }}>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="var(--text-muted)"
+          strokeWidth="2"
+          className="flex-shrink-0"
+        >
           <path d="M9 18l6-6-6-6" />
         </svg>
       </div>
@@ -331,24 +396,33 @@ function FilmEntry({ film, showSpoilers }: { film: PersonFilm; showSpoilers: boo
 
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <p style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 2 }}>{label}</p>
-      <p style={{ fontSize: "14px", color: "var(--text-dim)", fontWeight: 500 }}>{value}</p>
+    <div className="min-w-0">
+      <p className="text-[10px] sm:text-[11px] text-[var(--text-muted)] uppercase tracking-[0.8px] mb-[2px]">
+        {label}
+      </p>
+      <p className="text-[12px] sm:text-[14px] text-[var(--text-dim)] font-medium truncate">
+        {value}
+      </p>
     </div>
   );
 }
 
 function LoadingSkeleton() {
   return (
-    <div style={{ minHeight: "100vh", padding: "40px clamp(16px,4vw,48px)" }}>
-      <div className="skeleton" style={{ height: 22, width: 80, borderRadius: 6, marginBottom: 24 }} />
-      <div style={{ display: "flex", gap: 40 }}>
-        <div className="skeleton" style={{ width: 200, aspectRatio: "2/3", borderRadius: 12, flexShrink: 0 }} />
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 16 }}>
-          <div className="skeleton" style={{ height: 48, width: "60%", borderRadius: 8 }} />
-          <div className="skeleton" style={{ height: 20, width: "40%", borderRadius: 8 }} />
-          <div style={{ display: "flex", gap: 24, marginTop: 16 }}>
-            {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 40, width: 120, borderRadius: 8 }} />)}
+    <div className="min-h-screen px-4 sm:px-[var(--page-x)] py-8 sm:py-10">
+      <div className="skeleton h-[22px] w-20 rounded-[6px] mb-5 sm:mb-6" />
+      <div className="flex gap-5 sm:gap-10">
+        <div className="skeleton w-[90px] sm:w-[200px] flex-shrink-0 rounded-[12px] aspect-[2/3]" />
+        <div className="flex-1 flex flex-col gap-3 sm:gap-4">
+          <div className="skeleton h-9 sm:h-12 w-[60%] rounded-[8px]" />
+          <div className="skeleton h-4 sm:h-5 w-[40%] rounded-[8px]" />
+          <div className="flex gap-3 sm:gap-6 mt-3 sm:mt-4">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="skeleton h-10 w-[100px] sm:w-[120px] rounded-[8px]"
+              />
+            ))}
           </div>
         </div>
       </div>

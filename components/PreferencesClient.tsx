@@ -7,81 +7,6 @@ import {
   savePreferences,
 } from "@/lib/preferences";
 
-// ─── Small design tokens reused throughout ────────────────────────────────────
-
-const S = {
-  page: {
-    minHeight: "100vh",
-    background: "var(--bg)",
-    padding: "48px clamp(16px, 5vw, 48px) 80px",
-  } as React.CSSProperties,
-
-  shell: {
-    maxWidth: 760,
-    margin: "0 auto",
-  } as React.CSSProperties,
-
-  header: {
-    marginBottom: 40,
-    paddingBottom: 24,
-    borderBottom: "1px solid var(--border)",
-  } as React.CSSProperties,
-
-  card: {
-    background: "var(--bg-card)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius-lg)",
-    overflow: "hidden",
-    marginBottom: 20,
-  } as React.CSSProperties,
-
-  cardHeader: {
-    padding: "18px 24px",
-    borderBottom: "1px solid var(--border)",
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-  } as React.CSSProperties,
-
-  cardBody: {
-    padding: "8px 0",
-  } as React.CSSProperties,
-
-  row: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "14px 24px",
-    gap: 16,
-    borderBottom: "1px solid var(--border)",
-  } as React.CSSProperties,
-
-  rowLast: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "14px 24px",
-    gap: 16,
-  } as React.CSSProperties,
-
-  label: {
-    fontSize: "14px",
-    fontWeight: 500,
-    color: "var(--text)",
-    fontFamily: "var(--font-body)",
-  } as React.CSSProperties,
-
-  hint: {
-    fontSize: "12px",
-    color: "var(--text-muted)",
-    marginTop: 2,
-    lineHeight: 1.5,
-    fontFamily: "var(--font-body)",
-  } as React.CSSProperties,
-} as const;
-
-// ─── Toggle switch ────────────────────────────────────────────────────────────
-
 function Toggle({
   checked,
   onChange,
@@ -94,170 +19,99 @@ function Toggle({
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      style={{
-        position: "relative",
-        width: 44,
-        height: 24,
-        borderRadius: 99,
-        border: "none",
-        background: checked ? "var(--accent)" : "var(--surface)",
-        cursor: "pointer",
-        flexShrink: 0,
-        transition: "background 0.2s",
-        outline: "none",
-        boxShadow: checked ? "0 0 10px var(--accent-glow)" : "none",
-      }}
+      className={`relative flex-shrink-0 cursor-pointer rounded-full border-none outline-none transition-[background] duration-200
+        ${checked ? "bg-[var(--accent)] shadow-[0_0_10px_var(--accent-glow)]" : "bg-[var(--surface)]"}`}
+      style={{ width: 44, height: 24 }}
     >
       <span
-        style={{
-          position: "absolute",
-          top: 3,
-          left: checked ? 23 : 3,
-          width: 18,
-          height: 18,
-          borderRadius: "50%",
-          background: "white",
-          transition: "left 0.2s cubic-bezier(0.4,0,0.2,1)",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
-        }}
+        className="absolute top-[3px] rounded-full bg-white transition-[left] duration-200 shadow-[0_1px_4px_rgba(0,0,0,0.4)]"
+        style={{ width: 18, height: 18, left: checked ? 23 : 3 }}
       />
     </button>
   );
 }
 
-// ─── Section heading ──────────────────────────────────────────────────────────
-
 function SectionIcon({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        width: 32,
-        height: 32,
-        borderRadius: 8,
-        background: "var(--accent-dim)",
-        border: "1px solid rgba(229,9,20,0.2)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-        color: "var(--accent)",
-      }}
-    >
+    <div className="w-8 h-8 rounded-[8px] bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.2)] flex items-center justify-center flex-shrink-0 text-[var(--accent)]">
       {children}
     </div>
   );
 }
-
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <span
-      style={{
-        fontSize: "13px",
-        fontWeight: 600,
-        letterSpacing: "0.5px",
-        textTransform: "uppercase",
-        color: "var(--text-dim)",
-        fontFamily: "var(--font-body)",
-      }}
-    >
+    <span className="text-[13px] font-semibold tracking-[0.5px] uppercase text-[var(--text-dim)]">
       {children}
     </span>
   );
 }
 
-// ─── Key field row ────────────────────────────────────────────────────────────
-
 type KeyStatus = "idle" | "testing" | "ok" | "exhausted" | "invalid";
-
 const STATUS_META: Record<
   KeyStatus,
-  { border: string; iconColor: string; label: string }
+  { borderColor: string; label: string; labelCls: string }
 > = {
-  idle: { border: "var(--border)", iconColor: "", label: "" },
-  testing: { border: "var(--border)", iconColor: "", label: "" },
-  ok: { border: "rgba(34,197,94,0.4)", iconColor: "#22c55e", label: "Valid" },
+  idle: { borderColor: "var(--border)", label: "", labelCls: "" },
+  testing: { borderColor: "var(--border)", label: "", labelCls: "" },
+  ok: {
+    borderColor: "rgba(34,197,94,0.4)",
+    label: "Valid",
+    labelCls: "text-[#22c55e]",
+  },
   exhausted: {
-    border: "rgba(234,179,8,0.4)",
-    iconColor: "#eab308",
+    borderColor: "rgba(234,179,8,0.4)",
     label: "Limit reached",
+    labelCls: "text-[#eab308]",
   },
   invalid: {
-    border: "rgba(229,9,20,0.4)",
-    iconColor: "var(--accent)",
+    borderColor: "rgba(229,9,20,0.4)",
     label: "Invalid key",
+    labelCls: "text-[var(--accent)]",
   },
 };
 
 function KeyField({
   value,
   index,
-  total,
   onChange,
   onRemove,
 }: {
   value: string;
   index: number;
-  total: number;
   onChange: (v: string) => void;
   onRemove: () => void;
 }) {
   const [status, setStatus] = useState<KeyStatus>("idle");
   const [focused, setFocused] = useState(false);
+  const meta = STATUS_META[status];
+  const borderColor = focused ? "rgba(229,9,20,0.5)" : meta.borderColor;
 
   const testKey = useCallback(async () => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
+    if (!value.trim()) return;
     setStatus("testing");
     try {
-      const base =
-        process.env.NEXT_PUBLIC_API_BASE_URL ||
-        "https://kinopoiskapiunofficial.tech/api";
-      const res = await fetch(`${base}/v2.2/films/filters`, {
-        headers: { "X-API-KEY": trimmed, "Content-Type": "application/json" },
-      });
-      if (res.ok) setStatus("ok");
-      else if (res.status === 402 || res.status === 429) setStatus("exhausted");
+      const r = await fetch(
+        "https://kinopoiskapiunofficial.tech/api/v2.1/films/search-by-keyword?keyword=test&page=1",
+        {
+          headers: {
+            "X-API-KEY": value.trim(),
+            "Content-Type": "application/json",
+          },
+        },
+      );
+      if (r.status === 200) setStatus("ok");
+      else if (r.status === 402) setStatus("exhausted");
       else setStatus("invalid");
     } catch {
       setStatus("invalid");
     }
   }, [value]);
 
-  const meta = STATUS_META[status];
-  const borderColor = focused ? "rgba(255,255,255,0.2)" : meta.border;
-
   return (
-    <div
-      style={{
-        display: "flex",
-        flexWrap: "wrap",
-        alignItems: "center",
-        gap: 8,
-        padding: "10px 24px",
-        borderBottom: index < total - 1 ? "1px solid var(--border)" : undefined,
-      }}
-    >
-      {/* Index pill */}
-      <div
-        style={{
-          width: 20,
-          height: 20,
-          borderRadius: "50%",
-          background: "var(--surface)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: "10px",
-          fontWeight: 600,
-          color: "var(--text-muted)",
-          flexShrink: 0,
-          fontFamily: "var(--font-body)",
-        }}
-      >
+    <div className="flex items-center gap-2 sm:gap-[10px] px-3 sm:px-6 py-3 border-b border-[var(--border)]">
+      <div className="w-[22px] h-[22px] rounded-full bg-[var(--surface)] flex items-center justify-center text-[10px] font-semibold text-[var(--text-muted)] flex-shrink-0">
         {index + 1}
       </div>
-
-      {/* Input */}
       <input
         type="text"
         value={value}
@@ -269,51 +123,14 @@ function KeyField({
         onBlur={() => setFocused(false)}
         placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
         spellCheck={false}
-        style={{
-          flex: 1,
-          background: "var(--bg-elevated)",
-          border: `1px solid ${borderColor}`,
-          borderRadius: "var(--radius)",
-          padding: "8px 12px",
-          fontSize: "13px",
-          fontFamily: "monospace",
-          color: "var(--text)",
-          outline: "none",
-          transition: "border-color 0.18s",
-          letterSpacing: "0.3px",
-        }}
+        className="flex-1 bg-[var(--bg-elevated)] rounded-[var(--radius)] px-2 sm:px-3 py-2 text-[11px] sm:text-[13px] text-[var(--text)] outline-none transition-[border-color] duration-[180ms] font-mono tracking-[0.3px] min-w-0"
+        style={{ border: `1px solid ${borderColor}` }}
       />
-
-      {/* Status indicator + label */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 5,
-          flexShrink: 0,
-          minWidth: 90,
-        }}
-      >
-        <div
-          style={{
-            width: 18,
-            height: 18,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
+      {/* Status indicator — icon only on mobile, icon+label on sm+ */}
+      <div className="flex items-center gap-[4px] flex-shrink-0">
+        <div className="w-[18px] h-[18px] flex items-center justify-center">
           {status === "testing" && (
-            <div
-              style={{
-                width: 13,
-                height: 13,
-                borderRadius: "50%",
-                border: "2px solid var(--surface)",
-                borderTopColor: "var(--accent)",
-                animation: "spin 0.7s linear infinite",
-              }}
-            />
+            <div className="w-[13px] h-[13px] rounded-full border-2 border-[var(--surface)] border-t-[var(--accent)] animate-spin-fast" />
           )}
           {status === "ok" && (
             <svg
@@ -357,74 +174,22 @@ function KeyField({
         </div>
         {meta.label && (
           <span
-            style={{
-              fontSize: "11px",
-              fontWeight: 600,
-              color: meta.iconColor,
-              fontFamily: "var(--font-body)",
-              whiteSpace: "nowrap",
-            }}
+            className={`hidden sm:inline text-[11px] font-semibold whitespace-nowrap ${meta.labelCls}`}
           >
             {meta.label}
           </span>
         )}
       </div>
-
-      {/* Test button */}
       <button
         onClick={testKey}
         disabled={!value.trim() || status === "testing"}
-        title="Test key"
-        style={{
-          background: "var(--bg-elevated)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius)",
-          padding: "6px 10px",
-          fontSize: "11px",
-          fontWeight: 600,
-          color: "var(--text-dim)",
-          cursor: value.trim() ? "pointer" : "not-allowed",
-          opacity: value.trim() ? 1 : 0.4,
-          transition: "all 0.18s",
-          fontFamily: "var(--font-body)",
-          letterSpacing: "0.3px",
-          whiteSpace: "nowrap",
-        }}
-        onMouseEnter={(e) => {
-          if (value.trim())
-            (e.currentTarget as HTMLElement).style.borderColor =
-              "rgba(255,255,255,0.2)";
-        }}
-        onMouseLeave={(e) => {
-          (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
-        }}
+        className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[var(--radius)] px-[8px] sm:px-[10px] py-[6px] text-[11px] font-semibold text-[var(--text-dim)] whitespace-nowrap transition-all duration-[180ms] hover:border-[rgba(255,255,255,0.2)] tracking-[0.3px] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
       >
         Test
       </button>
-
-      {/* Remove button */}
       <button
         onClick={onRemove}
-        title="Remove key"
-        style={{
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          color: "var(--text-muted)",
-          padding: 4,
-          borderRadius: 4,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          transition: "color 0.15s",
-          flexShrink: 0,
-        }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLElement).style.color = "var(--accent)";
-        }}
-        onMouseLeave={(e) => {
-          (e.currentTarget as HTMLElement).style.color = "var(--text-muted)";
-        }}
+        className="bg-transparent border-none cursor-pointer p-1 rounded-[4px] flex items-center justify-center flex-shrink-0 text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors min-w-[32px] min-h-[32px]"
       >
         <svg
           width="15"
@@ -442,8 +207,6 @@ function KeyField({
   );
 }
 
-// ─── Home section row ─────────────────────────────────────────────────────────
-
 const HOME_SECTION_LABELS: Record<string, string> = {
   popular: "Popular Films",
   top250: "Top 250",
@@ -457,8 +220,6 @@ const HOME_SECTION_LABELS: Record<string, string> = {
   premieres: "New Premieres",
 };
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
 type Toast = { id: number; message: string; type: "success" | "error" };
 
 export default function PreferencesClient() {
@@ -467,7 +228,6 @@ export default function PreferencesClient() {
   const [saving, setSaving] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  // Load from localStorage on mount
   useEffect(() => {
     setPrefs(getPreferences());
     setLoaded(true);
@@ -480,14 +240,9 @@ export default function PreferencesClient() {
   };
 
   const handleSave = () => {
-    // const hasKey = prefs.apiKeys.some((k) => k.trim().length > 0);
-    // if (!hasKey) {
-    //   pushToast("Add at least one API key before saving.", "error");
-    //   return;
-    // }
     setSaving(true);
     try {
-      const cleaned: Preferences = {
+      const cleaned = {
         ...prefs,
         apiKeys: prefs.apiKeys.map((k) => k.trim()).filter(Boolean),
       };
@@ -505,75 +260,54 @@ export default function PreferencesClient() {
     setPrefs(DEFAULT_PREFERENCES);
     pushToast("Reset to defaults — click Save to apply.", "success");
   };
-
   const setKey = (i: number, val: string) => {
-    const updated = [...prefs.apiKeys];
-    updated[i] = val;
-    setPrefs((p) => ({ ...p, apiKeys: updated }));
+    const u = [...prefs.apiKeys];
+    u[i] = val;
+    setPrefs((p) => ({ ...p, apiKeys: u }));
   };
-
-  const removeKey = (i: number) => {
-    const updated = prefs.apiKeys.filter((_, idx) => idx !== i);
-    setPrefs((p) => ({ ...p, apiKeys: updated }));
-  };
-
-  const addKey = () => {
-    setPrefs((p) => ({ ...p, apiKeys: [...p.apiKeys, ""] }));
-  };
-
-  const setSection = (key: keyof Preferences["homeSections"], val: boolean) => {
+  const removeKey = (i: number) =>
+    setPrefs((p) => ({
+      ...p,
+      apiKeys: p.apiKeys.filter((_, idx) => idx !== i),
+    }));
+  const addKey = () => setPrefs((p) => ({ ...p, apiKeys: [...p.apiKeys, ""] }));
+  const setSection = (key: keyof Preferences["homeSections"], val: boolean) =>
     setPrefs((p) => ({
       ...p,
       homeSections: { ...p.homeSections, [key]: val },
     }));
-  };
 
-  if (!loaded) {
+  if (!loaded)
     return (
-      <div
-        style={{
-          ...S.page,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <div
-          style={{
-            width: 24,
-            height: 24,
-            borderRadius: "50%",
-            border: "2px solid var(--surface)",
-            borderTopColor: "var(--accent)",
-            animation: "spin 0.7s linear infinite",
-          }}
-        />
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-6 h-6 rounded-full border-2 border-[var(--surface)] border-t-[var(--accent)] animate-spin-fast" />
       </div>
     );
-  }
+
+  const card =
+    "bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden mb-4 sm:mb-5";
+  const cardHdr =
+    "flex items-center gap-3 px-4 sm:px-6 py-[16px] sm:py-[18px] border-b border-[var(--border)]";
+  const row =
+    "flex items-center justify-between px-4 sm:px-6 py-[12px] sm:py-[14px] gap-3 sm:gap-4 border-b border-[var(--border)]";
+  const rowLast =
+    "flex items-center justify-between px-4 sm:px-6 py-[12px] sm:py-[14px] gap-3 sm:gap-4";
+  const lbl = "text-[13px] sm:text-[14px] font-medium text-[var(--text)]";
+  const hint =
+    "text-[11px] sm:text-[12px] text-[var(--text-muted)] mt-[2px] leading-[1.5]";
+  const optBtn = (active: boolean) =>
+    `px-[10px] sm:px-[14px] py-[6px] rounded-[var(--radius)] text-[11px] sm:text-[12px] font-semibold cursor-pointer transition-all duration-150
+     ${active ? "bg-[var(--accent-dim)] text-[var(--accent)] border border-[rgba(229,9,20,0.5)]" : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border border-[var(--border)] hover:border-[var(--border-hover)]"}`;
 
   return (
-    <div style={S.page}>
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes slideUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
-        @keyframes fadeOut { from { opacity:1; } to { opacity:0; } }
-      `}</style>
-
-      <div style={S.shell}>
-        {/* ── Page header ── */}
-        <div style={S.header}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              marginBottom: 6,
-            }}
-          >
+    <div className="min-h-screen px-4 sm:px-[clamp(16px,5vw,48px)] py-8 sm:py-12 pb-24">
+      <div className="max-w-[760px] mx-auto">
+        {/* Header */}
+        <div className="mb-7 sm:mb-10 pb-5 sm:pb-6 border-b border-[var(--border)]">
+          <div className="flex items-center gap-3 mb-[6px]">
             <svg
-              width="20"
-              height="20"
+              width="18"
+              height="18"
               viewBox="0 0 24 24"
               fill="none"
               stroke="var(--accent)"
@@ -583,33 +317,18 @@ export default function PreferencesClient() {
               <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14" />
               <path d="M15.54 8.46a5 5 0 0 1 0 7.07M8.46 8.46a5 5 0 0 0 0 7.07" />
             </svg>
-            <h1
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: "clamp(26px,3vw,34px)",
-                letterSpacing: "2px",
-                color: "var(--text)",
-                margin: 0,
-              }}
-            >
+            <h1 className="font-display tracking-[2px] text-[var(--text)] m-0 text-[clamp(20px,4vw,34px)]">
               PREFERENCES
             </h1>
           </div>
-          <p
-            style={{
-              fontSize: "13px",
-              color: "var(--text-muted)",
-              fontFamily: "var(--font-body)",
-              marginLeft: 32,
-            }}
-          >
+          <p className="text-[12px] sm:text-[13px] text-[var(--text-muted)] ml-7 sm:ml-8">
             Stored locally in your browser. Never sent to any server.
           </p>
         </div>
 
-        {/* ── API Keys ── */}
-        <div style={S.card}>
-          <div style={S.cardHeader}>
+        {/* API Keys */}
+        <div className={card}>
+          <div className={cardHdr}>
             <SectionIcon>
               <svg
                 width="15"
@@ -624,13 +343,13 @@ export default function PreferencesClient() {
             </SectionIcon>
             <div>
               <SectionTitle>API Keys</SectionTitle>
-              <p style={{ ...S.hint, marginTop: 0 }}>
+              <p className={`${hint} !mt-0`}>
                 Get free keys at{" "}
                 <a
                   href="https://kinopoiskapiunofficial.tech"
                   target="_blank"
                   rel="noreferrer"
-                  style={{ color: "var(--accent)", textDecoration: "none" }}
+                  className="text-[var(--accent)] no-underline hover:underline"
                 >
                   kinopoiskapiunofficial.tech
                 </a>{" "}
@@ -638,21 +357,10 @@ export default function PreferencesClient() {
               </p>
             </div>
           </div>
-
-          <div style={S.cardBody}>
+          <div className="py-2">
             {prefs.apiKeys.length === 0 ? (
-              <div style={{ padding: "20px 24px" }}>
-                <div
-                  style={{
-                    background: "rgba(229,9,20,0.06)",
-                    border: "1px dashed rgba(229,9,20,0.3)",
-                    borderRadius: "var(--radius)",
-                    padding: "16px 20px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                  }}
-                >
+              <div className="p-3 sm:p-5">
+                <div className="bg-[rgba(229,9,20,0.06)] border border-dashed border-[rgba(229,9,20,0.3)] rounded-[var(--radius)] p-[14px_16px] sm:p-[16px_20px] flex items-start gap-3">
                   <svg
                     width="18"
                     height="18"
@@ -660,22 +368,15 @@ export default function PreferencesClient() {
                     fill="none"
                     stroke="var(--accent)"
                     strokeWidth="2"
-                    style={{ flexShrink: 0 }}
+                    className="flex-shrink-0 mt-[2px]"
                   >
                     <circle cx="12" cy="12" r="10" />
                     <line x1="12" y1="8" x2="12" y2="12" />
                     <line x1="12" y1="16" x2="12.01" y2="16" />
                   </svg>
-                  <p
-                    style={{
-                      fontSize: "13px",
-                      color: "var(--text-dim)",
-                      fontFamily: "var(--font-body)",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    No API key configured. The app won't be able to load any
-                    content until you add one.
+                  <p className="text-[12px] sm:text-[13px] text-[var(--text-dim)] leading-[1.5]">
+                    No API key configured. The app won&apos;t load content until
+                    you add one.
                   </p>
                 </div>
               </div>
@@ -685,43 +386,15 @@ export default function PreferencesClient() {
                   key={i}
                   value={key}
                   index={i}
-                  total={prefs.apiKeys.length}
                   onChange={(v) => setKey(i, v)}
                   onRemove={() => removeKey(i)}
                 />
               ))
             )}
-
-            {/* Add key button */}
-            <div style={{ padding: "10px 24px 4px" }}>
+            <div className="px-3 sm:px-6 pt-[10px] pb-1">
               <button
                 onClick={addKey}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 7,
-                  background: "none",
-                  border: "1px dashed var(--border-hover)",
-                  borderRadius: "var(--radius)",
-                  padding: "7px 14px",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  color: "var(--text-dim)",
-                  cursor: "pointer",
-                  fontFamily: "var(--font-body)",
-                  transition: "all 0.18s",
-                  letterSpacing: "0.3px",
-                }}
-                onMouseEnter={(e) => {
-                  const el = e.currentTarget as HTMLElement;
-                  el.style.borderColor = "rgba(229,9,20,0.4)";
-                  el.style.color = "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  const el = e.currentTarget as HTMLElement;
-                  el.style.borderColor = "var(--border-hover)";
-                  el.style.color = "var(--text-dim)";
-                }}
+                className="inline-flex items-center gap-[7px] bg-transparent border border-dashed border-[var(--border-hover)] rounded-[var(--radius)] px-[12px] sm:px-[14px] py-[7px] text-[12px] font-semibold text-[var(--text-dim)] cursor-pointer transition-all duration-[180ms] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)] tracking-[0.3px]"
               >
                 <svg
                   width="12"
@@ -740,9 +413,9 @@ export default function PreferencesClient() {
           </div>
         </div>
 
-        {/* ── Search & Suggestions ── */}
-        <div style={S.card}>
-          <div style={S.cardHeader}>
+        {/* Search */}
+        <div className={card}>
+          <div className={cardHdr}>
             <SectionIcon>
               <svg
                 width="15"
@@ -758,13 +431,13 @@ export default function PreferencesClient() {
             </SectionIcon>
             <SectionTitle>Search</SectionTitle>
           </div>
-          <div style={S.cardBody}>
-            <div style={S.row}>
+          <div className="py-2">
+            <div className={row}>
               <div>
-                <p style={S.label}>Search suggestions</p>
-                <p style={S.hint}>
-                  Show instant film suggestions as you type in the search bar.
-                  Disabling saves API calls.
+                <p className={lbl}>Search suggestions</p>
+                <p className={hint}>
+                  Show instant film suggestions as you type. Disabling saves API
+                  calls.
                 </p>
               </div>
               <Toggle
@@ -774,25 +447,16 @@ export default function PreferencesClient() {
                 }
               />
             </div>
-
             {prefs.searchSuggestionsEnabled && (
               <>
-                <div style={S.row}>
-                  <div>
-                    <p style={S.label}>Suggestion delay</p>
-                    <p style={S.hint}>
-                      Wait before firing a request after you stop typing. Higher
-                      = fewer API calls.
+                <div className={row}>
+                  <div className="min-w-0 flex-1">
+                    <p className={lbl}>Suggestion delay</p>
+                    <p className={hint}>
+                      Wait before firing a request after you stop typing.
                     </p>
                   </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      flexShrink: 0,
-                    }}
-                  >
+                  <div className="flex items-center gap-[8px] sm:gap-[10px] flex-shrink-0">
                     <input
                       type="range"
                       min={100}
@@ -805,62 +469,28 @@ export default function PreferencesClient() {
                           suggestionDebounceMs: +e.target.value,
                         }))
                       }
-                      style={{
-                        width: 100,
-                        accentColor: "var(--accent)",
-                        cursor: "pointer",
-                      }}
+                      className="w-[72px] sm:w-[100px] cursor-pointer accent-[var(--accent)]"
                     />
-                    <span
-                      style={{
-                        fontSize: "12px",
-                        color: "var(--text-dim)",
-                        minWidth: 50,
-                        textAlign: "right",
-                        fontFamily: "var(--font-body)",
-                      }}
-                    >
+                    <span className="text-[11px] sm:text-[12px] text-[var(--text-dim)] min-w-[46px] text-right">
                       {prefs.suggestionDebounceMs}ms
                     </span>
                   </div>
                 </div>
-
-                <div style={S.rowLast}>
+                <div className={rowLast}>
                   <div>
-                    <p style={S.label}>Results shown</p>
-                    <p style={S.hint}>
+                    <p className={lbl}>Results shown</p>
+                    <p className={hint}>
                       How many suggestions appear in the dropdown.
                     </p>
                   </div>
-                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <div className="flex gap-[5px] sm:gap-[6px] flex-shrink-0">
                     {[3, 4, 6, 8].map((n) => (
                       <button
                         key={n}
                         onClick={() =>
                           setPrefs((p) => ({ ...p, suggestionLimit: n }))
                         }
-                        style={{
-                          width: 36,
-                          height: 32,
-                          borderRadius: "var(--radius)",
-                          border:
-                            prefs.suggestionLimit === n
-                              ? "1px solid rgba(229,9,20,0.5)"
-                              : "1px solid var(--border)",
-                          background:
-                            prefs.suggestionLimit === n
-                              ? "var(--accent-dim)"
-                              : "var(--bg-elevated)",
-                          color:
-                            prefs.suggestionLimit === n
-                              ? "var(--accent)"
-                              : "var(--text-dim)",
-                          fontSize: "13px",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          transition: "all 0.15s",
-                          fontFamily: "var(--font-body)",
-                        }}
+                        className={`${optBtn(prefs.suggestionLimit === n)} w-8 sm:w-9 h-8`}
                       >
                         {n}
                       </button>
@@ -872,9 +502,9 @@ export default function PreferencesClient() {
           </div>
         </div>
 
-        {/* ── Content & Display ── */}
-        <div style={S.card}>
-          <div style={S.cardHeader}>
+        {/* Content & Display */}
+        <div className={card}>
+          <div className={cardHdr}>
             <SectionIcon>
               <svg
                 width="15"
@@ -891,13 +521,12 @@ export default function PreferencesClient() {
             </SectionIcon>
             <SectionTitle>Content & Display</SectionTitle>
           </div>
-          <div style={S.cardBody}>
-            <div style={S.row}>
-              <div>
-                <p style={S.label}>Auto-translate Russian text</p>
-                <p style={S.hint}>
+          <div className="py-2">
+            <div className={row}>
+              <div className="min-w-0 flex-1 pr-2">
+                <p className={lbl}>Auto-translate Russian text</p>
+                <p className={hint}>
                   Translate descriptions and titles via Google Translate.
-                  Disable to reduce external requests.
                 </p>
               </div>
               <Toggle
@@ -908,19 +537,12 @@ export default function PreferencesClient() {
               />
             </div>
 
-            <div
-              style={{
-                padding: "16px 24px",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-              <p style={{ ...S.label, marginBottom: 4 }}>
-                Default Explore sort
-              </p>
-              <p style={{ ...S.hint, marginBottom: 12 }}>
+            <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
+              <p className={`${lbl} mb-1`}>Default Explore sort</p>
+              <p className={`${hint} mb-3`}>
                 Which order the Explore page loads with by default.
               </p>
-              <div style={{ display: "flex", gap: 6 }}>
+              <div className="flex gap-[5px] sm:gap-[6px] flex-wrap">
                 {(["RATING", "NUM_VOTE", "YEAR"] as const).map((o) => {
                   const label =
                     o === "RATING"
@@ -934,27 +556,7 @@ export default function PreferencesClient() {
                       onClick={() =>
                         setPrefs((p) => ({ ...p, defaultExploreOrder: o }))
                       }
-                      style={{
-                        padding: "6px 14px",
-                        borderRadius: "var(--radius)",
-                        border:
-                          prefs.defaultExploreOrder === o
-                            ? "1px solid rgba(229,9,20,0.5)"
-                            : "1px solid var(--border)",
-                        background:
-                          prefs.defaultExploreOrder === o
-                            ? "var(--accent-dim)"
-                            : "var(--bg-elevated)",
-                        color:
-                          prefs.defaultExploreOrder === o
-                            ? "var(--accent)"
-                            : "var(--text-dim)",
-                        fontSize: "12px",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        transition: "all 0.15s",
-                        fontFamily: "var(--font-body)",
-                      }}
+                      className={optBtn(prefs.defaultExploreOrder === o)}
                     >
                       {label}
                     </button>
@@ -963,14 +565,12 @@ export default function PreferencesClient() {
               </div>
             </div>
 
-            <div style={{ padding: "16px 24px" }}>
-              <p style={{ ...S.label, marginBottom: 4 }}>
-                Default Explore type
-              </p>
-              <p style={{ ...S.hint, marginBottom: 12 }}>
+            <div className="px-4 sm:px-6 py-3 sm:py-4">
+              <p className={`${lbl} mb-1`}>Default Explore type</p>
+              <p className={`${hint} mb-3`}>
                 Which content type the Explore page shows by default.
               </p>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <div className="flex gap-[5px] sm:gap-[6px] flex-wrap">
                 {(
                   [
                     "ALL",
@@ -996,27 +596,7 @@ export default function PreferencesClient() {
                       onClick={() =>
                         setPrefs((p) => ({ ...p, defaultExploreType: t }))
                       }
-                      style={{
-                        padding: "6px 14px",
-                        borderRadius: "var(--radius)",
-                        border:
-                          prefs.defaultExploreType === t
-                            ? "1px solid rgba(229,9,20,0.5)"
-                            : "1px solid var(--border)",
-                        background:
-                          prefs.defaultExploreType === t
-                            ? "var(--accent-dim)"
-                            : "var(--bg-elevated)",
-                        color:
-                          prefs.defaultExploreType === t
-                            ? "var(--accent)"
-                            : "var(--text-dim)",
-                        fontSize: "12px",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        transition: "all 0.15s",
-                        fontFamily: "var(--font-body)",
-                      }}
+                      className={optBtn(prefs.defaultExploreType === t)}
                     >
                       {label}
                     </button>
@@ -1027,9 +607,9 @@ export default function PreferencesClient() {
           </div>
         </div>
 
-        {/* ── Home Page Sections ── */}
-        <div style={S.card}>
-          <div style={S.cardHeader}>
+        {/* Home Sections */}
+        <div className={card}>
+          <div className={cardHdr}>
             <SectionIcon>
               <svg
                 width="15"
@@ -1045,21 +625,21 @@ export default function PreferencesClient() {
             </SectionIcon>
             <div>
               <SectionTitle>Home Page Sections</SectionTitle>
-              <p style={{ ...S.hint, marginTop: 0 }}>
-                Each section is a separate API call. Disable rows you don't
+              <p className={`${hint} !mt-0`}>
+                Each section is a separate API call. Disable rows you don&apos;t
                 need.
               </p>
             </div>
           </div>
-          <div style={S.cardBody}>
+          <div className="py-2">
             {(
               Object.entries(HOME_SECTION_LABELS) as [
                 keyof Preferences["homeSections"],
                 string,
               ][]
             ).map(([key, label], i, arr) => (
-              <div key={key} style={i === arr.length - 1 ? S.rowLast : S.row}>
-                <p style={S.label}>{label}</p>
+              <div key={key} className={i === arr.length - 1 ? rowLast : row}>
+                <p className={lbl}>{label}</p>
                 <Toggle
                   checked={prefs.homeSections[key]}
                   onChange={(v) => setSection(key, v)}
@@ -1069,89 +649,23 @@ export default function PreferencesClient() {
           </div>
         </div>
 
-        {/* ── Action bar ── */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingTop: 8,
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
+        {/* Action bar — stacks on mobile */}
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between pt-2 gap-3">
           <button
             onClick={handleReset}
-            style={{
-              background: "none",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius)",
-              padding: "10px 20px",
-              fontSize: "13px",
-              fontWeight: 500,
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontFamily: "var(--font-body)",
-              transition: "all 0.18s",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.borderColor =
-                "var(--border-hover)";
-              (e.currentTarget as HTMLElement).style.color = "var(--text-dim)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.borderColor =
-                "var(--border)";
-              (e.currentTarget as HTMLElement).style.color =
-                "var(--text-muted)";
-            }}
+            className="bg-transparent border border-[var(--border)] rounded-[var(--radius)] px-5 py-[11px] sm:py-[10px] text-[13px] font-medium text-[var(--text-muted)] cursor-pointer transition-all duration-[180ms] hover:border-[var(--border-hover)] hover:text-[var(--text-dim)] text-center"
           >
             Reset to defaults
           </button>
-
           <button
             onClick={handleSave}
             disabled={saving}
-            style={{
-              background: "var(--accent)",
-              border: "none",
-              borderRadius: "var(--radius)",
-              padding: "10px 28px",
-              fontSize: "13px",
-              fontWeight: 700,
-              color: "white",
-              cursor: saving ? "not-allowed" : "pointer",
-              fontFamily: "var(--font-body)",
-              letterSpacing: "0.5px",
-              boxShadow: "0 0 20px var(--accent-glow)",
-              opacity: saving ? 0.7 : 1,
-              transition: "opacity 0.15s, box-shadow 0.15s",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-            onMouseEnter={(e) => {
-              if (!saving)
-                (e.currentTarget as HTMLElement).style.boxShadow =
-                  "0 0 32px var(--accent-glow)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.boxShadow =
-                "0 0 20px var(--accent-glow)";
-            }}
+            className={`bg-[var(--accent)] border-none rounded-[var(--radius)] px-7 py-[11px] sm:py-[10px] text-[13px] font-bold text-white flex items-center justify-center gap-2 transition-opacity shadow-[0_0_20px_var(--accent-glow)] hover:shadow-[0_0_32px_var(--accent-glow)] tracking-[0.5px]
+              ${saving ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
           >
             {saving ? (
               <>
-                <div
-                  style={{
-                    width: 12,
-                    height: 12,
-                    borderRadius: "50%",
-                    border: "2px solid rgba(255,255,255,0.3)",
-                    borderTopColor: "white",
-                    animation: "spin 0.7s linear infinite",
-                  }}
-                />
+                <div className="w-3 h-3 rounded-full border-2 border-[rgba(255,255,255,0.3)] border-t-white animate-spin-fast" />
                 Saving…
               </>
             ) : (
@@ -1173,42 +687,13 @@ export default function PreferencesClient() {
         </div>
       </div>
 
-      {/* ── Toast stack ── */}
-      <div
-        style={{
-          position: "fixed",
-          bottom: 28,
-          right: 24,
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          zIndex: 9999,
-          pointerEvents: "none",
-        }}
-      >
+      {/* Toast stack */}
+      <div className="fixed bottom-5 sm:bottom-7 right-4 sm:right-6 flex flex-col gap-[10px] z-[9999] pointer-events-none max-w-[calc(100vw-32px)]">
         {toasts.map((t) => (
           <div
             key={t.id}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              background:
-                t.type === "success"
-                  ? "var(--bg-elevated)"
-                  : "rgba(229,9,20,0.15)",
-              border: `1px solid ${t.type === "success" ? "var(--border-hover)" : "rgba(229,9,20,0.35)"}`,
-              borderRadius: "var(--radius)",
-              padding: "10px 16px",
-              fontSize: "13px",
-              fontFamily: "var(--font-body)",
-              color: "var(--text)",
-              backdropFilter: "blur(8px)",
-              animation: "slideUp 0.25s ease",
-              boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
-              maxWidth: 320,
-              pointerEvents: "auto",
-            }}
+            className={`flex items-center gap-[10px] rounded-[var(--radius)] px-4 py-[10px] text-[12px] sm:text-[13px] text-[var(--text)] backdrop-blur-[8px] shadow-[0_4px_24px_rgba(0,0,0,0.4)] pointer-events-auto slide-down
+              ${t.type === "success" ? "bg-[var(--bg-elevated)] border border-[var(--border-hover)]" : "bg-[rgba(229,9,20,0.15)] border border-[rgba(229,9,20,0.35)]"}`}
           >
             {t.type === "success" ? (
               <svg

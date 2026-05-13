@@ -20,8 +20,6 @@ export default function Top250Client({ page: pg }: { page?: string }) {
       .then((d) => {
         const items = d.items ?? [];
         setFilms(items);
-        // FIX: don't override totalPages with a guess — use what the API returns.
-        // Only fall back to a calculation if the API genuinely omits it.
         const tp =
           d.totalPages && d.totalPages > 1
             ? d.totalPages
@@ -32,80 +30,49 @@ export default function Top250Client({ page: pg }: { page?: string }) {
       .finally(() => setLoading(false));
   }, [page]);
 
-  // Global rank across pages
   const getGlobalRank = (localIndex: number) =>
     (page - 1) * films.length + localIndex + 1;
 
   return (
-    <div
-      style={{ paddingTop: "32px", paddingBottom: "80px", minHeight: "100vh" }}
-    >
+    <div className="min-h-screen pb-20">
       {/* Header */}
-      <div style={{ padding: "0 clamp(16px,4vw,48px)", marginBottom: "40px" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            marginBottom: 8,
-          }}
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="#f5c518">
+      <div className="px-4 sm:px-[var(--page-x)] pt-8 sm:pt-10 pb-8 sm:pb-10">
+        <div className="flex items-center gap-2 mb-3">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#f5c518">
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
           </svg>
-          <span
-            style={{
-              fontSize: "13px",
-              color: "#f5c518",
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: "1px",
-            }}
-          >
+          <span className="text-[11px] sm:text-[12px] text-[#f5c518] font-semibold uppercase tracking-[1.5px]">
             Audience Rating
           </span>
         </div>
         <h1
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: "clamp(48px, 8vw, 72px)",
-            letterSpacing: "3px",
-            lineHeight: 1,
-          }}
+          className="font-display leading-none tracking-[2px] sm:tracking-[3px]"
+          style={{ fontSize: "clamp(40px, 8vw, 80px)" }}
         >
           TOP 250
         </h1>
-        <p
-          style={{ color: "var(--text-dim)", marginTop: 10, fontSize: "15px" }}
-        >
+        <p className="text-[var(--text-dim)] mt-2 sm:mt-3 text-[13px] sm:text-[15px]">
           The greatest films of all time, ranked by audience rating
         </p>
       </div>
 
       {/* List */}
-      <div style={{ padding: "0 clamp(16px,4vw,48px)" }}>
+      <div className="px-4 sm:px-[var(--page-x)]">
         {loading ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div className="flex flex-col gap-2">
             {Array.from({ length: 20 }).map((_, i) => (
               <div
                 key={i}
-                className="skeleton"
-                style={{ height: 80, borderRadius: 10 }}
+                className="skeleton h-[68px] sm:h-[76px] rounded-[10px]"
               />
             ))}
           </div>
         ) : films.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "80px 0",
-              color: "var(--text-dim)",
-            }}
-          >
+          <div className="text-center py-24 text-[var(--text-dim)]">
             Failed to load. Please try again.
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+          <div className="flex flex-col gap-[2px] sm:gap-[3px]">
             {films.map((film, i) => {
               const rank = getGlobalRank(i);
               const name = getEnglishName(
@@ -119,164 +86,81 @@ export default function Top250Client({ page: pg }: { page?: string }) {
                 film.ratingImdb?.toFixed(1) ??
                 undefined;
               const id = film.kinopoiskId ?? film.filmId;
+
+              const rankSize =
+                rank <= 10
+                  ? "text-[22px] sm:text-[28px]"
+                  : rank <= 50
+                    ? "text-[18px] sm:text-[22px]"
+                    : "text-[15px] sm:text-[18px]";
+              const rankColor =
+                rank <= 3
+                  ? "text-[#f5c518]"
+                  : rank <= 10
+                    ? "text-[rgba(245,197,24,0.5)]"
+                    : "text-[var(--text-muted)]";
+
               return (
                 <Link
                   key={id ?? i}
                   href={`/film/${id}`}
-                  style={{ textDecoration: "none" }}
+                  className="no-underline group"
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 16,
-                      padding: "14px 16px",
-                      borderRadius: "10px",
-                      border: "1px solid transparent",
-                      transition: "all 0.18s ease",
-                      cursor: "pointer",
-                    }}
-                    onMouseEnter={(e) => {
-                      const el = e.currentTarget as HTMLElement;
-                      el.style.background = "var(--bg-card)";
-                      el.style.borderColor = "var(--border)";
-                      el.style.transform = "translateX(4px)";
-                    }}
-                    onMouseLeave={(e) => {
-                      const el = e.currentTarget as HTMLElement;
-                      el.style.background = "transparent";
-                      el.style.borderColor = "transparent";
-                      el.style.transform = "translateX(0)";
-                    }}
-                  >
+                  <div className="flex items-center gap-2 sm:gap-4 md:gap-5 px-2 sm:px-4 py-[10px] sm:py-3 rounded-[10px] border border-white/5 transition-all duration-[180ms] cursor-pointer hover:bg-[var(--bg-card)] hover:border-[var(--border)] active:bg-[var(--bg-card)] sm:group-hover:translate-x-1">
                     {/* Rank */}
                     <div
-                      style={{
-                        minWidth: 48,
-                        textAlign: "right",
-                        flexShrink: 0,
-                        fontFamily: "var(--font-display)",
-                        fontSize:
-                          rank <= 10 ? "30px" : rank <= 50 ? "22px" : "18px",
-                        color:
-                          rank <= 3
-                            ? "#f5c518"
-                            : rank <= 10
-                              ? "rgba(245,197,24,0.55)"
-                              : "var(--text-muted)",
-                        lineHeight: 1,
-                      }}
+                      className={`w-7 sm:w-10 text-right flex-shrink-0 font-display leading-none ${rankSize} ${rankColor}`}
                     >
                       {rank}
                     </div>
 
-                    {/* Poster thumbnail */}
-                    <div
-                      style={{
-                        width: 44,
-                        height: 66,
-                        borderRadius: "6px",
-                        overflow: "hidden",
-                        flexShrink: 0,
-                        background: "var(--surface)",
-                        position: "relative",
-                      }}
-                    >
+                    {/* Poster */}
+                    <div className="w-[34px] sm:w-[42px] h-[51px] sm:h-[63px] rounded-[5px] sm:rounded-[6px] overflow-hidden flex-shrink-0 bg-[var(--surface)] relative">
                       {(film.posterUrlPreview || film.posterUrl) && (
                         <Image
                           src={film.posterUrlPreview || film.posterUrl!}
                           alt={name}
                           fill
-                          style={{ objectFit: "cover" }}
-                          sizes="44px"
+                          className="object-cover"
+                          sizes="42px"
                         />
                       )}
                     </div>
 
                     {/* Info */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p
-                        style={{
-                          fontSize: "15px",
-                          fontWeight: 600,
-                          color: "var(--text)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          marginBottom: 4,
-                        }}
-                      >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] sm:text-[14px] md:text-[15px] font-semibold text-[var(--text)] overflow-hidden text-ellipsis whitespace-nowrap mb-[2px] sm:mb-1 group-hover:text-white transition-colors">
                         {name}
                       </p>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          alignItems: "center",
-                          flexWrap: "wrap",
-                        }}
-                      >
+                      <div className="flex gap-2 items-center flex-wrap">
                         {film.year && (
-                          <span
-                            style={{
-                              fontSize: "12px",
-                              color: "var(--text-muted)",
-                            }}
-                          >
+                          <span className="text-[11px] sm:text-[12px] text-[var(--text-muted)]">
                             {film.year}
                           </span>
                         )}
                         {film.genres?.slice(0, 2).map((g) => (
                           <span
                             key={g.genre}
-                            style={{
-                              fontSize: "11px",
-                              color: "var(--text-dim)",
-                            }}
+                            className="hidden sm:inline text-[11px] text-[var(--text-dim)] capitalize"
                           >
                             {translateGenre(g.genre)}
                           </span>
                         ))}
-                        {film.filmLength && (
-                          <span
-                            style={{
-                              color: "var(--text-dim)",
-                              fontSize: "14px",
-                            }}
-                          >
-                            {film.filmLength.toString().split(":")[0]}h{" "}
-                            {film.filmLength.toString().split(":")[1]}m
-                          </span>
-                        )}
                       </div>
                     </div>
 
                     {/* Rating */}
                     {rating && (
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 5,
-                          flexShrink: 0,
-                        }}
-                      >
+                      <div className="flex items-center gap-[4px] sm:gap-[5px] flex-shrink-0">
                         <svg
-                          width="13"
-                          height="13"
+                          width="11"
+                          height="11"
                           viewBox="0 0 24 24"
                           fill="#f5c518"
                         >
                           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                         </svg>
-                        <span
-                          style={{
-                            fontWeight: 700,
-                            color: "#f5c518",
-                            fontFamily: "var(--font-display)",
-                            fontSize: "20px",
-                          }}
-                        >
+                        <span className="text-[#f5c518] font-display text-[15px] sm:text-[18px] md:text-[20px]">
                           {rating}
                         </span>
                       </div>

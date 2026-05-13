@@ -3,6 +3,18 @@ import "./globals.css";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import BackToTop from "@/components/BackToTop";
+import { Bebas_Neue, DM_Sans } from "next/font/google";
+
+const bebas = Bebas_Neue({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-bebas",
+});
+
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  variable: "--font-dm",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -49,8 +61,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <head>
+    <html lang="en" className={`${bebas.variable} ${dmSans.variable}`}>
+      {/* <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
@@ -61,12 +73,10 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&display=swap"
           rel="stylesheet"
         />
-      </head>
-      <body
-        style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}
-      >
+      </head> */}
+      <body className="flex flex-col min-h-screen">
         <Navbar />
-        <main style={{ paddingTop: "var(--nav-height)", flex: 1 }}>
+        <main className="flex-1" style={{ paddingTop: "var(--nav-height)" }}>
           {children}
         </main>
         <Footer />

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { Film } from "@/types/kinopoisk";
+import { FilmPosterFallback } from "./posterFallback";
 
 interface PlayerSectionProps {
   filmId: number;
@@ -12,127 +13,55 @@ const PLAYER_BASE =
 
 export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
   const [playerActive, setPlayerActive] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
 
-  // Block popup windows from the embedded player
   useEffect(() => {
     const originalOpen = window.open;
     window.open = function (url, target, features) {
-      // Allow fullscreen but block blank popups
       if (target === "_blank" || !target) return null;
       return originalOpen.call(window, url, target, features);
     };
-
     return () => {
       window.open = originalOpen;
     };
   }, []);
 
-  // Detect mobile screen size
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
-  }, []);
-
   const name = film.nameOriginal || film.nameRu || film.nameEn || "Unknown";
   const playerUrl = `${PLAYER_BASE}/${filmId}/`;
+  const [posterError, setPosterError] = useState(false);
 
   return (
-    <div
-      style={{
-        width: "100%",
-        background: "var(--bg)",
-        position: "relative",
-      }}
-    >
+    <div className="w-full bg-[var(--bg)] relative">
       {!playerActive ? (
-        /* Thumbnail / play gate */
         <div
-          style={{
-            position: "relative",
-            width: "100%",
-            aspectRatio: "16/9",
-            maxHeight: "75vh",
-            overflow: "hidden",
-            cursor: "pointer",
-            background: "#000",
-          }}
+          className="relative w-full overflow-hidden cursor-pointer bg-black aspect-video max-h-[75vh]"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
             setPlayerActive(true);
           }}
         >
-          {/* Poster as thumbnail */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={film.coverUrl || film.posterUrl}
-            alt={name}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              objectPosition: "center 30%",
-              filter: "brightness(0.4)",
-            }}
-          />
+          {(film.coverUrl || film.posterUrl || film.posterUrlPreview) &&
+          !posterError ? (
+            <img
+              src={film.coverUrl || film.posterUrl || film.posterUrlPreview}
+              alt={name}
+              className="w-full h-full object-cover object-[center_30%] brightness-[0.4]"
+              onError={() => setPosterError(true)}
+            />
+          ) : (
+            <FilmPosterFallback />
+          )}
 
-          {/* Gradient */}
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              background:
-                "radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.7) 100%)",
-            }}
-          />
-
-          {/* Play button */}
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 20,
-              pointerEvents: "none",
-            }}
-          >
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_30%,rgba(0,0,0,0.7)_100%)]" />
+          {/* Play button + title */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 pointer-events-none">
             <div
-              style={{
-                width: 88,
-                height: 88,
-                borderRadius: "50%",
-                background: "rgba(229,9,20,0.9)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow:
-                  "0 0 60px var(--accent-glow), 0 0 120px rgba(229,9,20,0.2)",
-                transition: "transform 0.2s ease, box-shadow 0.2s ease",
-                pointerEvents: "auto",
-              }}
+              className="w-[88px] h-[88px] rounded-full bg-[rgba(229,9,20,0.9)] flex items-center justify-center pointer-events-auto transition-transform duration-200 hover:scale-110 shadow-[0_0_60px_var(--accent-glow),0_0_120px_rgba(229,9,20,0.2)]"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 setPlayerActive(true);
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.transform = "scale(1.1)";
-                (e.currentTarget as HTMLElement).style.boxShadow =
-                  "0 0 80px var(--accent-glow), 0 0 160px rgba(229,9,20,0.3)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.transform = "scale(1)";
-                (e.currentTarget as HTMLElement).style.boxShadow =
-                  "0 0 60px var(--accent-glow), 0 0 120px rgba(229,9,20,0.2)";
               }}
             >
               <svg
@@ -140,108 +69,48 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
                 height="32"
                 viewBox="0 0 24 24"
                 fill="white"
-                style={{ marginLeft: 4, pointerEvents: "none" }}
+                className="ml-1 pointer-events-none"
               >
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
             </div>
-
-            <div style={{ textAlign: "center" }}>
-              <p
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontSize: "clamp(24px, 3vw, 40px)",
-                  letterSpacing: "1px",
-                  color: "white",
-                  marginBottom: 8,
-                }}
-              >
+            <div className="text-center">
+              <p className="font-display text-white mb-2 text-[clamp(20px,3vw,40px)] tracking-[1px]">
                 {name}
               </p>
-              <p style={{ fontSize: "14px", color: "rgba(255,255,255,0.5)" }}>
+              <p className="text-[14px] text-[rgba(255,255,255,0.5)]">
                 Click to watch
               </p>
             </div>
           </div>
 
           {/* Pulsing ring */}
-          <style>{`
-            @keyframes pulse-ring {
-              0% { transform: scale(1); opacity: 0.6; }
-              100% { transform: scale(1.5); opacity: 0; }
-            }
-          `}</style>
+          <style>{`@keyframes pulse-ring { 0%{transform:scale(1);opacity:0.6} 100%{transform:scale(1.5);opacity:0} }`}</style>
           <div
+            className="absolute w-[88px] h-[88px] rounded-full border-2 border-[var(--accent)] pointer-events-none animate-[pulse-ring_2s_ease-out_infinite]"
             style={{
-              position: "absolute",
               top: "50%",
               left: "50%",
               transform: "translate(-50%, -54px)",
-              width: 88,
-              height: 88,
-              borderRadius: "50%",
-              border: "2px solid var(--accent)",
-              animation: "pulse-ring 2s ease-out infinite",
-              pointerEvents: "none",
             }}
           />
         </div>
       ) : (
-        /* Active player */
-        <div
-          style={{
-            position: "relative",
-            width: "100%",
-            height: "100%",
-            aspectRatio: "16/9",
-            maxHeight: "75vh",
-            background: "#000",
-            zIndex: 20,
-          }}
-        >
+        <div className="relative w-full bg-black z-20 aspect-video max-h-[75vh]">
           <iframe
             src={playerUrl}
             allowFullScreen
-            style={{
-              position: "absolute",
-              inset: 0,
-              top: isMobile ? "0%" : "-89%",
-              width: "100%",
-              height: isMobile ? "300%" : "180%",
-              border: "none",
-              display: "block",
-              background: "#000",
-            }}
+            className="absolute w-full border-none block bg-black top-0 md:-top-[89%] h-[300%] md:h-[180%]"
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             title={name}
           />
-
-          {/* Close/back button */}
           <button
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               setPlayerActive(false);
             }}
-            style={{
-              position: "absolute",
-              top: 10,
-              right: 16,
-              background: "rgba(0,0,0,0.8)",
-              backdropFilter: "blur(8px)",
-              border: "1px solid rgba(255,255,255,0.2)",
-              borderRadius: "8px",
-              padding: "8px 14px",
-              color: "white",
-              fontSize: "13px",
-              fontWeight: 500,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontFamily: "var(--font-body)",
-              zIndex: 10,
-            }}
+            className="absolute top-[10px] right-4 bg-[rgba(0,0,0,0.8)] backdrop-blur-[8px] border border-[rgba(255,255,255,0.2)] rounded-[8px] px-[14px] py-2 text-white text-[13px] font-medium cursor-pointer flex items-center gap-[6px] z-10"
           >
             <svg
               width="14"

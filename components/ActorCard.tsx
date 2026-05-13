@@ -8,55 +8,48 @@ export default function ActorCard({ actor }: { actor: Staff }) {
   const name = actor.nameEn || actor.nameRu || "";
 
   return (
-    <Link href={`/person/${actor.staffId}`} style={{ textDecoration: "none" }}>
-      <div style={{
-        background: "var(--bg-card)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-lg)",
-        overflow: "hidden", textAlign: "center",
-        transition: "all var(--transition)",
-        cursor: "pointer",
-      }}
-        onMouseEnter={e => {
-          (e.currentTarget as HTMLElement).style.borderColor = "rgba(229,9,20,0.3)";
-          (e.currentTarget as HTMLElement).style.transform = "translateY(-3px)";
-          (e.currentTarget as HTMLElement).style.boxShadow = "0 8px 24px rgba(0,0,0,0.4)";
-        }}
-        onMouseLeave={e => {
-          (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
-          (e.currentTarget as HTMLElement).style.transform = "translateY(0)";
-          (e.currentTarget as HTMLElement).style.boxShadow = "none";
-        }}
+    <Link href={`/person/${actor.staffId}`} className="no-underline">
+      <div
+        className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden text-center h-full
+        cursor-pointer transition-all duration-200
+        active:scale-95 sm:hover:scale-105
+        hover:border-[rgba(229,9,20,0.3)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
       >
         {!imgError ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={actor.posterUrl || ""}
             alt={name}
-            style={{ width: "100%", aspectRatio: "2/3", objectFit: "cover", display: "block", background: "var(--surface)" }}
+            className="w-full aspect-[2/3] object-cover block bg-[var(--surface)]"
             onError={() => setImgError(true)}
+            draggable={false}
           />
         ) : (
-          <div style={{
-            width: "100%", aspectRatio: "2/3",
-            display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center", gap: 8,
-            background: "linear-gradient(135deg, #1a1a2e, #16213e)",
-          }}>
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
-              <circle cx="12" cy="7" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/>
+          <div className="w-full aspect-[2/3] flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-[#1a1a2e] to-[#16213e]">
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--text-muted)"
+              strokeWidth="1.5"
+            >
+              <circle cx="12" cy="7" r="4" />
+              <path d="M20 21a8 8 0 1 0-16 0" />
             </svg>
-            <span style={{ fontSize: "11px", color: "var(--text-muted)", padding: "0 8px" }}>{name}</span>
+            <span className="text-[10px] text-[var(--text-muted)] px-2 leading-tight">
+              {name}
+            </span>
           </div>
         )}
-        <div style={{ padding: "10px 8px" }}>
-          <p style={{ fontSize: "12px", fontWeight: 600, color: "var(--text)", lineHeight: 1.3, marginBottom: 2 }}>{name}</p>
+        <div className="p-[8px_6px] sm:p-[10px_8px]">
+          <p className="text-[11px] sm:text-[12px] font-semibold text-[var(--text)] leading-[1.3] mb-0.5 line-clamp-2">
+            {name}
+          </p>
           {actor.description && (
-            <p style={{
-              fontSize: "11px", color: "var(--text-muted)",
-              fontStyle: "italic",
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}>{actor.description}</p>
+            <p className="text-[10px] sm:text-[11px] text-[var(--text-muted)] italic overflow-hidden text-ellipsis whitespace-nowrap">
+              {actor.description}
+            </p>
           )}
         </div>
       </div>

@@ -65,7 +65,8 @@ export default function BrowseClient({
   const [loading, setLoading] = useState(true);
   const [genres, setGenres] = useState<Genre[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Mobile filter drawer state
+  const [filterOpen, setFilterOpen] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -163,9 +164,9 @@ export default function BrowseClient({
     yearFrom,
     yearTo,
   ].filter(Boolean).length;
+
   const title = TYPES.find((t) => t.value === type)?.label || "Explore";
 
-  // Active filter tags for display
   const activeFilterTags: { label: string; clearKey: string }[] = [];
   if (genreId) {
     const g = genres.find((g) => g.id === genreId);
@@ -195,59 +196,155 @@ export default function BrowseClient({
   if (yearTo)
     activeFilterTags.push({ label: `To ${yearTo}`, clearKey: "yearTo" });
 
+  // Shared filter selects — rendered in both drawer (mobile) and bar (desktop)
+  const FilterSelects = ({ onAfterChange }: { onAfterChange?: () => void }) => (
+    <>
+      <select
+        className="select w-full sm:w-auto"
+        value={order}
+        onChange={(e) => {
+          router.push(
+            buildFilterHref({ order: e.target.value, page: undefined }),
+          );
+          onAfterChange?.();
+        }}
+      >
+        {ORDERS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <select
+        className="select w-full sm:w-auto"
+        value={genreId || ""}
+        onChange={(e) => {
+          router.push(
+            buildFilterHref({
+              genres: e.target.value || undefined,
+              page: undefined,
+            }),
+          );
+          onAfterChange?.();
+        }}
+      >
+        <option value="">All Genres</option>
+        {genres
+          .filter((g) => g.id !== 28 && g.id !== 25)
+          .map((g) => (
+            <option key={g.id} value={g.id}>
+              {translateGenre(g.genre) || g.genre}
+            </option>
+          ))}
+      </select>
+      <select
+        className="select w-full sm:w-auto"
+        value={countryId || ""}
+        onChange={(e) => {
+          router.push(
+            buildFilterHref({
+              countries: e.target.value || undefined,
+              page: undefined,
+            }),
+          );
+          onAfterChange?.();
+        }}
+      >
+        <option value="">All Countries</option>
+        {countries.map((c) => (
+          <option key={c.id} value={c.id}>
+            {translateCountry(c.country) || c.country}
+          </option>
+        ))}
+      </select>
+      <select
+        className="select w-full sm:w-auto"
+        value={ratingFrom || ""}
+        onChange={(e) => {
+          router.push(
+            buildFilterHref({
+              ratingFrom: e.target.value || undefined,
+              page: undefined,
+            }),
+          );
+          onAfterChange?.();
+        }}
+      >
+        <option value="">Min Rating</option>
+        {RATING_OPTIONS.map((r) => (
+          <option key={r} value={r}>
+            {r}+ ★
+          </option>
+        ))}
+      </select>
+      <select
+        className="select w-full sm:w-auto"
+        value={yearFrom || ""}
+        onChange={(e) => {
+          router.push(
+            buildFilterHref({
+              yearFrom: e.target.value || undefined,
+              page: undefined,
+            }),
+          );
+          onAfterChange?.();
+        }}
+      >
+        <option value="">From Year</option>
+        {YEAR_OPTIONS.map((y) => (
+          <option key={y} value={y}>
+            {y}
+          </option>
+        ))}
+      </select>
+      <select
+        className="select w-full sm:w-auto"
+        value={yearTo || ""}
+        onChange={(e) => {
+          router.push(
+            buildFilterHref({
+              yearTo: e.target.value || undefined,
+              page: undefined,
+            }),
+          );
+          onAfterChange?.();
+        }}
+      >
+        <option value="">To Year</option>
+        {YEAR_OPTIONS.map((y) => (
+          <option key={y} value={y}>
+            {y}
+          </option>
+        ))}
+      </select>
+    </>
+  );
+
   return (
-    <div
-      style={{ paddingTop: "32px", paddingBottom: "80px", minHeight: "100vh" }}
-    >
-      {/* Header */}
-      <div style={{ padding: "0 clamp(16px,4vw,48px)", marginBottom: "32px" }}>
-        <p
-          style={{
-            fontSize: "11px",
-            color: "var(--text-muted)",
-            textTransform: "uppercase",
-            letterSpacing: "2px",
-            marginBottom: 8,
-          }}
-        >
+    <div className="min-h-screen pb-20">
+      {/* ── Page header ── */}
+      <div className="px-4 sm:px-[var(--page-x)] pt-7 sm:pt-10 pb-5 sm:pb-8">
+        <p className="text-[11px] text-[var(--text-muted)] uppercase tracking-[2px] mb-1 sm:mb-2">
           Explore
         </p>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-end",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: 12,
-          }}
-        >
+        <div className="flex items-end justify-between flex-wrap gap-2 sm:gap-3">
           <h1
-            style={{
-              fontFamily: "var(--font-display)",
-              fontSize: "clamp(36px, 6vw, 56px)",
-              letterSpacing: "2px",
-              lineHeight: 1,
-            }}
+            className="font-display uppercase leading-none tracking-[2px]"
+            style={{ fontSize: "clamp(28px, 6vw, 60px)" }}
           >
             {title}
           </h1>
           {total > 0 && !loading && (
-            <span
-              style={{
-                fontSize: "13px",
-                color: "var(--text-muted)",
-                paddingBottom: 6,
-              }}
-            >
+            <span className="text-[12px] sm:text-[13px] text-[var(--text-muted)] pb-1">
               {total.toLocaleString()} titles
             </span>
           )}
         </div>
       </div>
 
-      {/* Type tabs */}
-      <div style={{ padding: "0 clamp(16px,4vw,48px)", marginBottom: "16px" }}>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {/* ── Type tabs — horizontal scroll on mobile ── */}
+      <div className="px-4 sm:px-[var(--page-x)] mb-4 sm:mb-5">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
           {TYPES.map((t) => (
             <Link
               key={t.value}
@@ -255,22 +352,15 @@ export default function BrowseClient({
                 type: t.value === "ALL" ? undefined : t.value,
                 page: undefined,
               })}
-              style={{ textDecoration: "none" }}
+              className="no-underline shrink-0"
             >
               <button
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: "8px",
-                  fontSize: "13px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  fontFamily: "var(--font-body)",
-                  transition: "all 0.18s ease",
-                  background:
-                    type === t.value ? "var(--accent)" : "var(--bg-elevated)",
-                  color: type === t.value ? "white" : "var(--text-dim)",
-                  border: `1px solid ${type === t.value ? "var(--accent)" : "var(--border)"}`,
-                }}
+                className={`px-3 sm:px-4 py-[8px] sm:py-[9px] rounded-[8px] text-[12px] sm:text-[13px] font-semibold cursor-pointer transition-all duration-[180ms] whitespace-nowrap
+                  ${
+                    type === t.value
+                      ? "bg-[var(--accent)] text-white border border-[var(--accent)]"
+                      : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border border-[var(--border)] hover:border-[var(--border-hover)] hover:text-[var(--text)]"
+                  }`}
               >
                 {t.label}
               </button>
@@ -279,175 +369,78 @@ export default function BrowseClient({
         </div>
       </div>
 
-      {/* Filter row */}
-      <div style={{ padding: "0 clamp(16px,4vw,48px)", marginBottom: "20px" }}>
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 8,
-            alignItems: "center",
-          }}
-        >
-          {/* Sort */}
-          <select
-            className="select"
-            value={order}
-            onChange={(e) =>
-              router.push(
-                buildFilterHref({ order: e.target.value, page: undefined }),
-              )
-            }
+      {/* ── Filter bar — desktop: inline row | mobile: toggle button + drawer ── */}
+      <div className="px-4 sm:px-[var(--page-x)] mb-5 sm:mb-6">
+        {/* Mobile: filter toggle button */}
+        <div className="flex items-center gap-2 sm:hidden mb-3">
+          <button
+            onClick={() => setFilterOpen((v) => !v)}
+            className={`flex items-center gap-2 px-4 py-[9px] rounded-[8px] text-[13px] font-semibold border transition-all duration-[180ms]
+              ${
+                filterOpen || activeFilterCount > 0
+                  ? "bg-[var(--accent-dim)] border-[rgba(229,9,20,0.4)] text-[var(--accent)]"
+                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)]"
+              }`}
           >
-            {ORDERS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+            >
+              <line x1="4" y1="6" x2="20" y2="6" />
+              <line x1="8" y1="12" x2="16" y2="12" />
+              <line x1="11" y1="18" x2="13" y2="18" />
+            </svg>
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="bg-[var(--accent)] text-white text-[10px] font-bold rounded-full w-[18px] h-[18px] flex items-center justify-center leading-none">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
 
-          {/* Genre */}
-          <select
-            className="select"
-            value={genreId || ""}
-            onChange={(e) =>
-              router.push(
-                buildFilterHref({
-                  genres: e.target.value || undefined,
-                  page: undefined,
-                }),
-              )
-            }
-          >
-            <option value="">All Genres</option>
-            {genres
-              .filter((g) => g.id !== 28 && g.id !== 25)
-              .map((g) => (
-                <option key={g.id} value={g.id}>
-                  {translateGenre(g.genre) || g.genre}
-                </option>
-              ))}
-          </select>
-
-          {/* Country — previously MISSING */}
-          <select
-            className="select"
-            value={countryId || ""}
-            onChange={(e) =>
-              router.push(
-                buildFilterHref({
-                  countries: e.target.value || undefined,
-                  page: undefined,
-                }),
-              )
-            }
-          >
-            <option value="">All Countries</option>
-            {countries.map((c) => (
-              <option key={c.id} value={c.id}>
-                {translateCountry(c.country) || c.country}
-              </option>
-            ))}
-          </select>
-
-          {/* Rating from */}
-          <select
-            className="select"
-            value={ratingFrom || ""}
-            onChange={(e) =>
-              router.push(
-                buildFilterHref({
-                  ratingFrom: e.target.value || undefined,
-                  page: undefined,
-                }),
-              )
-            }
-          >
-            <option value="">Min Rating</option>
-            {RATING_OPTIONS.map((r) => (
-              <option key={r} value={r}>
-                {r}+ ★
-              </option>
-            ))}
-          </select>
-
-          {/* Rating to */}
-          <select
-            className="select"
-            value={ratingTo || ""}
-            onChange={(e) =>
-              router.push(
-                buildFilterHref({
-                  ratingTo: e.target.value || undefined,
-                  page: undefined,
-                }),
-              )
-            }
-          >
-            <option value="">Max Rating</option>
-            {RATING_OPTIONS.map((r) => (
-              <option key={r} value={r}>
-                ≤ {r} ★
-              </option>
-            ))}
-          </select>
-
-          {/* Year from */}
-          <select
-            className="select"
-            value={yearFrom || ""}
-            onChange={(e) =>
-              router.push(
-                buildFilterHref({
-                  yearFrom: e.target.value || undefined,
-                  page: undefined,
-                }),
-              )
-            }
-          >
-            <option value="">From Year</option>
-            {YEAR_OPTIONS.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-
-          {/* Year to */}
-          <select
-            className="select"
-            value={yearTo || ""}
-            onChange={(e) =>
-              router.push(
-                buildFilterHref({
-                  yearTo: e.target.value || undefined,
-                  page: undefined,
-                }),
-              )
-            }
-          >
-            <option value="">To Year</option>
-            {YEAR_OPTIONS.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-
-          {/* Clear all */}
           {activeFilterCount > 0 && (
             <Link
               href={`/explore${type !== "ALL" ? `?type=${type}` : ""}`}
-              style={{ textDecoration: "none" }}
+              className="no-underline"
             >
-              <button
-                className="btn btn-ghost"
-                style={{
-                  padding: "8px 14px",
-                  fontSize: "12px",
-                  height: "auto",
-                }}
-              >
+              <button className="btn btn-ghost py-[9px] px-3 text-[12px]">
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+                Clear
+              </button>
+            </Link>
+          )}
+        </div>
+
+        {/* Mobile: collapsible filter drawer */}
+        {filterOpen && (
+          <div className="sm:hidden flex flex-col gap-2 mb-3 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[12px] p-4">
+            <FilterSelects onAfterChange={() => setFilterOpen(false)} />
+          </div>
+        )}
+
+        {/* Desktop: inline filter row */}
+        <div className="hidden sm:flex flex-wrap gap-2 items-center">
+          <FilterSelects />
+          {activeFilterCount > 0 && (
+            <Link
+              href={`/explore${type !== "ALL" ? `?type=${type}` : ""}`}
+              className="no-underline"
+            >
+              <button className="btn btn-ghost py-[9px] px-4 text-[12px]">
                 <svg
                   width="12"
                   height="12"
@@ -467,9 +460,7 @@ export default function BrowseClient({
 
         {/* Active filter chips */}
         {activeFilterTags.length > 0 && (
-          <div
-            style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}
-          >
+          <div className="flex flex-wrap gap-2 mt-3">
             {activeFilterTags.map((tag) => (
               <Link
                 key={tag.clearKey}
@@ -477,22 +468,9 @@ export default function BrowseClient({
                   [tag.clearKey]: undefined,
                   page: undefined,
                 })}
-                style={{ textDecoration: "none" }}
+                className="no-underline"
               >
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 5,
-                    fontSize: "12px",
-                    color: "var(--text-dim)",
-                    background: "var(--accent-dim)",
-                    border: "1px solid rgba(229,9,20,0.25)",
-                    borderRadius: "20px",
-                    padding: "4px 10px",
-                    cursor: "pointer",
-                  }}
-                >
+                <span className="inline-flex items-center gap-[5px] text-[11px] sm:text-[12px] text-[var(--text-dim)] bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.25)] rounded-full px-3 py-1 cursor-pointer hover:border-[var(--accent)] transition-colors">
                   {tag.label}
                   <svg
                     width="10"
@@ -512,42 +490,34 @@ export default function BrowseClient({
         )}
       </div>
 
-      {/* Film grid */}
-      <div style={{ padding: "0 clamp(16px,4vw,48px)" }}>
+      {/* ── Film grid ── */}
+      <div className="px-4 sm:px-[var(--page-x)]">
         {loading ? (
           <div className="film-grid">
             {Array.from({ length: 20 }).map((_, i) => (
               <div
                 key={i}
-                className="skeleton"
-                style={{ aspectRatio: "2/3", borderRadius: 12 }}
+                className="skeleton aspect-[2/3] rounded-[10px] sm:rounded-[12px]"
               />
             ))}
           </div>
         ) : films.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "100px 0",
-              color: "var(--text-dim)",
-            }}
-          >
+          <div className="flex flex-col items-center justify-center py-24 sm:py-32 gap-4 text-[var(--text-dim)]">
             <svg
-              width="56"
-              height="56"
+              width="48"
+              height="48"
               viewBox="0 0 24 24"
               fill="none"
               stroke="var(--text-muted)"
               strokeWidth="1.5"
-              style={{ display: "block", margin: "0 auto 16px" }}
             >
               <circle cx="11" cy="11" r="8" />
               <path d="m21 21-4.35-4.35" />
             </svg>
-            <p style={{ fontSize: "18px", marginBottom: 8 }}>
+            <p className="text-[16px] sm:text-[18px] font-medium">
               No results found
             </p>
-            <p style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+            <p className="text-[12px] sm:text-[13px] text-[var(--text-muted)]">
               Try adjusting the filters
             </p>
           </div>

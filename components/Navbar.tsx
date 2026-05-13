@@ -1,4 +1,5 @@
 "use client";
+// components/Navbar.tsx
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -13,34 +14,14 @@ const NAV_LINKS = [
   { href: "/top250", label: "Top 250" },
 ];
 
-const SETTINGS_ICON = (
-  <svg
-    width="18"
-    height="18"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
-    <circle cx="12" cy="12" r="3" />
-    <path
-      d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"
-      strokeOpacity="0.5"
-    />
-    <path d="M15.54 8.46a5 5 0 0 1 0 7.07M8.46 8.46a5 5 0 0 0 0 7.07" />
-  </svg>
-);
-
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [search, setSearch] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  // FIX: start as null to avoid hydration mismatch; resolved after mount
-  const [isMobile, setIsMobile] = useState<boolean | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const mobileRef = useRef<HTMLInputElement>(null);
+  const mobileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -55,26 +36,21 @@ export default function Navbar() {
     handleKeyNav,
   } = useSearchSuggestions();
 
-  // FIX: useLayoutEffect-equivalent via useEffect after mount to avoid hydration mismatch
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
-  }, []);
-
+  // ── Scroll detection ──
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handler, { passive: true });
     return () => window.removeEventListener("scroll", handler);
   }, []);
 
+  // ── Close everything on route change ──
   useEffect(() => {
     setMenuOpen(false);
     setSearchOpen(false);
     clearSuggestions();
   }, [pathname, clearSuggestions]);
 
+  // ── Body scroll lock — fixed: cleanup always runs ──
   useEffect(() => {
     document.body.style.overflow = menuOpen ? "hidden" : "";
     return () => {
@@ -82,8 +58,12 @@ export default function Navbar() {
     };
   }, [menuOpen]);
 
+  // ── Auto-focus mobile search input ──
   useEffect(() => {
-    if (searchOpen) setTimeout(() => mobileRef.current?.focus(), 50);
+    if (searchOpen) {
+      const t = setTimeout(() => mobileInputRef.current?.focus(), 60);
+      return () => clearTimeout(t);
+    }
   }, [searchOpen]);
 
   const handleSearchChange = (val: string) => {
@@ -93,10 +73,9 @@ export default function Navbar() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedIdx >= 0 && suggestions[selectedIdx]) {
-      const film = suggestions[selectedIdx];
-      const id = film.kinopoiskId ?? film.filmId;
-      router.push(`/film/${id}`);
+    const selected = suggestions[selectedIdx];
+    if (selected) {
+      router.push(`/film/${selected.kinopoiskId ?? selected.filmId}`);
     } else if (search.trim()) {
       router.push(`/search?q=${encodeURIComponent(search.trim())}`);
     }
@@ -110,89 +89,26 @@ export default function Navbar() {
     return base === "/" ? pathname === "/" : pathname.startsWith(base);
   };
 
-  // FIX: SuggestionDropdown extracted OUTSIDE Navbar to avoid re-mounting on every render
-  // Passed as a rendered element instead
-  const suggestionList =
-    sugVisible && suggestions.length > 0 ? (
-      <SuggestionDropdown
-        suggestions={suggestions}
-        selectedIdx={selectedIdx}
-        sugLoading={sugLoading}
-        search={search}
-        onSelect={clearSuggestions}
-      />
-    ) : null;
-
-  // Don't render mobile/desktop split until we know which one we're on
-  if (isMobile === null) {
-    return (
-      <nav
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 100,
-          height: "var(--nav-height)",
-          background: "rgba(8,8,8,0.85)",
-          backdropFilter: "blur(8px)",
-          borderBottom: "1px solid transparent",
-          display: "flex",
-          alignItems: "center",
-          padding: "0 clamp(16px,4vw,48px)",
-        }}
-      >
-        <Link href="/" style={{ textDecoration: "none" }}>
-          <span
-            style={{
-              fontFamily: "var(--font-display)",
-              fontSize: "clamp(20px,3vw,26px)",
-              letterSpacing: "3px",
-              color: "var(--accent)",
-              textShadow: "0 0 20px var(--accent-glow)",
-            }}
-          >
-            CINEMIX
-          </span>
-        </Link>
-      </nav>
-    );
-  }
-
   return (
     <>
+      {/* ─────────────────────────── Main Nav ─────────────────────────── */}
       <nav
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 100,
-          height: "var(--nav-height)",
-          background: scrolled ? "rgba(8,8,8,0.97)" : "rgba(8,8,8,0.85)",
-          backdropFilter: scrolled ? "blur(16px)" : "blur(8px)",
-          borderBottom: scrolled
-            ? "1px solid var(--border)"
-            : "1px solid transparent",
-          transition: "all 0.3s",
-          display: "flex",
-          alignItems: "center",
-          padding: "0 clamp(16px,4vw,48px)",
-          gap: 8,
-        }}
+        className={`fixed top-0 left-0 right-0 z-[100] flex items-center gap-3 transition-all duration-300
+          px-4 md:px-[clamp(16px,4vw,48px)]
+          ${
+            scrolled
+              ? "bg-[rgba(8,8,8,0.96)] backdrop-blur-[20px] shadow-[0_1px_0_var(--border)]"
+              : "bg-gradient-to-b from-[rgba(0,0,0,0.75)] to-transparent"
+          }`}
+        style={{ height: "var(--nav-height)" }}
       >
         {/* Logo */}
-        <Link
-          href="/"
-          style={{ textDecoration: "none", flexShrink: 0, marginRight: 8 }}
-        >
+        <Link href="/" className="no-underline flex-shrink-0 mr-3">
           <span
+            className="font-display-logo text-[var(--accent)] select-none"
             style={{
-              fontFamily: "var(--font-display)",
-              fontSize: "clamp(20px,3vw,26px)",
-              letterSpacing: "3px",
-              color: "var(--accent)",
-              textShadow: "0 0 20px var(--accent-glow)",
+              fontSize: "clamp(20px, 3vw, 26px)",
+              textShadow: "0 0 28px var(--accent-glow)",
             }}
           >
             CINEMIX
@@ -200,224 +116,122 @@ export default function Navbar() {
         </Link>
 
         {/* Desktop nav links */}
-        {!isMobile && (
-          <div style={{ display: "flex", gap: 2, flex: 1 }}>
-            {NAV_LINKS.map(({ href, label }) => (
-              <Link
-                key={href}
-                href={href}
-                style={{
-                  textDecoration: "none",
-                  padding: "6px 14px",
-                  borderRadius: "6px",
-                  fontSize: "13px",
-                  fontWeight: 500,
-                  color: isActive(href) ? "white" : "var(--text-dim)",
-                  background: isActive(href)
-                    ? "var(--accent-dim)"
-                    : "transparent",
-                  border: isActive(href)
-                    ? "1px solid rgba(229,9,20,0.25)"
-                    : "1px solid transparent",
-                  transition: "all 0.18s ease",
-                }}
-              >
-                {label}
-              </Link>
-            ))}
-          </div>
-        )}
+        <div className="hidden md:flex items-center gap-0.5 flex-1">
+          {NAV_LINKS.map(({ href, label }) => (
+            <button
+              key={href}
+              onClick={() => router.push(href)}
+              className={`px-3.5 cursor-pointer py-1.5 rounded-md text-[13px] font-medium transition-all duration-180 ${
+                isActive(href)
+                  ? "text-white bg-(--accent-dim) border border-[rgba(229,9,20,0.25)]"
+                  : "text-(--text-dim) border border-transparent hover:text-white hover:bg-[rgba(255,255,255,0.06)]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
-        {isMobile && <div style={{ flex: 1 }} />}
+        {/* Mobile: push icons to right */}
+        <div className="flex-1 md:hidden" />
 
         {/* Desktop search */}
-        {!isMobile && (
-          <div style={{ position: "relative" }}>
-            <form onSubmit={handleSubmit}>
-              <div style={{ position: "relative" }}>
-                <input
-                  ref={inputRef}
-                  value={search}
-                  onChange={(e) => handleSearchChange(e.target.value)}
-                  onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
-                  onFocus={() =>
-                    search.trim().length >= 2 && setSugVisible(true)
-                  }
-                  // FIX: 300ms for touchpad taps
-                  onBlur={() => setTimeout(() => setSugVisible(false), 300)}
-                  placeholder="Search films, actors…"
-                  style={{
-                    background: "var(--surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "20px",
-                    padding: "8px 16px 8px 36px",
-                    color: "var(--text)",
-                    fontSize: "13px",
-                    width: "190px",
-                    outline: "none",
-                    fontFamily: "var(--font-body)",
-                    transition: "width 0.3s, border-color 0.2s",
-                  }}
-                  onFocusCapture={(e) => {
-                    (e.target as HTMLInputElement).style.width = "260px";
-                    (e.target as HTMLInputElement).style.borderColor =
-                      "rgba(229,9,20,0.5)";
-                  }}
-                  onBlurCapture={(e) => {
-                    (e.target as HTMLInputElement).style.width = "190px";
-                    (e.target as HTMLInputElement).style.borderColor =
-                      "var(--border)";
-                  }}
-                />
-                <svg
-                  style={{
-                    position: "absolute",
-                    left: 12,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    opacity: sugLoading ? 1 : 0.4,
-                    pointerEvents: "none",
-                  }}
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                >
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="m21 21-4.35-4.35" />
-                </svg>
-              </div>
-            </form>
-            {suggestionList}
-          </div>
-        )}
-
-        {/* Desktop settings icon */}
-        {!isMobile && (
-          <Link
-            href="/preferences"
-            title="Preferences"
-            style={{ textDecoration: "none", marginLeft: 4 }}
-          >
-            <IconBtn
-              active={pathname === "/preferences"}
-              aria-label="Preferences"
-            >
-              {SETTINGS_ICON}
-            </IconBtn>
-          </Link>
-        )}
-
-        {/* Mobile icons */}
-        {isMobile && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <IconBtn
-              onClick={() => setSearchOpen((v) => !v)}
-              active={searchOpen}
-              aria-label="Search"
-            >
-              <svg
-                width="19"
-                height="19"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.35-4.35" />
-              </svg>
-            </IconBtn>
-            <Link href="/preferences" style={{ textDecoration: "none" }}>
-              <IconBtn
-                active={pathname === "/preferences"}
-                aria-label="Preferences"
-              >
-                {SETTINGS_ICON}
-              </IconBtn>
-            </Link>
-            <IconBtn onClick={() => setMenuOpen((v) => !v)} aria-label="Menu">
-              {menuOpen ? (
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              ) : (
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                >
-                  <line x1="3" y1="6" x2="21" y2="6" />
-                  <line x1="3" y1="12" x2="21" y2="12" />
-                  <line x1="3" y1="18" x2="21" y2="18" />
-                </svg>
-              )}
-            </IconBtn>
-          </div>
-        )}
-      </nav>
-
-      {/* Mobile search bar */}
-      {isMobile && searchOpen && (
-        <div
-          style={{
-            position: "fixed",
-            top: "var(--nav-height)",
-            left: 0,
-            right: 0,
-            zIndex: 99,
-            background: "rgba(8,8,8,0.98)",
-            backdropFilter: "blur(16px)",
-            borderBottom: "1px solid var(--border)",
-            padding: "14px 16px",
-            animation: "slideDown 0.2s ease",
-          }}
-        >
+        <div className="hidden md:block relative">
           <form onSubmit={handleSubmit}>
-            <div style={{ position: "relative" }}>
+            <div className="relative">
               <input
-                ref={mobileRef}
+                ref={inputRef}
                 value={search}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
-                // FIX: 300ms for touchpad taps
-                onBlur={() => setTimeout(() => setSugVisible(false), 300)}
-                placeholder="Search films, series, actors…"
-                className="input"
-                style={{ paddingLeft: 42, fontSize: "15px" }}
+                onFocus={() => search.trim().length >= 2 && setSugVisible(true)}
+                onBlur={() => setTimeout(() => setSugVisible(false), 200)}
+                placeholder="Search films, actors…"
+                className="bg-[rgba(255,255,255,0.07)] border border-[var(--border)] rounded-[20px] py-[7px] pl-9 pr-4
+                  text-[var(--text)] text-[13px] outline-none placeholder:text-[var(--text-muted)]
+                  transition-[width,border-color,background] duration-300
+                  w-[190px] focus:w-[260px] focus:border-[rgba(229,9,20,0.5)] focus:bg-[rgba(255,255,255,0.1)]"
               />
-              <svg
-                style={{
-                  position: "absolute",
-                  left: 14,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  opacity: 0.4,
-                  pointerEvents: "none",
-                }}
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.35-4.35" />
-              </svg>
+              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 w-[13px] h-[13px]" />
+            </div>
+          </form>
+
+          {sugVisible && suggestions.length > 0 && (
+            <SuggestionDropdown
+              suggestions={suggestions}
+              selectedIdx={selectedIdx}
+              sugLoading={sugLoading}
+              search={search}
+              onSelect={() => {
+                clearSuggestions();
+                setSearch("");
+              }}
+            />
+          )}
+        </div>
+
+        {/* Desktop preferences icon */}
+        <Link
+          href="/preferences"
+          className="hidden md:block no-underline ml-1"
+          title="Preferences"
+        >
+          <NavIconBtn
+            active={pathname === "/preferences"}
+            aria-label="Preferences"
+          >
+            <SettingsIcon />
+          </NavIconBtn>
+        </Link>
+
+        {/* Mobile icons */}
+        <div className="flex md:hidden items-center gap-[2px]">
+          <NavIconBtn
+            onClick={() => setSearchOpen((v) => !v)}
+            active={searchOpen}
+            aria-label="Search"
+          >
+            <SearchIcon className="w-[19px] h-[19px]" />
+          </NavIconBtn>
+
+          <Link href="/preferences" className="no-underline">
+            <NavIconBtn
+              active={pathname === "/preferences"}
+              aria-label="Preferences"
+            >
+              <SettingsIcon />
+            </NavIconBtn>
+          </Link>
+
+          <NavIconBtn
+            onClick={() => setMenuOpen((v) => !v)}
+            active={menuOpen}
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+          >
+            {menuOpen ? <CloseIcon /> : <HamburgerIcon />}
+          </NavIconBtn>
+        </div>
+      </nav>
+
+      {/* ─────────────────────────── Mobile search bar ─────────────────────────── */}
+      {searchOpen && (
+        <div
+          className="md:hidden fixed left-0 right-0 z-[99] bg-[rgba(8,8,8,0.98)] backdrop-blur-[20px]
+            shadow-[0_1px_0_var(--border)] px-4 py-3 slide-down"
+          style={{ top: "var(--nav-height)" }}
+        >
+          <form onSubmit={handleSubmit}>
+            <div className="relative">
+              <input
+                ref={mobileInputRef}
+                value={search}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
+                onBlur={() => setTimeout(() => setSugVisible(false), 200)}
+                placeholder="Search films, series, actors…"
+                className="input pl-[42px] text-[15px]"
+              />
+              <SearchIcon className="absolute left-[14px] top-1/2 -translate-y-1/2 opacity-40 pointer-events-none w-4 h-4" />
               {search && (
                 <button
                   type="button"
@@ -425,154 +239,100 @@ export default function Navbar() {
                     setSearch("");
                     clearSuggestions();
                   }}
-                  style={{
-                    position: "absolute",
-                    right: 12,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    color: "var(--text-muted)",
-                    padding: 4,
-                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]
+                    bg-transparent border-none cursor-pointer p-1 hover:text-[var(--text)] transition-colors"
+                  aria-label="Clear search"
                 >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
+                  <CloseIcon size={14} />
                 </button>
               )}
-              {suggestionList}
             </div>
           </form>
+
+          {sugVisible && suggestions.length > 0 && (
+            <div className="relative">
+              <SuggestionDropdown
+                suggestions={suggestions}
+                selectedIdx={selectedIdx}
+                sugLoading={sugLoading}
+                search={search}
+                onSelect={() => {
+                  clearSuggestions();
+                  setSearch("");
+                  setSearchOpen(false);
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
 
-      {/* Mobile fullscreen menu */}
-      {isMobile && menuOpen && (
-        // FIX: role + aria-modal + keyboard trap for accessibility
+      {/* ─────────────────────────── Mobile fullscreen menu ─────────────────────────── */}
+      {menuOpen && (
         <div
-          className="mobile-menu"
+          className="md:hidden mobile-menu justify-between"
           role="dialog"
           aria-modal="true"
           aria-label="Navigation menu"
-          style={{ justifyContent: "space-between" }}
           onKeyDown={(e) => e.key === "Escape" && setMenuOpen(false)}
         >
+          {/* Top: logo + close */}
           <div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 40,
-              }}
-            >
+            <div className="flex justify-between items-center mb-10">
               <span
+                className="font-display-logo text-[var(--accent)]"
                 style={{
-                  fontFamily: "var(--font-display)",
                   fontSize: "26px",
-                  letterSpacing: "3px",
-                  color: "var(--accent)",
+                  textShadow: "0 0 20px var(--accent-glow)",
                 }}
               >
                 CINEMIX
               </span>
-              <IconBtn
+              <NavIconBtn
                 onClick={() => setMenuOpen(false)}
                 aria-label="Close menu"
               >
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </IconBtn>
+                <CloseIcon size={22} />
+              </NavIconBtn>
             </div>
+
+            {/* Nav links */}
             <nav
-              style={{ display: "flex", flexDirection: "column", gap: 4 }}
+              className="flex flex-col gap-[6px]"
               aria-label="Main navigation"
             >
               {NAV_LINKS.map(({ href, label }) => (
                 <Link
                   key={href}
                   href={href}
-                  style={{
-                    textDecoration: "none",
-                    padding: "18px 20px",
-                    borderRadius: 12,
-                    fontFamily: "var(--font-display)",
-                    fontSize: "28px",
-                    letterSpacing: "2px",
-                    color: isActive(href) ? "white" : "var(--text-dim)",
-                    background: isActive(href)
-                      ? "var(--accent-dim)"
-                      : "transparent",
-                    border: `1px solid ${isActive(href) ? "rgba(229,9,20,0.2)" : "transparent"}`,
-                    transition: "all 0.18s",
-                  }}
+                  className={`no-underline px-5 py-[18px] rounded-[12px] font-display text-2xl tracking-[2px]
+                    transition-all duration-[180ms] ${
+                      isActive(href)
+                        ? "text-white bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.2)]"
+                        : "text-[var(--text-dim)] border border-transparent hover:text-white hover:bg-[rgba(255,255,255,0.04)]"
+                    }`}
                 >
                   {label}
                 </Link>
               ))}
+
               <Link
                 href="/preferences"
-                style={{
-                  textDecoration: "none",
-                  padding: "18px 20px",
-                  borderRadius: 12,
-                  fontFamily: "var(--font-display)",
-                  fontSize: "28px",
-                  letterSpacing: "2px",
-                  color: isActive("/preferences") ? "white" : "var(--text-dim)",
-                  background: isActive("/preferences")
-                    ? "var(--accent-dim)"
-                    : "transparent",
-                  border: `1px solid ${isActive("/preferences") ? "rgba(229,9,20,0.2)" : "transparent"}`,
-                  transition: "all 0.18s",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 14,
-                }}
+                className={`no-underline px-5 py-[18px] rounded-[12px] font-display text-2xl tracking-[2px]
+                  transition-all duration-[180ms] flex items-center gap-[14px] ${
+                    pathname === "/preferences"
+                      ? "text-white bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.2)]"
+                      : "text-[var(--text-dim)] border border-transparent hover:text-white hover:bg-[rgba(255,255,255,0.04)]"
+                  }`}
               >
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  style={{ flexShrink: 0 }}
-                >
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07M8.46 8.46a5 5 0 0 0 0 7.07" />
-                </svg>
+                <SettingsIcon />
                 Preferences
               </Link>
             </nav>
           </div>
-          <p
-            style={{
-              fontSize: "12px",
-              color: "var(--text-muted)",
-              textAlign: "center",
-              paddingBottom: 8,
-            }}
-          >
+
+          {/* Footer */}
+          <p className="text-[11px] text-[var(--text-muted)] text-center pb-2">
             © {new Date().getFullYear()} CineMix
           </p>
         </div>
@@ -581,7 +341,7 @@ export default function Navbar() {
   );
 }
 
-// FIX: extracted outside Navbar so it doesn't re-mount on every parent render
+// ─────────────────────────── Suggestion Dropdown ───────────────────────────
 function SuggestionDropdown({
   suggestions,
   selectedIdx,
@@ -597,34 +357,17 @@ function SuggestionDropdown({
 }) {
   return (
     <div
-      style={{
-        position: "absolute",
-        top: "calc(100% + 8px)",
-        left: 0,
-        right: 0,
-        background: "rgba(17,17,17,0.98)",
-        backdropFilter: "blur(20px)",
-        border: "1px solid var(--border)",
-        borderRadius: "12px",
-        overflow: "hidden",
-        zIndex: 200,
-        boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
-        animation: "slideDown 0.15s ease",
-      }}
+      className="absolute top-[calc(100%+8px)] left-0 right-0 z-[200] overflow-hidden slide-down
+        bg-[rgba(15,15,15,0.98)] backdrop-blur-[24px] border border-[var(--border)]
+        rounded-[12px] shadow-[0_20px_60px_rgba(0,0,0,0.7)]"
     >
       {sugLoading && (
-        <div
-          style={{
-            padding: "10px 16px",
-            fontSize: "12px",
-            color: "var(--text-muted)",
-          }}
-        >
+        <div className="px-4 py-[10px] text-[11px] text-[var(--text-muted)]">
           Searching…
         </div>
       )}
+
       {suggestions.map((film, i) => {
-        // FIX: stable key
         const id = film.kinopoiskId ?? film.filmId;
         const name = getEnglishName(
           film.nameRu,
@@ -632,119 +375,76 @@ function SuggestionDropdown({
           film.nameOriginal,
         );
         const rating = film.ratingKinopoisk ?? film.ratingImdb ?? film.rating;
+        const poster = film.posterUrlPreview ?? film.posterUrl;
+
         return (
           <Link
             key={id}
             href={`/film/${id}`}
-            style={{ textDecoration: "none" }}
+            className="no-underline"
             onClick={onSelect}
           >
             <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "10px 14px",
-                background:
-                  i === selectedIdx ? "var(--bg-elevated)" : "transparent",
-                borderBottom:
-                  i < suggestions.length - 1
-                    ? "1px solid var(--border)"
-                    : "none",
-                transition: "background 0.1s",
-                cursor: "pointer",
-              }}
-              onMouseEnter={(e) =>
-                ((e.currentTarget as HTMLElement).style.background =
-                  "var(--bg-elevated)")
-              }
-              onMouseLeave={(e) =>
-                ((e.currentTarget as HTMLElement).style.background =
-                  i === selectedIdx ? "var(--bg-elevated)" : "transparent")
-              }
+              className={`flex items-center gap-[10px] px-[14px] py-[10px] cursor-pointer
+                transition-colors duration-100
+                ${i === selectedIdx ? "bg-[var(--bg-elevated)]" : "hover:bg-[var(--bg-elevated)]"}
+                ${i < suggestions.length - 1 ? "border-b border-[var(--border)]" : ""}`}
             >
-              <div
-                style={{
-                  width: 32,
-                  height: 48,
-                  borderRadius: 4,
-                  overflow: "hidden",
-                  flexShrink: 0,
-                  background: "var(--surface)",
-                  position: "relative",
-                }}
-              >
-                {/* FIX: next/image instead of <img> */}
-                {(film.posterUrlPreview || film.posterUrl) && (
+              {/* Poster thumbnail — fixed: proper Next.js Image usage */}
+              <div className="relative w-8 h-12 rounded-[4px] overflow-hidden flex-shrink-0 bg-[var(--surface)]">
+                {poster ? (
                   <Image
-                    src={film.posterUrlPreview || film.posterUrl!}
+                    src={poster}
                     alt={name}
                     fill
-                    style={{ objectFit: "cover" }}
                     sizes="32px"
+                    className="object-cover"
                   />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center opacity-20">
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                    >
+                      <path d="M21 3H3v18h18V3zm-9 14l-5-5 1.4-1.4 3.6 3.6 7.6-7.6L20 8l-8 9z" />
+                    </svg>
+                  </div>
                 )}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p
-                  style={{
-                    fontSize: "13px",
-                    fontWeight: 600,
-                    color: "var(--text)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold text-[var(--text)] truncate">
                   {name}
                 </p>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    marginTop: 2,
-                  }}
-                >
+                <div className="flex gap-[6px] items-center mt-[2px]">
                   {film.year && (
-                    <span
-                      style={{ fontSize: "11px", color: "var(--text-muted)" }}
-                    >
+                    <span className="text-[11px] text-[var(--text-muted)]">
                       {film.year}
                     </span>
                   )}
                   {film.genres?.[0] && (
-                    <span
-                      style={{
-                        fontSize: "10px",
-                        color: "var(--text-muted)",
-                        textTransform: "capitalize",
-                      }}
-                    >
-                      {film.genres[0].genre}
+                    <span className="text-[10px] text-[var(--text-muted)] capitalize">
+                      · {film.genres[0].genre}
                     </span>
                   )}
                 </div>
               </div>
-              {rating && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 3,
-                    flexShrink: 0,
-                  }}
-                >
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="#f5c518">
+
+              {/* Rating */}
+              {rating !== undefined && rating !== null && (
+                <div className="flex items-center gap-[3px] flex-shrink-0">
+                  <svg
+                    width="9"
+                    height="9"
+                    viewBox="0 0 24 24"
+                    fill="var(--gold)"
+                  >
                     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                   </svg>
-                  <span
-                    style={{
-                      fontSize: "12px",
-                      color: "#f5c518",
-                      fontWeight: 600,
-                    }}
-                  >
+                  <span className="text-[11px] text-[var(--gold)] font-semibold">
                     {typeof rating === "number" ? rating.toFixed(1) : rating}
                   </span>
                 </div>
@@ -753,35 +453,19 @@ function SuggestionDropdown({
           </Link>
         );
       })}
+
+      {/* "See all results" footer */}
       <Link
         href={`/search?q=${encodeURIComponent(search.trim())}`}
-        style={{ textDecoration: "none" }}
+        className="no-underline"
         onClick={onSelect}
       >
         <div
-          style={{
-            padding: "10px 14px",
-            fontSize: "12px",
-            color: "var(--accent)",
-            fontWeight: 600,
-            background: "var(--bg-card)",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
+          className="flex items-center gap-[6px] px-[14px] py-[10px] text-[12px] font-semibold
+            text-[var(--accent)] bg-[var(--bg-card)] cursor-pointer
+            hover:bg-[var(--bg-elevated)] transition-colors duration-100"
         >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.35-4.35" />
-          </svg>
+          <SearchIcon className="w-3 h-3" />
           See all results for &ldquo;{search}&rdquo;
         </div>
       </Link>
@@ -789,30 +473,96 @@ function SuggestionDropdown({
   );
 }
 
-function IconBtn({
+// ─────────────────────────── Reusable Icon Button ───────────────────────────
+function NavIconBtn({
   children,
-  onClick,
   active,
+  onClick,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       {...props}
-      style={{
-        background: active ? "var(--accent-dim)" : "none",
-        border: `1px solid ${active ? "rgba(229,9,20,0.3)" : "transparent"}`,
-        borderRadius: 8,
-        color: "var(--text)",
-        cursor: "pointer",
-        padding: 8,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        transition: "all 0.18s",
-      }}
+      className={`w-9 h-9 rounded-[8px] flex items-center justify-center cursor-pointer
+        transition-all duration-[180ms] text-[var(--text)]
+        ${
+          active
+            ? "bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.3)] text-white"
+            : "bg-transparent border border-transparent hover:bg-[rgba(255,255,255,0.08)]"
+        }`}
     >
       {children}
     </button>
+  );
+}
+
+// ─────────────────────────── SVG Icons ───────────────────────────
+function SearchIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+    >
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.35-4.35" />
+    </svg>
+  );
+}
+
+function CloseIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+    >
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function HamburgerIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+    >
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07M8.46 8.46a5 5 0 0 0 0 7.07" />
+      <path
+        d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"
+        strokeOpacity="0.45"
+      />
+    </svg>
   );
 }
