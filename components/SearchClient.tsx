@@ -86,7 +86,7 @@ export default function SearchClient({
               onFocus={() => suggestions.length > 0 && setSugVisible(true)}
               onBlur={() => setTimeout(() => setSugVisible(false), 300)}
               placeholder="Search films, series, actors…"
-              className="input text-[15px] sm:text-[16px] py-[12px] sm:py-[14px] pl-11 pr-10 rounded-[12px] sm:rounded-[14px] w-full"
+              className="input text-[15px] sm:text-[16px] py-3 px-10 sm:py-3.5 rounded-xl sm:rounded-[14px] w-full"
               autoFocus={!query}
             />
             <svg

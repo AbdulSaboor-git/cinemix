@@ -229,7 +229,7 @@ export default function Navbar() {
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onBlur={() => setTimeout(() => setSugVisible(false), 200)}
                 placeholder="Search films, series, actors…"
-                className="input pl-[42px] text-[15px]"
+                className="input pl-10 text-[15px]"
               />
               <SearchIcon className="absolute left-[14px] top-1/2 -translate-y-1/2 opacity-40 pointer-events-none w-4 h-4" />
               {search && (
