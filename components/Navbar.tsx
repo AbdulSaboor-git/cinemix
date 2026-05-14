@@ -94,7 +94,9 @@ export default function Navbar() {
         className={`fixed top-0 left-0 right-0 z-[200] flex items-center gap-3 transition-all duration-300
           px-4 md:px-[clamp(16px,4vw,48px)] h-(--nav-height)
           bg-linear-to-br from-black/80 to-black/20 backdrop-blur-[20px]
-          ${scrolled ? "shadow-[0_1px_0_var(--border)]" : "shadow-none"}`}
+          ${scrolled ? "shadow-[0_1px_0_var(--border)]" : "shadow-none"}
+          ${menuOpen && "bg-black/95 backdrop-blur-[20px] shadow-none"}
+          `}
       >
         <Logo />
 
@@ -257,8 +259,8 @@ export default function Navbar() {
       {/* ── Mobile fullscreen menu overlay*/}
       {menuOpen && (
         <div
-          className="md:hidden fixed left-0 right-0 bottom-0 z-[150] flex flex-col justify-between
-            bg-[rgba(8,8,8,0.98)] backdrop-blur-[20px] px-4 pb-8 mobile-menu"
+          className="md:hidden fixed inset-00 z-200 flex flex-col justify-between
+           bg-black/95 backdrop-blur-[20px] px-4 py-[14px] mobile-menu"
           style={{ top: "var(--nav-height)" }} // ← starts right below the navbar
           role="dialog"
           aria-modal="true"

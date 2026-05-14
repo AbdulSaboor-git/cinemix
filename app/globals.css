@@ -419,16 +419,6 @@ body {
 
   /* ── Mobile menu fullscreen ── */
   .mobile-menu {
-    position: fixed;
-    inset: 0;
-    z-index: 200;
-    background: rgba(0, 0, 0, 0.97);
-    backdrop-filter: blur(20px);
-    display: flex;
-    flex-direction: column;
-    padding: 14px;
-    padding-left: 16px;
-    padding-right: 16px;
     animation: fadeIn 0.2s ease;
   }
 
