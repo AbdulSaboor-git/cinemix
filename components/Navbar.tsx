@@ -259,7 +259,7 @@ export default function Navbar() {
       {/* ── Mobile fullscreen menu overlay*/}
       {menuOpen && (
         <div
-          className="md:hidden fixed inset-00 z-200 flex flex-col justify-between
+          className="md:hidden fixed inset-0 z-200 flex flex-col justify-between
            bg-black/95 backdrop-blur-[20px] px-4 py-[14px] mobile-menu"
           style={{ top: "var(--nav-height)" }} // ← starts right below the navbar
           role="dialog"
