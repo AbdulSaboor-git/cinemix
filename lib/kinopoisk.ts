@@ -48,13 +48,23 @@ async function apiFetch<T>(path: string, revalidate = 3600): Promise<T> {
 }
 
 function normalizeFilmsResponse(raw: Record<string, unknown>): FilmsResponse {
-  // API v2.2/films returns `items`, v2.2/films/top returns `films`
   const items = (raw.items ?? raw.films ?? []) as Film[];
-  const normalized = items.map(f => ({
-    ...f,
-    // BUG FIX: top list uses filmId, not kinopoiskId
-    kinopoiskId: f.kinopoiskId ?? f.filmId ?? 0,
-  }));
+  const normalized = items.map(f => {
+    const id = f.kinopoiskId ?? f.filmId ?? 0;
+
+    // Top/search endpoints return a string `rating` field instead of ratingKinopoisk
+    const ratingFromField = f.rating !== undefined && f.rating !== null
+      ? parseFloat(String(f.rating))
+      : undefined;
+
+    return {
+      ...f,
+      kinopoiskId: id,
+      // Promote `rating` → `ratingKinopoisk` if the proper field is missing
+      ratingKinopoisk: f.ratingKinopoisk ?? (ratingFromField && ratingFromField > 0 ? ratingFromField : undefined),
+    };
+  });
+
   return {
     items: normalized,
     total: (raw.total as number) ?? normalized.length,
@@ -84,8 +94,13 @@ export async function getFilmsByFilter(params: {
   keyword?: string;
   page?: number;
 }): Promise<FilmsResponse> {
+  const cap = new Date().getFullYear() + 1;
+  const yearTo = params.yearTo !== undefined ? Math.min(params.yearTo, cap) : cap;
+
   const q = new URLSearchParams();
-  Object.entries(params).forEach(([k, v]) => v !== undefined && q.set(k, String(v)));
+  Object.entries({ ...params, yearTo })
+    .forEach(([k, v]) => v !== undefined && q.set(k, String(v)));
+
   const raw = await apiFetch<Record<string, unknown>>(`/v2.2/films?${q.toString()}`);
   return normalizeFilmsResponse(raw);
 }

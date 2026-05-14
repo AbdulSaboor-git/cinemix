@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import Logo from "./logo";
 
 export default function Footer() {
   const year = new Date().getFullYear();
@@ -7,11 +8,9 @@ export default function Footer() {
     <footer className="border-t border-[var(--border)] bg-[var(--bg-card)] mt-auto">
       <div className="max-w-[1400px] mx-auto px-4 sm:px-[var(--page-x)] py-10 sm:py-12">
         <div className="flex flex-col gap-8 sm:gap-10 sm:flex-row sm:justify-between">
-          {/* Brand */}
+          {/* Logo */}
           <div className="max-w-full sm:max-w-[280px]">
-            <span className="font-display text-xl sm:text-2xl tracking-[3px] text-[var(--accent)] block mb-2 sm:mb-3">
-              CINEMIX
-            </span>
+            <Logo />
             <p className="text-[13px] text-[var(--text-muted)] leading-[1.8] max-w-[320px]">
               Discover and watch the greatest films and series of all time.
             </p>

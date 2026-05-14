@@ -7,6 +7,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { Film } from "@/types/kinopoisk";
 import { getEnglishName } from "@/lib/translate";
 import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
+import Logo from "./logo";
 
 const NAV_LINKS = [
   { href: "/", label: "Home" },
@@ -36,21 +37,19 @@ export default function Navbar() {
     handleKeyNav,
   } = useSearchSuggestions();
 
-  // ── Scroll detection ──
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handler, { passive: true });
     return () => window.removeEventListener("scroll", handler);
   }, []);
 
-  // ── Close everything on route change ──
   useEffect(() => {
     setMenuOpen(false);
     setSearchOpen(false);
     clearSuggestions();
   }, [pathname, clearSuggestions]);
 
-  // ── Body scroll lock — fixed: cleanup always runs ──
+  // Lock body scroll when menu open
   useEffect(() => {
     document.body.style.overflow = menuOpen ? "hidden" : "";
     return () => {
@@ -58,7 +57,6 @@ export default function Navbar() {
     };
   }, [menuOpen]);
 
-  // ── Auto-focus mobile search input ──
   useEffect(() => {
     if (searchOpen) {
       const t = setTimeout(() => mobileInputRef.current?.focus(), 60);
@@ -91,29 +89,14 @@ export default function Navbar() {
 
   return (
     <>
-      {/* ─────────────────────────── Main Nav ─────────────────────────── */}
+      {/* ── Main Nav (always on top, z-[200] so it sits above the menu overlay) ── */}
       <nav
-        className={`fixed top-0 left-0 right-0 z-[100] flex items-center gap-3 transition-all duration-300
-          px-4 md:px-[clamp(16px,4vw,48px)]
-          ${
-            scrolled
-              ? "bg-[rgba(8,8,8,0.96)] backdrop-blur-[20px] shadow-[0_1px_0_var(--border)]"
-              : "bg-gradient-to-b from-[rgba(0,0,0,0.75)] to-transparent"
-          }`}
-        style={{ height: "var(--nav-height)" }}
+        className={`fixed top-0 left-0 right-0 z-[200] flex items-center gap-3 transition-all duration-300
+          px-4 md:px-[clamp(16px,4vw,48px)] h-(--nav-height)
+          bg-linear-to-br from-black/80 to-black/20 backdrop-blur-[20px]
+          ${scrolled ? "shadow-[0_1px_0_var(--border)]" : "shadow-none"}`}
       >
-        {/* Logo */}
-        <Link href="/" className="no-underline flex-shrink-0 mr-3">
-          <span
-            className="font-display-logo text-[var(--accent)] select-none"
-            style={{
-              fontSize: "clamp(20px, 3vw, 26px)",
-              textShadow: "0 0 28px var(--accent-glow)",
-            }}
-          >
-            CINEMIX
-          </span>
-        </Link>
+        <Logo />
 
         {/* Desktop nav links */}
         <div className="hidden md:flex items-center gap-0.5 flex-1">
@@ -155,7 +138,6 @@ export default function Navbar() {
               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 w-[13px] h-[13px]" />
             </div>
           </form>
-
           {sugVisible && suggestions.length > 0 && (
             <SuggestionDropdown
               suggestions={suggestions}
@@ -186,35 +168,41 @@ export default function Navbar() {
 
         {/* Mobile icons */}
         <div className="flex md:hidden items-center gap-[2px]">
-          <NavIconBtn
-            onClick={() => setSearchOpen((v) => !v)}
-            active={searchOpen}
-            aria-label="Search"
-          >
-            <SearchIcon className="w-[19px] h-[19px]" />
-          </NavIconBtn>
+          {/* Hide search & settings when menu is open */}
+          {!menuOpen && (
+            <>
+              <NavIconBtn
+                onClick={() => setSearchOpen((v) => !v)}
+                active={searchOpen}
+                aria-label="Search"
+              >
+                <SearchIcon className="w-[19px] h-[19px]" />
+              </NavIconBtn>
 
-          <Link href="/preferences" className="no-underline">
-            <NavIconBtn
-              active={pathname === "/preferences"}
-              aria-label="Preferences"
-            >
-              <SettingsIcon />
-            </NavIconBtn>
-          </Link>
+              <Link href="/preferences" className="no-underline">
+                <NavIconBtn
+                  active={pathname === "/preferences"}
+                  aria-label="Preferences"
+                >
+                  <SettingsIcon />
+                </NavIconBtn>
+              </Link>
+            </>
+          )}
 
+          {/* Animated hamburger / close toggle */}
           <NavIconBtn
             onClick={() => setMenuOpen((v) => !v)}
             active={menuOpen}
             aria-label={menuOpen ? "Close menu" : "Open menu"}
           >
-            {menuOpen ? <CloseIcon /> : <HamburgerIcon />}
+            <MenuToggleIcon open={menuOpen} />
           </NavIconBtn>
         </div>
       </nav>
 
-      {/* ─────────────────────────── Mobile search bar ─────────────────────────── */}
-      {searchOpen && (
+      {/* ── Mobile search bar ── */}
+      {searchOpen && !menuOpen && (
         <div
           className="md:hidden fixed left-0 right-0 z-[99] bg-[rgba(8,8,8,0.98)] backdrop-blur-[20px]
             shadow-[0_1px_0_var(--border)] px-4 py-3 slide-down"
@@ -229,7 +217,7 @@ export default function Navbar() {
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onBlur={() => setTimeout(() => setSugVisible(false), 200)}
                 placeholder="Search films, series, actors…"
-                className="input pl-10 text-[15px]"
+                className="input pl-10 text-[15px] px-4 py-3"
               />
               <SearchIcon className="absolute left-[14px] top-1/2 -translate-y-1/2 opacity-40 pointer-events-none w-4 h-4" />
               {search && (
@@ -248,7 +236,6 @@ export default function Navbar() {
               )}
             </div>
           </form>
-
           {sugVisible && suggestions.length > 0 && (
             <div className="relative">
               <SuggestionDropdown
@@ -267,35 +254,18 @@ export default function Navbar() {
         </div>
       )}
 
-      {/* ─────────────────────────── Mobile fullscreen menu ─────────────────────────── */}
+      {/* ── Mobile fullscreen menu overlay*/}
       {menuOpen && (
         <div
-          className="md:hidden mobile-menu justify-between"
+          className="md:hidden fixed left-0 right-0 bottom-0 z-[150] flex flex-col justify-between
+            bg-[rgba(8,8,8,0.98)] backdrop-blur-[20px] px-4 pb-8 mobile-menu"
+          style={{ top: "var(--nav-height)" }} // ← starts right below the navbar
           role="dialog"
           aria-modal="true"
           aria-label="Navigation menu"
           onKeyDown={(e) => e.key === "Escape" && setMenuOpen(false)}
         >
-          {/* Top: logo + close */}
-          <div>
-            <div className="flex justify-between items-center mb-10">
-              <span
-                className="font-display-logo text-[var(--accent)]"
-                style={{
-                  fontSize: "26px",
-                  textShadow: "0 0 20px var(--accent-glow)",
-                }}
-              >
-                CINEMIX
-              </span>
-              <NavIconBtn
-                onClick={() => setMenuOpen(false)}
-                aria-label="Close menu"
-              >
-                <CloseIcon size={22} />
-              </NavIconBtn>
-            </div>
-
+          <div className="pt-8">
             {/* Nav links */}
             <nav
               className="flex flex-col gap-[6px]"
@@ -331,13 +301,62 @@ export default function Navbar() {
             </nav>
           </div>
 
-          {/* Footer */}
           <p className="text-[11px] text-[var(--text-muted)] text-center pb-2">
             © {new Date().getFullYear()} CineMix
           </p>
         </div>
       )}
     </>
+  );
+}
+
+// ─────────────────────────── Animated Menu Toggle Icon ───────────────────────────
+function MenuToggleIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      className={`transition-transform duration-500 ${open ? "rotate-90" : "rotate-0"}`}
+    >
+      <line
+        x1="3"
+        y1="6"
+        x2="21"
+        y2="6"
+        style={{
+          transition: "transform 0.5s ease",
+          transform: open ? "translateY(6px) rotate(45deg)" : "none",
+          transformOrigin: "center",
+          transformBox: "fill-box",
+        }}
+      />
+      <line
+        x1="3"
+        y1="12"
+        x2="21"
+        y2="12"
+        style={{
+          transition: "opacity 0.3s ease",
+          opacity: open ? 0 : 1,
+        }}
+      />
+      <line
+        x1="3"
+        y1="18"
+        x2="21"
+        y2="18"
+        style={{
+          transition: "transform 0.3s ease",
+          transform: open ? "translateY(-6px) rotate(-45deg)" : "none",
+          transformOrigin: "center",
+          transformBox: "fill-box",
+        }}
+      />
+    </svg>
   );
 }
 
@@ -366,7 +385,6 @@ function SuggestionDropdown({
           Searching…
         </div>
       )}
-
       {suggestions.map((film, i) => {
         const id = film.kinopoiskId ?? film.filmId;
         const name = getEnglishName(
@@ -376,7 +394,6 @@ function SuggestionDropdown({
         );
         const rating = film.ratingKinopoisk ?? film.ratingImdb ?? film.rating;
         const poster = film.posterUrlPreview ?? film.posterUrl;
-
         return (
           <Link
             key={id}
@@ -390,7 +407,6 @@ function SuggestionDropdown({
                 ${i === selectedIdx ? "bg-[var(--bg-elevated)]" : "hover:bg-[var(--bg-elevated)]"}
                 ${i < suggestions.length - 1 ? "border-b border-[var(--border)]" : ""}`}
             >
-              {/* Poster thumbnail — fixed: proper Next.js Image usage */}
               <div className="relative w-8 h-12 rounded-[4px] overflow-hidden flex-shrink-0 bg-[var(--surface)]">
                 {poster ? (
                   <Image
@@ -413,8 +429,6 @@ function SuggestionDropdown({
                   </div>
                 )}
               </div>
-
-              {/* Info */}
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-semibold text-[var(--text)] truncate">
                   {name}
@@ -432,8 +446,6 @@ function SuggestionDropdown({
                   )}
                 </div>
               </div>
-
-              {/* Rating */}
               {rating !== undefined && rating !== null && (
                 <div className="flex items-center gap-[3px] flex-shrink-0">
                   <svg
@@ -453,8 +465,6 @@ function SuggestionDropdown({
           </Link>
         );
       })}
-
-      {/* "See all results" footer */}
       <Link
         href={`/search?q=${encodeURIComponent(search.trim())}`}
         className="no-underline"
@@ -462,8 +472,8 @@ function SuggestionDropdown({
       >
         <div
           className="flex items-center gap-[6px] px-[14px] py-[10px] text-[12px] font-semibold
-            text-[var(--accent)] bg-[var(--bg-card)] cursor-pointer
-            hover:bg-[var(--bg-elevated)] transition-colors duration-100"
+          text-[var(--accent)] bg-[var(--bg-card)] cursor-pointer
+          hover:bg-[var(--bg-elevated)] transition-colors duration-100"
         >
           <SearchIcon className="w-3 h-3" />
           See all results for &ldquo;{search}&rdquo;
@@ -514,9 +524,16 @@ function SearchIcon({ className = "" }: { className?: string }) {
   );
 }
 
-function CloseIcon({ size = 20 }: { size?: number }) {
+function CloseIcon({
+  className = "",
+  size = 20,
+}: {
+  className?: string;
+  size?: number;
+}) {
   return (
     <svg
+      className={className}
       width={size}
       height={size}
       viewBox="0 0 24 24"
@@ -526,23 +543,6 @@ function CloseIcon({ size = 20 }: { size?: number }) {
     >
       <line x1="18" y1="6" x2="6" y2="18" />
       <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-
-function HamburgerIcon() {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-    >
-      <line x1="3" y1="6" x2="21" y2="6" />
-      <line x1="3" y1="12" x2="21" y2="12" />
-      <line x1="3" y1="18" x2="21" y2="18" />
     </svg>
   );
 }

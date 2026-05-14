@@ -45,6 +45,8 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
   const [loading, setLoading] = useState(!isNaN(id));
   const [error, setError] = useState(isNaN(id));
 
+  console.log(film);
+
   useEffect(() => {
     if (isNaN(id)) return;
     let mounted = true;

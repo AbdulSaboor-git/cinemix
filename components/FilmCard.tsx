@@ -16,12 +16,43 @@ interface FilmCardProps {
   index?: number;
 }
 
-// Responsive sizes: [mobile, desktop]
 const SCROLL_SIZE_CLASSES = {
   sm: "w-[110px] h-[165px] sm:w-[140px] sm:h-[210px]",
   md: "w-[130px] h-[195px] sm:w-[175px] sm:h-[263px]",
   lg: "w-[160px] h-[240px] sm:w-[220px] sm:h-[330px]",
 };
+
+/** Pick the best available numeric rating from a Film object.
+ *  Priority: IMDb → Kinopoisk → generic `rating` → critics → rf critics → good-review % */
+function resolveRating(film: Film): number | string | null {
+  const candidates = [
+    film.ratingImdb,
+    film.ratingKinopoisk,
+    film.rating,
+    film.ratingFilmCritics,
+    film.ratingRfCritics,
+  ];
+
+  for (const r of candidates) {
+    if (r === undefined || r === null) continue;
+
+    // Coerce to number if it's a numeric string
+    const num = typeof r === "string" ? parseFloat(r) : r;
+    if (!isNaN(num) && num > 0) return num;
+  }
+
+  if (film.ratingGoodReview && film.ratingGoodReview > 0) {
+    return `${Math.round(film.ratingGoodReview)}%`;
+  }
+
+  return null;
+}
+
+/** Format the resolved rating value for display */
+function formatRating(r: number | string): string {
+  if (typeof r === "number") return r.toFixed(1);
+  return String(r);
+}
 
 export default function FilmCard({
   film,
@@ -31,11 +62,7 @@ export default function FilmCard({
 }: FilmCardProps) {
   const id = film.kinopoiskId ?? film.filmId;
   const name = getEnglishName(film.nameRu, film.nameEn, film.nameOriginal);
-  const rating =
-    film.rating ??
-    film.ratingKinopoisk?.toFixed(1) ??
-    film.ratingImdb?.toFixed(1) ??
-    undefined;
+  const rating = resolveRating(film);
   const year = film.year || film.startYear;
   const isScroll = variant === "scroll";
   const [imgError, setImgError] = useState(false);
@@ -70,7 +97,7 @@ export default function FilmCard({
           <div className="card-overlay opacity-[0.45] group-hover:opacity-100" />
 
           {/* Rating badge */}
-          {rating && (
+          {rating !== null && (
             <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 bg-[rgba(0,0,0,0.82)] backdrop-blur-[8px] border border-[rgba(245,197,24,0.3)] rounded-[5px] px-[6px] py-[2px] sm:px-[7px] sm:py-[3px] flex items-center gap-[3px] sm:gap-1">
               <svg
                 width="8"
@@ -82,7 +109,7 @@ export default function FilmCard({
                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
               </svg>
               <span className="text-[10px] sm:text-[11px] text-[#f5c518] font-display tracking-[0.5px]">
-                {rating}
+                {formatRating(rating)}
               </span>
             </div>
           )}
@@ -128,17 +155,13 @@ export default function FilmCard({
                 {translateGenre(film.genres[0].genre)}
               </span>
             )}
-            {/* Hide country + age tags on very small cards to avoid overflow */}
-            {film.countries?.[0] && (
-              <span className="hidden sm:inline tag tag-dim !text-[10px] !py-[1px] !px-[7px]">
-                {translateCountry(film.countries[0].country)}
-              </span>
-            )}
-            {film.ratingAgeLimits && (
-              <span className="tag tag-accent !text-[9px] sm:!text-[10px] !py-[1px] !px-[5px] sm:!px-[7px]">
-                {film.ratingAgeLimits.replace("age", "")}+
-              </span>
-            )}
+            <div className="hidden sm:inline">
+              {film.countries?.[0] && (
+                <span className="hidden sm:inline tag tag-dim text-[10px]! py-px! px-1.75">
+                  {translateCountry(film.countries[0].country)}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>

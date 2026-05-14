@@ -7,6 +7,7 @@ import { translateGenre, translateCountry } from "@/lib/translate";
 import FilmCard from "@/components/FilmCard";
 import Pagination from "@/components/Pagination";
 import Link from "next/link";
+import { getPreferences } from "@/lib/preferences";
 
 const TYPES = [
   { value: "ALL", label: "All" },
@@ -20,7 +21,8 @@ const ORDERS = [
   { value: "NUM_VOTE", label: "Most Voted" },
   { value: "YEAR", label: "Newest First" },
 ];
-const YEAR_OPTIONS = Array.from({ length: 80 }, (_, i) => 2025 - i);
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: 80 }, (_, i) => CURRENT_YEAR + 1 - i);
 const RATING_OPTIONS = [9, 8, 7, 6, 5, 4];
 
 interface Props {
@@ -49,8 +51,6 @@ export default function BrowseClient({
   type FilmType = "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
   type OrderType = "RATING" | "NUM_VOTE" | "YEAR";
 
-  const type = (tp as FilmType) || "ALL";
-  const order = (ord as OrderType) || "RATING";
   const page = Math.max(1, parseInt(pg || "1"));
   const genreId = genreParam ? parseInt(genreParam) : undefined;
   const countryId = countryParam ? parseInt(countryParam) : undefined;
@@ -69,6 +69,10 @@ export default function BrowseClient({
   const [filterOpen, setFilterOpen] = useState(false);
   const router = useRouter();
 
+  console.log("genres", genres);
+  console.log("countries", countries);
+
+  // Replace the prefs useEffect entirely — just load filters
   useEffect(() => {
     getFilters()
       .then((f) => {
@@ -78,7 +82,24 @@ export default function BrowseClient({
       .catch(() => {});
   }, []);
 
+  // And use prefs as defaults when URL params are absent:
+  const [ready, setReady] = useState(false);
+  const [prefType, setPrefType] = useState<FilmType>("ALL");
+  const [prefOrder, setPrefOrder] = useState<OrderType>("RATING");
+
+  // Resolved values — use URL params first, then prefs, then defaults
+  const type = (tp as FilmType) || prefType;
+  const order = (ord as OrderType) || prefOrder;
+
   useEffect(() => {
+    const prefs = getPreferences();
+    setPrefType((prefs.defaultExploreType as FilmType) || "ALL");
+    setPrefOrder((prefs.defaultExploreOrder as OrderType) || "RATING");
+    setReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
     setLoading(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
     getFilmsByFilter({
@@ -131,7 +152,17 @@ export default function BrowseClient({
       params.set("page", String(p));
       return `/explore?${params.toString()}`;
     },
-    [type, order, genreId, countryId, ratingFrom, ratingTo, yearFrom, yearTo],
+    [
+      ready,
+      type,
+      order,
+      genreId,
+      countryId,
+      ratingFrom,
+      ratingTo,
+      yearFrom,
+      yearTo,
+    ],
   );
 
   const buildFilterHref = useCallback(
@@ -329,6 +360,7 @@ export default function BrowseClient({
         </p>
         <div className="flex items-end justify-between flex-wrap gap-2 sm:gap-3">
           <h1
+            suppressHydrationWarning
             className="font-display uppercase leading-none tracking-[2px]"
             style={{ fontSize: "clamp(28px, 6vw, 60px)" }}
           >

@@ -426,7 +426,9 @@ body {
     backdrop-filter: blur(20px);
     display: flex;
     flex-direction: column;
-    padding: 24px;
+    padding: 14px;
+    padding-left: 16px;
+    padding-right: 16px;
     animation: fadeIn 0.2s ease;
   }
 
