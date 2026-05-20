@@ -522,7 +522,7 @@ export default function PreferencesClient() {
             <SectionTitle>Content & Display</SectionTitle>
           </div>
           <div className="py-2">
-            <div className={row}>
+            {/* <div className={row}>
               <div className="min-w-0 flex-1 pr-2">
                 <p className={lbl}>Auto-translate Russian text</p>
                 <p className={hint}>
@@ -535,7 +535,7 @@ export default function PreferencesClient() {
                   setPrefs((p) => ({ ...p, autoTranslateEnabled: v }))
                 }
               />
-            </div>
+            </div> */}
 
             <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
               <p className={`${lbl} mb-1`}>Default Explore sort</p>
@@ -571,37 +571,29 @@ export default function PreferencesClient() {
                 Which content type the Explore page shows by default.
               </p>
               <div className="flex gap-[5px] sm:gap-[6px] flex-wrap">
-                {(
-                  [
-                    "ALL",
-                    "FILM",
-                    "TV_SERIES",
-                    "TV_SHOW",
-                    "MINI_SERIES",
-                  ] as const
-                ).map((t) => {
-                  const label =
-                    t === "ALL"
-                      ? "All"
-                      : t === "FILM"
+                {(["FILM", "TV_SERIES", "TV_SHOW", "MINI_SERIES"] as const).map(
+                  (t) => {
+                    const label =
+                      t === "FILM"
                         ? "Movies"
                         : t === "TV_SERIES"
                           ? "Series"
                           : t === "TV_SHOW"
                             ? "TV Shows"
                             : "Mini Series";
-                  return (
-                    <button
-                      key={t}
-                      onClick={() =>
-                        setPrefs((p) => ({ ...p, defaultExploreType: t }))
-                      }
-                      className={optBtn(prefs.defaultExploreType === t)}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
+                    return (
+                      <button
+                        key={t}
+                        onClick={() =>
+                          setPrefs((p) => ({ ...p, defaultExploreType: t }))
+                        }
+                        className={optBtn(prefs.defaultExploreType === t)}
+                      >
+                        {label}
+                      </button>
+                    );
+                  },
+                )}
               </div>
             </div>
           </div>

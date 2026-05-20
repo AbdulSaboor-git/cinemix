@@ -2,16 +2,18 @@
 import { useEffect, useState } from "react";
 import { getTopFilms } from "@/lib/kinopoisk";
 import { getEnglishName, translateGenre } from "@/lib/translate";
+import { useAutoTranslate } from "@/hooks/useTranslate";
 import { Film } from "@/types/kinopoisk";
 import Pagination from "@/components/Pagination";
 import Link from "next/link";
 import Image from "next/image";
 
-export default function Top250Client({ page: pg }: { page?: string }) {
+export default function Top240Client({ page: pg }: { page?: string }) {
   const page = Math.max(1, parseInt(pg || "1"));
   const [films, setFilms] = useState<Film[]>([]);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const autoTranslate = useAutoTranslate();
 
   useEffect(() => {
     setLoading(true);
@@ -23,7 +25,7 @@ export default function Top250Client({ page: pg }: { page?: string }) {
         const tp =
           d.totalPages && d.totalPages > 1
             ? d.totalPages
-            : Math.ceil(250 / (items.length || 20));
+            : Math.ceil(240 / (items.length || 20));
         setTotalPages(tp);
       })
       .catch(() => setFilms([]))
@@ -49,7 +51,7 @@ export default function Top250Client({ page: pg }: { page?: string }) {
           className="font-display leading-none tracking-[2px] sm:tracking-[3px]"
           style={{ fontSize: "clamp(40px, 8vw, 80px)" }}
         >
-          TOP 250
+          TOP 240
         </h1>
         <p className="text-[var(--text-dim)] mt-2 sm:mt-3 text-[13px] sm:text-[15px]">
           The greatest films of all time, ranked by audience rating
@@ -73,12 +75,13 @@ export default function Top250Client({ page: pg }: { page?: string }) {
           </div>
         ) : (
           <div className="flex flex-col gap-[2px] sm:gap-[3px]">
-            {films.map((film, i) => {
+            {films.slice(0, 240).map((film, i) => {
               const rank = getGlobalRank(i);
               const name = getEnglishName(
                 film.nameRu,
                 film.nameEn,
                 film.nameOriginal,
+                autoTranslate,
               );
               const rating =
                 film.ratingKinopoisk?.toFixed(1) ??
@@ -143,7 +146,7 @@ export default function Top250Client({ page: pg }: { page?: string }) {
                             key={g.genre}
                             className="hidden sm:inline text-[11px] text-[var(--text-dim)] capitalize"
                           >
-                            {translateGenre(g.genre)}
+                            {translateGenre(g.genre, autoTranslate)}
                           </span>
                         ))}
                       </div>

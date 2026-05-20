@@ -5,6 +5,7 @@ import {
   translateCountry,
   translateGenre,
 } from "@/lib/translate";
+import { useAutoTranslate } from "@/hooks/useTranslate";
 import { Film } from "@/types/kinopoisk";
 import { useState } from "react";
 import { FilmPosterFallback } from "./posterFallback";
@@ -22,12 +23,15 @@ const SCROLL_SIZE_CLASSES = {
   lg: "w-[160px] h-[240px] sm:w-[220px] sm:h-[330px]",
 };
 
-/** Pick the best available numeric rating from a Film object.
- *  Priority: IMDb → Kinopoisk → generic `rating` → critics → rf critics → good-review % */
+/**
+ * Pick the best available numeric rating from a Film object.
+ * Priority: Kinopoisk → IMDb → generic `rating` → critics → rf critics → good-review %
+ * Kinopoisk is first because this is a Kinopoisk-based app.
+ */
 function resolveRating(film: Film): number | string | null {
   const candidates = [
-    film.ratingImdb,
     film.ratingKinopoisk,
+    film.ratingImdb,
     film.rating,
     film.ratingFilmCritics,
     film.ratingRfCritics,
@@ -35,7 +39,6 @@ function resolveRating(film: Film): number | string | null {
 
   for (const r of candidates) {
     if (r === undefined || r === null) continue;
-
     // Coerce to number if it's a numeric string
     const num = typeof r === "string" ? parseFloat(r) : r;
     if (!isNaN(num) && num > 0) return num;
@@ -60,8 +63,9 @@ export default function FilmCard({
   size = "md",
   index,
 }: FilmCardProps) {
+  const autoTranslate = useAutoTranslate();
   const id = film.kinopoiskId ?? film.filmId;
-  const name = getEnglishName(film.nameRu, film.nameEn, film.nameOriginal);
+  const name = getEnglishName(film.nameRu, film.nameEn, film.nameOriginal, autoTranslate);
   const rating = resolveRating(film);
   const year = film.year || film.startYear;
   const isScroll = variant === "scroll";
@@ -152,13 +156,13 @@ export default function FilmCard({
             )}
             {film.genres?.[0] && (
               <span className="tag tag-dim !text-[9px] sm:!text-[10px] !py-[1px] !px-[6px] sm:!px-[7px]">
-                {translateGenre(film.genres[0].genre)}
+                {translateGenre(film.genres[0].genre, autoTranslate)}
               </span>
             )}
             <div className="hidden sm:inline">
               {film.countries?.[0] && (
                 <span className="hidden sm:inline tag tag-dim text-[10px]! py-px! px-1.75">
-                  {translateCountry(film.countries[0].country)}
+                  {translateCountry(film.countries[0].country, autoTranslate)}
                 </span>
               )}
             </div>

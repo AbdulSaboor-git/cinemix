@@ -5,6 +5,7 @@ import { searchFilms } from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
 import { getEnglishName, translateCountry } from "@/lib/translate";
 import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
+import { useAutoTranslate } from "@/hooks/useTranslate";
 import FilmCard from "@/components/FilmCard";
 import Pagination from "@/components/Pagination";
 import Link from "next/link";
@@ -26,6 +27,7 @@ export default function SearchClient({
   const [search, setSearch] = useState(query);
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const autoTranslate = useAutoTranslate();
   const {
     suggestions,
     sugLoading,
@@ -134,6 +136,7 @@ export default function SearchClient({
                     film.nameRu,
                     film.nameEn,
                     film.nameOriginal,
+                    autoTranslate,
                   );
                   const rating =
                     film.ratingKinopoisk ?? film.ratingImdb ?? film.rating;
@@ -177,7 +180,7 @@ export default function SearchClient({
                             )}
                             {film.countries?.[0] && (
                               <span className="hidden sm:inline text-[11px] text-[var(--text-muted)]">
-                                {translateCountry(film.countries[0].country)}
+                                {translateCountry(film.countries[0].country, autoTranslate)}
                               </span>
                             )}
                           </div>

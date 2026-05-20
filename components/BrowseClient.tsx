@@ -8,9 +8,10 @@ import FilmCard from "@/components/FilmCard";
 import Pagination from "@/components/Pagination";
 import Link from "next/link";
 import { getPreferences } from "@/lib/preferences";
+import { useAutoTranslate } from "@/hooks/useTranslate";
 
 const TYPES = [
-  { value: "ALL", label: "All" },
+  // { value: "ALL", label: "All" },
   { value: "FILM", label: "Movies" },
   { value: "TV_SERIES", label: "Series" },
   { value: "TV_SHOW", label: "TV Shows" },
@@ -68,9 +69,7 @@ export default function BrowseClient({
   // Mobile filter drawer state
   const [filterOpen, setFilterOpen] = useState(false);
   const router = useRouter();
-
-  console.log("genres", genres);
-  console.log("countries", countries);
+  const autoTranslate = useAutoTranslate();
 
   // Replace the prefs useEffect entirely — just load filters
   useEffect(() => {
@@ -87,9 +86,9 @@ export default function BrowseClient({
   const [prefType, setPrefType] = useState<FilmType>("ALL");
   const [prefOrder, setPrefOrder] = useState<OrderType>("RATING");
 
-  // Resolved values — use URL params first, then prefs, then defaults
-  const type = (tp as FilmType) || prefType;
-  const order = (ord as OrderType) || prefOrder;
+  // Resolved values — use URL params first (guard against empty string ""), then prefs, then defaults
+  const type = (tp || prefType) as FilmType;
+  const order = (ord || prefOrder) as OrderType;
 
   useEffect(() => {
     const prefs = getPreferences();
@@ -127,6 +126,7 @@ export default function BrowseClient({
       })
       .finally(() => setLoading(false));
   }, [
+    ready,
     type,
     order,
     page,
@@ -152,17 +152,7 @@ export default function BrowseClient({
       params.set("page", String(p));
       return `/explore?${params.toString()}`;
     },
-    [
-      ready,
-      type,
-      order,
-      genreId,
-      countryId,
-      ratingFrom,
-      ratingTo,
-      yearFrom,
-      yearTo,
-    ],
+    [type, order, genreId, countryId, ratingFrom, ratingTo, yearFrom, yearTo],
   );
 
   const buildFilterHref = useCallback(
@@ -202,7 +192,9 @@ export default function BrowseClient({
   if (genreId) {
     const g = genres.find((g) => g.id === genreId);
     activeFilterTags.push({
-      label: g ? translateGenre(g.genre) || g.genre : `Genre #${genreId}`,
+      label: g
+        ? translateGenre(g.genre, autoTranslate) || g.genre
+        : `Genre #${genreId}`,
       clearKey: "genres",
     });
   }
@@ -210,7 +202,7 @@ export default function BrowseClient({
     const c = countries.find((c) => c.id === countryId);
     activeFilterTags.push({
       label: c
-        ? translateCountry(c.country) || c.country
+        ? translateCountry(c.country, autoTranslate) || c.country
         : `Country #${countryId}`,
       clearKey: "countries",
     });
@@ -264,7 +256,7 @@ export default function BrowseClient({
           .filter((g) => g.id !== 28 && g.id !== 25)
           .map((g) => (
             <option key={g.id} value={g.id}>
-              {translateGenre(g.genre) || g.genre}
+              {translateGenre(g.genre, autoTranslate) || g.genre}
             </option>
           ))}
       </select>
@@ -284,7 +276,7 @@ export default function BrowseClient({
         <option value="">All Countries</option>
         {countries.map((c) => (
           <option key={c.id} value={c.id}>
-            {translateCountry(c.country) || c.country}
+            {translateCountry(c.country, autoTranslate) || c.country}
           </option>
         ))}
       </select>

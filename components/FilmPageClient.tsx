@@ -25,7 +25,7 @@ import {
   translateGenre,
   translateCountry,
 } from "@/lib/translate";
-import { useTranslate, useTranslateHtml } from "@/hooks/useTranslate";
+import { useTranslate, useTranslateHtml, useAutoTranslate } from "@/hooks/useTranslate";
 import PlayerSection from "@/components/PlayerSection";
 import ActorCard from "@/components/ActorCard";
 import FilmCard from "@/components/FilmCard";
@@ -45,7 +45,6 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
   const [loading, setLoading] = useState(!isNaN(id));
   const [error, setError] = useState(isNaN(id));
 
-  console.log(film);
 
   useEffect(() => {
     if (isNaN(id)) return;
@@ -133,7 +132,8 @@ function FilmDetail({
   similars: SimilarFilm[];
   reviews: Review[];
 }) {
-  const name = getEnglishName(film.nameRu, film.nameEn, film.nameOriginal);
+  const autoTranslate = useAutoTranslate();
+  const name = getEnglishName(film.nameRu, film.nameEn, film.nameOriginal, autoTranslate);
   const description = useTranslate(film.description);
   const slogan = useTranslate(film.slogan);
 
@@ -353,7 +353,7 @@ function FilmDetail({
                   href={`/explore?countries=${encodeURIComponent(c.country)}`}
                   className="no-underline"
                 >
-                  <MetaTag clickable>{translateCountry(c.country)}</MetaTag>
+                  <MetaTag clickable>{translateCountry(c.country, autoTranslate)}</MetaTag>
                 </Link>
               ))}
               {film.type && film.type !== "FILM" && (
@@ -383,7 +383,7 @@ function FilmDetail({
                   className="no-underline"
                 >
                   <span className="tag tag-accent cursor-pointer capitalize">
-                    {translateGenre(g.genre)}
+                    {translateGenre(g.genre, autoTranslate)}
                   </span>
                 </Link>
               ))}
@@ -528,7 +528,7 @@ function FilmDetail({
             <div className="flex gap-3 overflow-x-auto pb-3 -mx-4 px-4 md:mx-0 md:px-0 scrollbar-none">
               {similars.slice(0, 12).map((sf) => {
                 const sfId = sf.filmId;
-                const sfName = getEnglishName(sf.nameRu, sf.nameEn);
+                const sfName = getEnglishName(sf.nameRu, sf.nameEn, undefined, autoTranslate);
                 return (
                   <Link
                     key={sfId}
@@ -680,6 +680,7 @@ function ReviewCard({ review }: { review: Review }) {
 function SeasonsSection({ seasons }: { seasons: Season[] }) {
   const [activeSeason, setActiveSeason] = useState(0);
   const season = seasons[activeSeason];
+  const autoTranslate = useAutoTranslate();
   return (
     <div className="mt-10 md:mt-12">
       <SectionHeader>SEASONS & EPISODES</SectionHeader>
@@ -701,7 +702,7 @@ function SeasonsSection({ seasons }: { seasons: Season[] }) {
       {season && (
         <div className="flex flex-col gap-[2px]">
           {season.episodes.map((ep, i) => {
-            const epName = getEnglishName(ep.nameRu, ep.nameEn);
+            const epName = getEnglishName(ep.nameRu, ep.nameEn, undefined, autoTranslate);
             return (
               <div
                 key={i}

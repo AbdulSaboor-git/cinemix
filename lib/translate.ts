@@ -298,11 +298,33 @@ export const COUNTRY_MAP: Record<string, string> = {
   "Гуам": "Guam",
 };
 
-export function translateGenre(ru: string): string {
+// ─── Russian profession labels ────────────────────────────────────────────────
+export const RELATION_MAP: Record<string, string> = {
+  "ЖЕН.": "wife",
+  "МУЖ.": "husband",
+  "ЖЕНA": "wife",
+  "МУЖ": "husband",
+};
+
+export function translateRelation(ru: string): string {
+  return RELATION_MAP[ru.trim().toUpperCase()] ?? ru;
+}
+
+/**
+ * translateGenre — respects autoTranslateEnabled.
+ * When translate is OFF, returns the raw Russian value so the user
+ * sees unmodified API data. Pass `enabled = true` (default) to get English.
+ */
+export function translateGenre(ru: string, enabled = true): string {
+  if (!enabled) return ru;
   return GENRE_MAP[ru.toLowerCase()] ?? GENRE_MAP[ru] ?? ru;
 }
 
-export function translateCountry(ru: string): string {
+/**
+ * translateCountry — same translate-toggle awareness as translateGenre.
+ */
+export function translateCountry(ru: string, enabled = true): string {
+  if (!enabled) return ru;
   return COUNTRY_MAP[ru] ?? ru;
 }
 
@@ -349,7 +371,20 @@ export function isRussian(text: string): boolean {
 
 // ─── Preferred English name helper ────────────────────────────────────────────
 
-export function getEnglishName(nameRu?: string, nameEn?: string, nameOriginal?: string): string {
+/**
+ * Returns the best display name for a film given the translate setting.
+ * When autoTranslateEnabled is false, prefer nameRu (original data).
+ * When true, prefer the English/Original name.
+ */
+export function getEnglishName(
+  nameRu?: string,
+  nameEn?: string,
+  nameOriginal?: string,
+  autoTranslateEnabled = true,
+): string {
+  if (!autoTranslateEnabled) {
+    return nameRu || nameEn || nameOriginal || "Unknown";
+  }
   if (nameEn && !isRussian(nameEn)) return nameEn;
   if (nameOriginal && !isRussian(nameOriginal)) return nameOriginal;
   return nameRu || nameEn || nameOriginal || "Unknown";

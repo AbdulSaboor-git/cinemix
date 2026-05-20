@@ -25,8 +25,13 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
     };
   }, []);
 
+  const type = film.type === "TV_SERIES" ? "series" : "movie";
   const name = film.nameOriginal || film.nameRu || film.nameEn || "Unknown";
   const playerUrl = `${PLAYER_BASE}/${filmId}/`;
+  // const playerUrl =
+  //   type === "series"
+  //     ? `${PLAYER_BASE}/${filmId}/`
+  //     : `https://vidcore.net/movie/${film.imdbId}`;
   const [posterError, setPosterError] = useState(false);
 
   return (

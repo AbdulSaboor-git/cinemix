@@ -12,7 +12,7 @@ import Logo from "./logo";
 const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/explore", label: "Explore" },
-  { href: "/top250", label: "Top 250" },
+  { href: "/top240", label: "Top 240" },
 ];
 
 export default function Navbar() {

@@ -6,9 +6,11 @@ import {
   translateCountry,
   translateGenre,
 } from "@/lib/translate";
+import { useAutoTranslate } from "@/hooks/useTranslate";
 
 export default function HeroBanner({ film }: { film: Film }) {
-  const name = getEnglishName(film.nameRu, film.nameEn, film.nameOriginal);
+  const autoTranslate = useAutoTranslate();
+  const name = getEnglishName(film.nameRu, film.nameEn, film.nameOriginal, autoTranslate);
   const desc = film.shortDescription || film.description?.slice(0, 200) || "";
   const id = film.kinopoiskId ?? film.filmId;
   const rating =
@@ -92,12 +94,12 @@ export default function HeroBanner({ film }: { film: Film }) {
           <div className="hidden sm:flex flex-wrap gap-2 mb-3 sm:mb-4">
             {film.genres?.slice(0, 4).map((g) => (
               <span key={g.genre} className="tag tag-dim">
-                {translateGenre(g.genre)}
+                {translateGenre(g.genre, autoTranslate)}
               </span>
             ))}
             {film.countries?.slice(0, 3).map((c) => (
               <span key={c.country} className="tag tag-dim">
-                {translateCountry(c.country)}
+                {translateCountry(c.country, autoTranslate)}
               </span>
             ))}
           </div>

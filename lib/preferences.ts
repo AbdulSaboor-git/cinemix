@@ -24,7 +24,7 @@ export interface Preferences {
   };
 
   // Explore defaults
-  defaultExploreType: "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
+  defaultExploreType: "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
   defaultExploreOrder: "RATING" | "NUM_VOTE" | "YEAR";
 }
 
@@ -46,7 +46,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
     horror: true,
     premieres: true,
   },
-  defaultExploreType: "ALL",
+  defaultExploreType: "FILM",
   defaultExploreOrder: "RATING",
 };
 
@@ -56,6 +56,15 @@ const STORAGE_KEY = "cinemix_preferences";
 
 // In-memory cache — avoids re-parsing localStorage on every apiFetch call
 let _cache: Preferences | null = null;
+
+// Invalidate cache when another tab writes preferences
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e: StorageEvent) => {
+    if (e.key === STORAGE_KEY) {
+      _cache = null; // force re-parse on next getPreferences() call
+    }
+  });
+}
 
 export function getPreferences(): Preferences {
   if (_cache) return _cache;
