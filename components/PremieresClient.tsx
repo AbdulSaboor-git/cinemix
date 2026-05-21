@@ -1,0 +1,255 @@
+"use client";
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { getPremieres } from "@/lib/kinopoisk";
+import { Film } from "@/types/kinopoisk";
+import { getEnglishName, translateGenre, translateCountry } from "@/lib/translate";
+import { useAutoTranslate } from "@/hooks/useTranslate";
+import FilmCard from "@/components/FilmCard";
+import Link from "next/link";
+import Image from "next/image";
+
+const MONTHS = [
+  "JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE",
+  "JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER",
+];
+const MONTH_LABELS = [
+  "Jan","Feb","Mar","Apr","May","Jun",
+  "Jul","Aug","Sep","Oct","Nov","Dec",
+];
+const MONTH_FULL = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+];
+
+const NOW = new Date();
+const CUR_YEAR = NOW.getFullYear();
+const CUR_MONTH_IDX = NOW.getMonth(); // 0-based
+
+function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
+
+export default function PremieresClient({
+  year: yearParam,
+  month: monthParam,
+}: {
+  year?: string;
+  month?: string;
+}) {
+  const router = useRouter();
+  const autoTranslate = useAutoTranslate();
+
+  const initYear = yearParam ? parseInt(yearParam) : CUR_YEAR;
+  const initMonthIdx = monthParam
+    ? MONTHS.indexOf(monthParam.toUpperCase())
+    : CUR_MONTH_IDX;
+
+  const [year, setYear] = useState(initYear);
+  const [monthIdx, setMonthIdx] = useState(clamp(initMonthIdx < 0 ? CUR_MONTH_IDX : initMonthIdx, 0, 11));
+  const [films, setFilms] = useState<Film[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback((y: number, mi: number) => {
+    setLoading(true);
+    setFilms([]);
+    getPremieres(y, MONTHS[mi])
+      .then((d) => setFilms(d.items ?? []))
+      .catch(() => setFilms([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    load(year, monthIdx);
+    router.replace(`/premieres?year=${year}&month=${MONTHS[monthIdx]}`, { scroll: false });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, monthIdx]);
+
+  const prevMonth = () => {
+    if (monthIdx === 0) { setMonthIdx(11); setYear((y) => y - 1); }
+    else setMonthIdx((m) => m - 1);
+  };
+  const nextMonth = () => {
+    if (monthIdx === 11) { setMonthIdx(0); setYear((y) => y + 1); }
+    else setMonthIdx((m) => m + 1);
+  };
+
+  const isCurrent = year === CUR_YEAR && monthIdx === CUR_MONTH_IDX;
+
+  return (
+    <div className="min-h-screen pb-20">
+      {/* Header */}
+      <div className="px-4 sm:px-[var(--page-x)] pt-8 sm:pt-10 pb-6">
+        <div className="flex items-center gap-2 mb-1">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          <p className="text-[11px] text-[var(--text-muted)] uppercase tracking-[2px]">Calendar</p>
+        </div>
+        <h1 className="font-display tracking-[2px] text-[clamp(28px,5vw,52px)] leading-none mb-4">
+          PREMIERES
+        </h1>
+
+        {/* Month / Year Navigator */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={prevMonth}
+            className="w-9 h-9 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M15 18l-6-6 6-6"/>
+            </svg>
+          </button>
+
+          <div className="flex items-center gap-2">
+            {/* Month pills */}
+            <div className="flex gap-[5px] overflow-x-auto scrollbar-none pb-1">
+              {MONTH_LABELS.map((lbl, i) => (
+                <button
+                  key={i}
+                  onClick={() => setMonthIdx(i)}
+                  className={`flex-shrink-0 px-3 py-[5px] rounded-[8px] text-[12px] font-semibold cursor-pointer transition-all duration-150
+                    ${monthIdx === i
+                      ? "bg-[var(--accent)] text-white border border-[var(--accent)]"
+                      : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border border-[var(--border)] hover:border-[var(--border-hover)]"
+                    }`}
+                >
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={nextMonth}
+            className="w-9 h-9 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M9 18l6-6-6-6"/>
+            </svg>
+          </button>
+
+          {/* Year selector */}
+          <div className="flex items-center gap-2 ml-1">
+            <button
+              onClick={() => setYear((y) => y - 1)}
+              className="w-7 h-7 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] transition-colors text-[11px]"
+            >
+              −
+            </button>
+            <span className="font-display text-[18px] tracking-[1px] text-[var(--text)] min-w-[50px] text-center">{year}</span>
+            <button
+              onClick={() => setYear((y) => y + 1)}
+              className="w-7 h-7 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] transition-colors text-[11px]"
+            >
+              +
+            </button>
+          </div>
+
+          {!isCurrent && (
+            <button
+              onClick={() => { setYear(CUR_YEAR); setMonthIdx(CUR_MONTH_IDX); }}
+              className="text-[11px] text-[var(--accent)] border border-[rgba(229,9,20,0.3)] rounded-[8px] px-3 py-[5px] cursor-pointer hover:border-[var(--accent)] transition-colors"
+            >
+              This month
+            </button>
+          )}
+        </div>
+
+        <p className="text-[14px] text-[var(--text-dim)] mt-3">
+          <span className="font-semibold text-[var(--text)]">{MONTH_FULL[monthIdx]} {year}</span>
+          {!loading && <span className="text-[var(--text-muted)] ml-2">· {films.length} premiere{films.length !== 1 ? "s" : ""}</span>}
+        </p>
+      </div>
+
+      {/* Grid */}
+      <div className="px-4 sm:px-[var(--page-x)]">
+        {loading ? (
+          <div className="film-grid">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div key={i} className="skeleton aspect-[2/3] rounded-[12px]" />
+            ))}
+          </div>
+        ) : films.length === 0 ? (
+          <div className="flex flex-col items-center py-20 gap-4 text-center text-[var(--text-dim)]">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            <p className="text-[16px] sm:text-[18px]">No premieres found</p>
+            <p className="text-[12px] sm:text-[13px] text-[var(--text-muted)]">
+              Try a different month or year
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+            {films.map((film) => (
+              <PremiereCard key={film.kinopoiskId ?? film.filmId} film={film} autoTranslate={autoTranslate} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PremiereCard({ film, autoTranslate }: { film: Film; autoTranslate: boolean }) {
+  const name = getEnglishName(film.nameRu, film.nameEn, film.nameOriginal, autoTranslate);
+  const id = film.kinopoiskId ?? film.filmId;
+  const premiere = (film as Film & { premiere?: string }).premiere;
+
+  return (
+    <Link href={`/film/${id}`} className="no-underline group">
+      <div className="flex gap-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-3 hover:border-[rgba(229,9,20,0.3)] transition-all duration-200">
+        {/* Poster */}
+        <div className="w-[70px] sm:w-[80px] flex-shrink-0 rounded-[8px] overflow-hidden aspect-[2/3] relative bg-[var(--surface)]">
+          {(film.posterUrlPreview || film.posterUrl) && (
+            <Image
+              src={film.posterUrlPreview || film.posterUrl!}
+              alt={name}
+              fill
+              className="object-cover"
+              sizes="80px"
+            />
+          )}
+        </div>
+        {/* Info */}
+        <div className="flex-1 min-w-0 flex flex-col justify-between py-[2px]">
+          <div>
+            <p className="font-semibold text-[var(--text)] text-[13px] sm:text-[14px] leading-[1.3] mb-1 group-hover:text-white transition-colors line-clamp-2">
+              {name}
+            </p>
+            {film.genres && film.genres.length > 0 && (
+              <p className="text-[11px] text-[var(--text-muted)] capitalize mb-1">
+                {film.genres.slice(0, 2).map((g) => translateGenre(g.genre, autoTranslate)).join(" · ")}
+              </p>
+            )}
+            {film.countries && film.countries.length > 0 && (
+              <p className="text-[11px] text-[var(--text-muted)]">
+                {film.countries.slice(0, 2).map((c) => translateCountry(c.country, autoTranslate)).join(", ")}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center justify-between mt-2 flex-wrap gap-1">
+            {premiere && (
+              <span className="text-[11px] text-[var(--accent)] font-semibold">
+                {new Date(premiere).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </span>
+            )}
+            {(film as Film & { duration?: number }).duration && (
+              <span className="text-[11px] text-[var(--text-muted)]">
+                {Math.floor(((film as Film & { duration?: number }).duration ?? 0) / 60)}h {((film as Film & { duration?: number }).duration ?? 0) % 60}m
+              </span>
+            )}
+            {film.ratingKinopoisk && (
+              <span className="text-[12px] text-[#f5c518] font-bold font-display">
+                ★ {film.ratingKinopoisk.toFixed(1)}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+}

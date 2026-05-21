@@ -213,3 +213,134 @@ export interface ReviewsResponse {
   totalPages: number;
   items: Review[];
 }
+
+// ─── Awards ──────────────────────────────────────────────────────────────────
+
+export interface AwardPerson {
+  kinopoiskId: number;
+  webUrl?: string;
+  nameRu?: string;
+  nameEn?: string;
+  sex?: string;
+  posterUrl?: string;
+  growth?: number;
+  birthday?: string;
+  death?: string;
+  age?: number;
+  birthplace?: string;
+  deathplace?: string;
+  profession?: string;
+}
+
+export interface Award {
+  name: string;
+  win: boolean;
+  imageUrl?: string;
+  nominationName: string;
+  year: number;
+  persons?: AwardPerson[];
+}
+
+export interface AwardResponse {
+  total: number;
+  items: Award[];
+}
+
+// ─── Distributions ───────────────────────────────────────────────────────────
+
+export interface DistributionCompany {
+  name: string;
+}
+
+export interface Distribution {
+  type: string;
+  subType?: string;
+  date?: string;
+  reRelease?: boolean;
+  country?: { country: string };
+  companies?: DistributionCompany[];
+}
+
+export interface DistributionResponse {
+  total: number;
+  items: Distribution[];
+}
+
+// ─── External Sources (Where to Watch) ───────────────────────────────────────
+
+export interface ExternalSource {
+  url: string;
+  platform: string;
+  logoUrl: string;
+  positiveRating?: number;
+  negativeRating?: number;
+  author?: string;
+  title?: string;
+  description?: string;
+}
+
+export interface ExternalSourceResponse {
+  total: number;
+  items: ExternalSource[];
+}
+
+// ─── Images (already partial) ────────────────────────────────────────────────
+
+export interface ImageItem {
+  imageUrl: string;
+  previewUrl: string;
+}
+
+export interface ImageResponse {
+  total: number;
+  totalPages: number;
+  items: ImageItem[];
+}
+
+// ─── API Key Quota ────────────────────────────────────────────────────────────
+
+export interface ApiKeyQuota {
+  value: number;
+  used: number;
+}
+
+export interface ApiKeyResponse {
+  totalQuota: ApiKeyQuota;
+  dailyQuota: ApiKeyQuota;
+  accountType: "FREE" | "BASIC" | "EXTENDED";
+}
+
+// ─── Media Posts ─────────────────────────────────────────────────────────────
+
+export interface MediaPost {
+  kinopoiskId: number;
+  imageUrl: string;
+  title: string;
+  description: string;
+  url: string;
+  publishedAt: string;
+}
+
+export interface MediaPostsResponse {
+  total: number;
+  totalPages: number;
+  items: MediaPost[];
+}
+
+// ─── Relations (v2.2) ────────────────────────────────────────────────────────
+
+export interface RelatedFilm {
+  filmId?: number;
+  kinopoiskId?: number;
+  nameRu?: string;
+  nameEn?: string;
+  nameOriginal?: string;
+  posterUrl: string;
+  posterUrlPreview: string;
+  relationType: string;
+}
+
+export interface RelatedFilmResponse {
+  total: number;
+  items: RelatedFilm[];
+}

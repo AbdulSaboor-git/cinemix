@@ -6,6 +6,7 @@ import {
   getPreferences,
   savePreferences,
 } from "@/lib/preferences";
+import ApiKeyQuotaModal from "@/components/ApiKeyQuotaModal";
 
 function Toggle({
   checked,
@@ -227,6 +228,7 @@ export default function PreferencesClient() {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [quotaOpen, setQuotaOpen] = useState(false);
 
   useEffect(() => {
     setPrefs(getPreferences());
@@ -341,7 +343,7 @@ export default function PreferencesClient() {
                 <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
               </svg>
             </SectionIcon>
-            <div>
+            <div className="flex-1 min-w-0">
               <SectionTitle>API Keys</SectionTitle>
               <p className={`${hint} !mt-0`}>
                 Get free keys at{" "}
@@ -356,6 +358,25 @@ export default function PreferencesClient() {
                 — keys rotate automatically when the daily limit is hit.
               </p>
             </div>
+            {prefs.apiKeys.filter((k) => k.trim()).length > 0 && (
+              <button
+                onClick={() => setQuotaOpen(true)}
+                className="flex-shrink-0 flex items-center gap-[6px] bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[var(--radius)] px-[10px] py-[7px] text-[11px] font-semibold text-[var(--text-dim)] cursor-pointer hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)] transition-all duration-150"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 6v6l4 2" />
+                </svg>
+                <span className="hidden sm:inline">Quota</span>
+              </button>
+            )}
           </div>
           <div className="py-2">
             {prefs.apiKeys.length === 0 ? (
@@ -641,6 +662,80 @@ export default function PreferencesClient() {
           </div>
         </div>
 
+        {/* Film Page Sections */}
+        <div className={card}>
+          <div className={cardHdr}>
+            <SectionIcon>
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <rect x="2" y="2" width="20" height="20" rx="2" />
+                <path d="M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 7h5M17 17h5" />
+              </svg>
+            </SectionIcon>
+            <div>
+              <SectionTitle>Film Page Sections</SectionTitle>
+              <p className={`${hint} !mt-0`}>
+                Each toggle below is a separate API call. Disable sections you
+                don&apos;t need to save your daily quota.
+              </p>
+            </div>
+          </div>
+          <div className="py-2">
+            {(
+              [
+                ["cast", "Cast & Crew", "Actors, directors, writers — 1 call"],
+                ["awards", "Awards", "Oscar wins, nominations — 1 call"],
+                ["gallery", "Gallery", "Film stills and images — 1 call"],
+                ["facts", "Trivia & Spoilers", "Facts and bloopers — 1 call"],
+                ["boxOffice", "Box Office", "Budget and revenue — 1 call"],
+                [
+                  "similars",
+                  "You May Also Like",
+                  "Similar film recommendations — 1 call",
+                ],
+                [
+                  "sequels",
+                  "Sequels & Prequels",
+                  "Related films in the series — 1 call",
+                ],
+                [
+                  "reviews",
+                  "Audience Reviews",
+                  "User-written reviews — 1 call",
+                ],
+                [
+                  "distributions",
+                  "Release Dates",
+                  "Country-by-country release info — 1 call",
+                ],
+                // ["videos",        "Trailers",         "Trailers and teasers — 1 call"],
+              ] as [keyof Preferences["filmSections"], string, string][]
+            ).map(([key, label, hint_], i, arr) => (
+              <div key={key} className={i === arr.length - 1 ? rowLast : row}>
+                <div>
+                  <p className={lbl}>{label}</p>
+                  <p className={hint}>{hint_}</p>
+                </div>
+                <Toggle
+                  checked={prefs.filmSections[key]}
+                  onChange={(v) =>
+                    setPrefs((p) => ({
+                      ...p,
+                      filmSections: { ...p.filmSections, [key]: v },
+                    }))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Action bar — stacks on mobile */}
         <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between pt-2 gap-3">
           <button
@@ -678,6 +773,14 @@ export default function PreferencesClient() {
           </button>
         </div>
       </div>
+
+      {/* Quota Modal */}
+      {quotaOpen && (
+        <ApiKeyQuotaModal
+          apiKeys={prefs.apiKeys}
+          onClose={() => setQuotaOpen(false)}
+        />
+      )}
 
       {/* Toast stack */}
       <div className="fixed bottom-5 sm:bottom-7 right-4 sm:right-6 flex flex-col gap-[10px] z-[9999] pointer-events-none max-w-[calc(100vw-32px)]">

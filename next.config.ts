@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "kinopoiskapiunofficial.tech" },
       { protocol: "https", hostname: "st.kp.yandex.net" },
       { protocol: "https", hostname: "*.kinopoisk.ru" },
+      {
+      protocol: "https",
+      hostname: "avatars.mds.yandex.net",
+    },
     ],
   },
   env: {

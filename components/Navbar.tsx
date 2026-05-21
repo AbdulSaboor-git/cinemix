@@ -13,6 +13,8 @@ const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/explore", label: "Explore" },
   { href: "/top240", label: "Top 240" },
+  { href: "/premieres", label: "Premieres" },
+  { href: "/news", label: "News" },
 ];
 
 export default function Navbar() {

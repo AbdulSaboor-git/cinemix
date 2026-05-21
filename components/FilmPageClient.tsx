@@ -10,6 +10,9 @@ import {
   getFilmSeasons,
   getSimilarFilms,
   getFilmReviews,
+  getFilmAwards,
+  getFilmImages,
+  getFilmDistributions,
 } from "@/lib/kinopoisk";
 import {
   Film,
@@ -19,12 +22,16 @@ import {
   Season,
   SimilarFilm,
   Review,
+  Award,
+  ImageItem,
+  Distribution,
 } from "@/types/kinopoisk";
 import {
   getEnglishName,
   translateGenre,
   translateCountry,
 } from "@/lib/translate";
+import { getPreferences } from "@/lib/preferences";
 import { useTranslate, useTranslateHtml, useAutoTranslate } from "@/hooks/useTranslate";
 import PlayerSection from "@/components/PlayerSection";
 import ActorCard from "@/components/ActorCard";
@@ -42,6 +49,9 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [similars, setSimilars] = useState<SimilarFilm[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [awards, setAwards] = useState<Award[]>([]);
+  const [images, setImages] = useState<ImageItem[]>([]);
+  const [distributions, setDistributions] = useState<Distribution[]>([]);
   const [loading, setLoading] = useState(!isNaN(id));
   const [error, setError] = useState(isNaN(id));
 
@@ -61,22 +71,47 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
       .then(([f, s, r]) => {
         if (!mounted) return;
         setFilm(f);
-        setStaff(s);
+        const fs = getPreferences().filmSections;
+        if (fs.cast) setStaff(s);
         setRelated(r);
         setLoading(false);
-        getFilmFacts(id)
-          .then((d) => mounted && setFacts(d.items || []))
-          .catch(() => {});
-        getFilmBoxOffice(id)
-          .then((d) => mounted && setBoxOffice(d.items || []))
-          .catch(() => {});
-        getSimilarFilms(id)
-          .then((d) => mounted && setSimilars(d.items || []))
-          .catch(() => {});
-        getFilmReviews(id)
-          .then((d) => mounted && setReviews(d.items || []))
-          .catch(() => {});
-        if (f.serial || f.type === "TV_SERIES" || f.type === "MINI_SERIES") {
+
+        if (fs.facts) {
+          getFilmFacts(id)
+            .then((d) => mounted && setFacts(d.items || []))
+            .catch(() => {});
+        }
+        if (fs.boxOffice) {
+          getFilmBoxOffice(id)
+            .then((d) => mounted && setBoxOffice(d.items || []))
+            .catch(() => {});
+        }
+        if (fs.similars) {
+          getSimilarFilms(id)
+            .then((d) => mounted && setSimilars(d.items || []))
+            .catch(() => {});
+        }
+        if (fs.reviews) {
+          getFilmReviews(id)
+            .then((d) => mounted && setReviews(d.items || []))
+            .catch(() => {});
+        }
+        if (fs.awards) {
+          getFilmAwards(id)
+            .then((d) => mounted && setAwards(d.items || []))
+            .catch(() => {});
+        }
+        if (fs.gallery) {
+          getFilmImages(id, "STILL", 1)
+            .then((d) => mounted && setImages(d.items || []))
+            .catch(() => {});
+        }
+        if (fs.distributions) {
+          getFilmDistributions(id)
+            .then((d) => mounted && setDistributions(d.items || []))
+            .catch(() => {});
+        }
+        if ((f.serial || f.type === "TV_SERIES" || f.type === "MINI_SERIES") && fs.cast) {
           getFilmSeasons(id)
             .then((d) => mounted && setSeasons(d.items || []))
             .catch(() => {});
@@ -107,6 +142,9 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
       seasons={seasons}
       similars={similars}
       reviews={reviews}
+      awards={awards}
+      images={images}
+      distributions={distributions}
     />
   );
 }
@@ -121,6 +159,9 @@ function FilmDetail({
   seasons,
   similars,
   reviews,
+  awards,
+  images,
+  distributions,
 }: {
   film: Film;
   staff: Staff[];
@@ -131,6 +172,9 @@ function FilmDetail({
   seasons: Season[];
   similars: SimilarFilm[];
   reviews: Review[];
+  awards: Award[];
+  images: ImageItem[];
+  distributions: Distribution[];
 }) {
   const autoTranslate = useAutoTranslate();
   const name = getEnglishName(film.nameRu, film.nameEn, film.nameOriginal, autoTranslate);
@@ -235,7 +279,9 @@ function FilmDetail({
         Back
       </button>
 
-      <PlayerSection filmId={filmId} film={film} />
+      {getPreferences().filmSections.videos && (
+        <PlayerSection filmId={filmId} film={film} />
+      )}
 
       <div className="max-w-[1200px] mx-auto px-4 md:px-6 py-6 md:py-10 lg:py-12">
         {/* ── Hero ── */}
@@ -521,6 +567,21 @@ function FilmDetail({
           </div>
         )}
 
+        {/* ── Gallery ── */}
+        {images.length > 0 && (
+          <GallerySection images={images} filmId={filmId} />
+        )}
+
+        {/* ── Awards ── */}
+        {awards.length > 0 && (
+          <AwardsSection awards={awards} />
+        )}
+
+        {/* ── Distributions ── */}
+        {distributions.length > 0 && (
+          <DistributionsSection distributions={distributions} />
+        )}
+
         {/* ── Similar films ── */}
         {similars.length > 0 && (
           <div className="mt-10 md:mt-12">
@@ -563,7 +624,9 @@ function FilmDetail({
           <div className="mt-10 md:mt-12">
             <SectionHeader>SEQUELS & PREQUELS</SectionHeader>
             <div className="flex gap-3 sm:gap-4 flex-wrap">
-              {related.map((rf) => (
+              {Array.from(
+                new Map(related.map((rf) => [rf.kinopoiskId ?? rf.filmId, rf])).values()
+              ).map((rf) => (
                 <FilmCard
                   key={rf.kinopoiskId ?? rf.filmId}
                   film={rf}
@@ -733,6 +796,266 @@ function SeasonsSection({ seasons }: { seasons: Season[] }) {
     </div>
   );
 }
+
+// ── Where to Watch ────────────────────────────────────────────────────────────
+
+// ── Gallery ───────────────────────────────────────────────────────────────────
+
+function GallerySection({ images, filmId }: { images: ImageItem[]; filmId: number }) {
+  const [lightbox, setLightbox] = useState<number | null>(null);
+  const visible = images.slice(0, 12);
+
+  const prev = () => setLightbox((i) => (i !== null ? Math.max(0, i - 1) : null));
+  const next = () => setLightbox((i) => (i !== null ? Math.min(visible.length - 1, i + 1) : null));
+
+  // Close lightbox on Escape
+  useEffect(() => {
+    if (lightbox === null) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightbox(null);
+      if (e.key === "ArrowLeft") prev();
+      if (e.key === "ArrowRight") next();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lightbox]);
+
+  // Lock scroll when lightbox open
+  useEffect(() => {
+    if (lightbox !== null) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [lightbox]);
+
+  return (
+    <div className="mt-10 md:mt-12">
+      <SectionHeader>GALLERY</SectionHeader>
+      <div className="grid gap-[6px] sm:gap-2 grid-cols-3 sm:grid-cols-4 md:grid-cols-6">
+        {visible.map((img, i) => (
+          <button
+            key={i}
+            onClick={() => setLightbox(i)}
+            className="aspect-video rounded-[6px] sm:rounded-[8px] overflow-hidden relative bg-[var(--surface)] cursor-pointer border-none p-0 hover:opacity-90 transition-opacity"
+          >
+            <Image
+              src={img.previewUrl || img.imageUrl}
+              alt={`Still ${i + 1}`}
+              fill
+              className="object-cover"
+              sizes="(max-width: 640px) 33vw, (max-width: 768px) 25vw, 16vw"
+            />
+          </button>
+        ))}
+      </div>
+
+      {/* Lightbox */}
+      {lightbox !== null && (
+        <div
+          className="fixed inset-0 z-[9998] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)" }}
+          onClick={() => setLightbox(null)}
+        >
+          {/* Prev */}
+          <button
+            className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-[rgba(255,255,255,0.08)] border border-[rgba(255,255,255,0.15)] flex items-center justify-center cursor-pointer hover:bg-[rgba(255,255,255,0.15)] transition-colors z-10 border-none"
+            onClick={(e) => { e.stopPropagation(); prev(); }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+
+          {/* Image */}
+          <div
+            className="relative max-w-[92vw] max-h-[88vh] w-full flex items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Image
+              src={visible[lightbox].imageUrl}
+              alt={`Still ${lightbox + 1}`}
+              width={1280}
+              height={720}
+              className="object-contain rounded-[8px] max-h-[80vh] w-auto"
+              style={{ maxWidth: "92vw" }}
+            />
+            <div className="absolute bottom-[-28px] left-1/2 -translate-x-1/2 text-[12px] text-[rgba(255,255,255,0.4)]">
+              {lightbox + 1} / {visible.length}
+            </div>
+          </div>
+
+          {/* Next */}
+          <button
+            className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-[rgba(255,255,255,0.08)] border border-[rgba(255,255,255,0.15)] flex items-center justify-center cursor-pointer hover:bg-[rgba(255,255,255,0.15)] transition-colors z-10 border-none"
+            onClick={(e) => { e.stopPropagation(); next(); }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+
+          {/* Close */}
+          <button
+            className="absolute top-4 right-4 sm:top-6 sm:right-6 w-9 h-9 rounded-full bg-[rgba(255,255,255,0.08)] flex items-center justify-center cursor-pointer hover:bg-[rgba(255,255,255,0.15)] transition-colors border-none"
+            onClick={() => setLightbox(null)}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Awards ────────────────────────────────────────────────────────────────────
+
+function AwardsSection({ awards }: { awards: Award[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const wins = awards.filter((a) => a.win);
+  const nominations = awards.filter((a) => !a.win);
+  const visible = expanded ? awards : awards.slice(0, 6);
+
+  return (
+    <div className="mt-10 md:mt-12">
+      <div className="flex items-center gap-3 mb-4 sm:mb-5 flex-wrap">
+        <h2 className="font-display font-bold uppercase text-lg sm:text-xl md:text-[clamp(18px,3vw,28px)] tracking-[1.5px] m-0">
+          AWARDS
+        </h2>
+        <div className="flex gap-2">
+          {wins.length > 0 && (
+            <span className="flex items-center gap-1 text-[11px] font-semibold text-[#f5c518] bg-[rgba(245,197,24,0.12)] border border-[rgba(245,197,24,0.25)] px-2 py-[3px] rounded-[6px]">
+              🏆 {wins.length} Win{wins.length !== 1 ? "s" : ""}
+            </span>
+          )}
+          {nominations.length > 0 && (
+            <span className="text-[11px] font-semibold text-[var(--text-muted)] bg-[var(--surface)] border border-[var(--border)] px-2 py-[3px] rounded-[6px]">
+              {nominations.length} Nomination{nominations.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-[6px] sm:gap-2">
+        {visible.map((award, i) => (
+          <AwardRow key={i} award={award} />
+        ))}
+      </div>
+
+      {awards.length > 6 && (
+        <ExpandBtn onClick={() => setExpanded((v) => !v)}>
+          {expanded ? "Show less" : `Show all ${awards.length} awards`}
+        </ExpandBtn>
+      )}
+    </div>
+  );
+}
+
+function AwardRow({ award }: { award: Award }) {
+  const personNames = award.persons
+    ?.slice(0, 2)
+    .map((p) => p.nameEn || p.nameRu || "")
+    .filter(Boolean)
+    .join(", ");
+
+  return (
+    <div className={`flex items-center gap-3 sm:gap-4 bg-[var(--bg-card)] border rounded-[var(--radius)] px-3 sm:px-4 py-[10px] sm:py-3
+      ${award.win ? "border-[rgba(245,197,24,0.2)] border-l-[3px] border-l-[#f5c518]" : "border-[var(--border)] border-l-[3px] border-l-[var(--border)]"}`}>
+      {/* Award icon / image */}
+      <div className="w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0 flex items-center justify-center">
+        {award.imageUrl ? (
+          <Image src={award.imageUrl} alt={award.name} width={32} height={32} className="object-contain rounded-[4px]" />
+        ) : (
+          <span className="text-[18px] sm:text-[20px]">{award.win ? "🏆" : "🎬"}</span>
+        )}
+      </div>
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[12px] sm:text-[13px] font-bold text-[var(--text)]">{award.name}</span>
+          <span className="text-[10px] sm:text-[11px] text-[var(--text-muted)]">{award.year}</span>
+          {award.win && (
+            <span className="text-[9px] sm:text-[10px] font-bold text-[#f5c518] uppercase tracking-[0.5px]">WON</span>
+          )}
+        </div>
+        <p className="text-[11px] sm:text-[12px] text-[var(--text-muted)] mt-[1px]">
+          {award.nominationName}
+          {personNames && <span className="ml-1 text-[var(--text-dim)]">— {personNames}</span>}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Distributions ─────────────────────────────────────────────────────────────
+
+const DIST_TYPE_LABELS: Record<string, string> = {
+  PREMIERE: "World Premiere",
+  ALL_RELEASE: "General Release",
+  LOCAL: "Local Release",
+  WORLD_PREMIERE: "World Premiere",
+  COUNTRY_SPECIFIC: "Country Release",
+};
+const DIST_SUBTYPE_LABELS: Record<string, string> = {
+  CINEMA: "Cinema",
+  DVD: "DVD",
+  DIGITAL: "Digital",
+};
+
+function DistributionsSection({ distributions }: { distributions: Distribution[] }) {
+  const [expanded, setExpanded] = useState(false);
+  // Deduplicate and sort by date
+  const sorted = [...distributions]
+    .filter((d) => d.date)
+    .sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime());
+  const visible = expanded ? sorted : sorted.slice(0, 6);
+
+  if (sorted.length === 0) return null;
+
+  return (
+    <div className="mt-10 md:mt-12">
+      <SectionHeader>RELEASE DATES</SectionHeader>
+      <div className="flex flex-col gap-[4px] sm:gap-[6px]">
+        {visible.map((d, i) => {
+          const country = d.country?.country
+            ? translateCountry(d.country.country, true)
+            : "";
+          const label = DIST_TYPE_LABELS[d.type] ?? d.type.replace(/_/g, " ");
+          const subLabel = d.subType ? (DIST_SUBTYPE_LABELS[d.subType] ?? d.subType) : null;
+          const companies = d.companies?.map((c) => c.name).join(", ");
+          return (
+            <div key={i} className="flex items-center gap-3 sm:gap-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius)] px-3 sm:px-4 py-[9px] sm:py-[11px]">
+              <div className="flex-shrink-0 w-[90px] sm:w-[105px]">
+                <span className="font-display text-[13px] sm:text-[15px] text-[var(--accent)]">
+                  {new Date(d.date!).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[12px] sm:text-[13px] font-semibold text-[var(--text)] truncate">{country}</span>
+                  {subLabel && (
+                    <span className="text-[10px] text-[var(--text-muted)] bg-[var(--surface)] px-[6px] py-[2px] rounded-[4px] flex-shrink-0">{subLabel}</span>
+                  )}
+                  {d.reRelease && (
+                    <span className="text-[10px] text-[var(--text-muted)] bg-[var(--surface)] px-[6px] py-[2px] rounded-[4px] flex-shrink-0">Re-release</span>
+                  )}
+                </div>
+                {companies && (
+                  <p className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-[1px] truncate">{companies}</p>
+                )}
+              </div>
+              <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0 hidden sm:block">{label}</span>
+            </div>
+          );
+        })}
+      </div>
+      {sorted.length > 6 && (
+        <ExpandBtn onClick={() => setExpanded((v) => !v)}>
+          {expanded ? "Show less" : `Show all ${sorted.length} releases`}
+        </ExpandBtn>
+      )}
+    </div>
+  );
+}
+
+// ── Section Header ────────────────────────────────────────────────────────────
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (

@@ -23,6 +23,20 @@ export interface Preferences {
     premieres: boolean;
   };
 
+  // Film page sections — each one is a separate API call
+  filmSections: {
+    cast: boolean;           // /api/v1/staff
+    awards: boolean;         // /api/v2.2/films/{id}/awards
+    gallery: boolean;        // /api/v2.2/films/{id}/images
+    facts: boolean;          // /api/v2.2/films/{id}/facts  (trivia + spoilers)
+    boxOffice: boolean;      // /api/v2.2/films/{id}/box_office
+    similars: boolean;       // /api/v2.2/films/{id}/similars
+    sequels: boolean;        // /api/v2.1/films/{id}/sequels_and_prequels
+    reviews: boolean;        // /api/v2.2/films/{id}/reviews
+    distributions: boolean;  // /api/v2.2/films/{id}/distributions
+    videos: boolean;         // /api/v2.2/films/{id}/videos  (trailers)
+  };
+
   // Explore defaults
   defaultExploreType: "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
   defaultExploreOrder: "RATING" | "NUM_VOTE" | "YEAR";
@@ -45,6 +59,18 @@ export const DEFAULT_PREFERENCES: Preferences = {
     comedy: true,
     horror: true,
     premieres: true,
+  },
+  filmSections: {
+    cast: true,
+    awards: true,
+    gallery: true,
+    facts: true,
+    boxOffice: true,
+    similars: true,
+    sequels: true,
+    reviews: true,
+    distributions: true,
+    videos: true,
   },
   defaultExploreType: "FILM",
   defaultExploreOrder: "RATING",
@@ -79,6 +105,10 @@ export function getPreferences(): Preferences {
       homeSections: {
         ...DEFAULT_PREFERENCES.homeSections,
         ...(parsed.homeSections ?? {}),
+      },
+      filmSections: {
+        ...DEFAULT_PREFERENCES.filmSections,
+        ...(parsed.filmSections ?? {}),
       },
     };
     return _cache;

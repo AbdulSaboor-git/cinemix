@@ -176,3 +176,44 @@ export async function getPremieres(year: number, month: string): Promise<FilmsRe
   const raw = await apiFetch<Record<string, unknown>>(`/v2.2/films/premieres?year=${year}&month=${month}`);
   return normalizeFilmsResponse(raw);
 }
+
+// ─── New endpoints ────────────────────────────────────────────────────────────
+
+import type {
+  AwardResponse,
+  DistributionResponse,
+  ExternalSourceResponse,
+  ApiKeyResponse,
+  MediaPostsResponse,
+  RelatedFilmResponse,
+} from "@/types/kinopoisk";
+
+export async function getFilmAwards(filmId: number): Promise<AwardResponse> {
+  return apiFetch(`/v2.2/films/${filmId}/awards`);
+}
+
+export async function getFilmDistributions(filmId: number): Promise<DistributionResponse> {
+  return apiFetch(`/v2.2/films/${filmId}/distributions`);
+}
+
+export async function getFilmExternalSources(filmId: number): Promise<ExternalSourceResponse> {
+  return apiFetch(`/v2.2/films/${filmId}/external_sources`);
+}
+
+export async function getApiKeyInfo(apiKey: string): Promise<ApiKeyResponse> {
+  // Direct fetch — can't use apiFetch because we specify an arbitrary key
+  const res = await fetch(
+    `${BASE_URL}/v1/api_keys/${apiKey}`,
+    { headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" } }
+  );
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function getMediaPosts(page = 1): Promise<MediaPostsResponse> {
+  return apiFetch(`/v1/media_posts?page=${page}`, 1800);
+}
+
+export async function getFilmRelations(filmId: number): Promise<RelatedFilmResponse> {
+  return apiFetch(`/v2.2/films/${filmId}/relations`);
+}
