@@ -100,12 +100,12 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
           />
         </div>
       ) : (
-        <div className="relative w-full bg-black z-20 aspect-video max-h-screen md:max-h-[85vh] overflow-hidden">
+        <div className="relative w-full bg-black z-20 aspect-video max-h-screen md:max-h-[70vh] overflow-hidden">
           <iframe
             src={playerUrl}
             allowFullScreen
             className="absolute w-full border-none block 
-            bg-black top-0 md:-top-[89%] h-[200%] md:h-[180%]"
+            bg-black top-0 md:-top-[80.5%] h-[165%] md:h-[180%]"
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             title={name}
           />
