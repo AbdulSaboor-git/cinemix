@@ -12,6 +12,16 @@ const PLAYER_BASE = "https://flcksbr.top/film";
 
 export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
   const [playerActive, setPlayerActive] = useState(false);
+  const [scrollLocked, setScrollLocked] = useState(false);
+
+  const toggleScroll = () => {
+    if (scrollLocked) {
+      document.body.style.overflow = "";
+    } else {
+      document.body.style.overflow = "hidden";
+    }
+    setScrollLocked(!scrollLocked);
+  };
 
   useEffect(() => {
     const originalOpen = window.open;
@@ -66,6 +76,7 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
                 e.preventDefault();
                 e.stopPropagation();
                 setPlayerActive(true);
+                toggleScroll();
               }}
             >
               <svg
@@ -100,12 +111,12 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
           />
         </div>
       ) : (
-        <div className="relative w-full bg-black z-20 aspect-video max-h-screen md:max-h-[70vh] overflow-hidden">
+        <div className="relative w-full bg-black z-20 aspect-video md:max-h-[70vh] md:overflow-hidden">
           <iframe
             src={playerUrl}
             allowFullScreen
             className="absolute w-full border-none block 
-            bg-black top-0 md:-top-[80.5%] h-[165%] md:h-[180%]"
+            bg-black top-0 md:-top-[81%] h-screen md:h-[180%]"
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             title={name}
           />
@@ -114,6 +125,7 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
               e.preventDefault();
               e.stopPropagation();
               setPlayerActive(false);
+              toggleScroll();
             }}
             className="absolute top-[10px] right-4 bg-[rgba(0,0,0,0.8)] 
             backdrop-blur-[8px] border border-[rgba(255,255,255,0.2)] rounded-[8px] px-[14px] 
