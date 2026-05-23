@@ -9,7 +9,7 @@ interface PlayerSectionProps {
 }
 
 const PLAYER_BASE =
-  process.env.NEXT_PUBLIC_PLAYER_BASE_URL || "https://sitebysite.lat/film";
+  process.env.NEXT_PUBLIC_PLAYER_BASE_URL || "https://flcksbr.top/film";
 
 export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
   const [playerActive, setPlayerActive] = useState(false);
