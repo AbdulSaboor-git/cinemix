@@ -1,15 +1,26 @@
-// ─── Types ────────────────────────────────────────────────────────────────────
+/**
+ * Legacy preferences shim — delegates to lib/session.ts.
+ * Kept so existing imports (lib/kinopoisk.ts, hooks, etc.) still work unchanged.
+ */
 
-export interface Preferences {
+import {
+  SessionPreferences,
+  DEFAULT_PREFERENCES as SESSION_DEFAULTS,
+  getSessionPreferences,
+  saveSessionPreferences,
+  getApiKeys as sessionGetApiKeys,
+  hasApiKeys as sessionHasApiKeys,
+  getSession,
+  saveSession,
+} from "./session";
+
+export type Preferences = {
   apiKeys: string[];
-
-  // API load reduction
   searchSuggestionsEnabled: boolean;
   suggestionDebounceMs: number;
   suggestionLimit: number;
   autoTranslateEnabled: boolean;
-
-  // Home page sections (which rows to render)
+  historyEnabled: boolean;
   homeSections: {
     popular: boolean;
     top250: boolean;
@@ -22,120 +33,64 @@ export interface Preferences {
     horror: boolean;
     premieres: boolean;
   };
-
-  // Film page sections — each one is a separate API call
   filmSections: {
-    cast: boolean;           // /api/v1/staff
-    awards: boolean;         // /api/v2.2/films/{id}/awards
-    gallery: boolean;        // /api/v2.2/films/{id}/images
-    facts: boolean;          // /api/v2.2/films/{id}/facts  (trivia + spoilers)
-    boxOffice: boolean;      // /api/v2.2/films/{id}/box_office
-    similars: boolean;       // /api/v2.2/films/{id}/similars
-    sequels: boolean;        // /api/v2.1/films/{id}/sequels_and_prequels
-    reviews: boolean;        // /api/v2.2/films/{id}/reviews
-    distributions: boolean;  // /api/v2.2/films/{id}/distributions
-    videos: boolean;         // /api/v2.2/films/{id}/videos  (trailers)
+    cast: boolean;
+    awards: boolean;
+    gallery: boolean;
+    facts: boolean;
+    boxOffice: boolean;
+    similars: boolean;
+    sequels: boolean;
+    reviews: boolean;
+    distributions: boolean;
+    videos: boolean;
   };
-
-  // Explore defaults
   defaultExploreType: "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
   defaultExploreOrder: "RATING" | "NUM_VOTE" | "YEAR";
-}
+};
 
 export const DEFAULT_PREFERENCES: Preferences = {
   apiKeys: [],
-  searchSuggestionsEnabled: true,
-  suggestionDebounceMs: 300,
-  suggestionLimit: 6,
-  autoTranslateEnabled: true,
-  homeSections: {
-    popular: true,
-    top250: true,
-    series: true,
-    action: true,
-    drama: true,
-    scifi: true,
-    upcoming: true,
-    comedy: true,
-    horror: true,
-    premieres: true,
-  },
-  filmSections: {
-    cast: true,
-    awards: true,
-    gallery: true,
-    facts: true,
-    boxOffice: true,
-    similars: true,
-    sequels: true,
-    reviews: true,
-    distributions: true,
-    videos: true,
-  },
-  defaultExploreType: "FILM",
-  defaultExploreOrder: "RATING",
+  searchSuggestionsEnabled: SESSION_DEFAULTS.searchSuggestionsEnabled,
+  suggestionDebounceMs: SESSION_DEFAULTS.suggestionDebounceMs,
+  suggestionLimit: SESSION_DEFAULTS.suggestionLimit,
+  autoTranslateEnabled: SESSION_DEFAULTS.autoTranslateEnabled,
+  historyEnabled: SESSION_DEFAULTS.historyEnabled,
+  homeSections: SESSION_DEFAULTS.homeSections as Preferences["homeSections"],
+  filmSections: SESSION_DEFAULTS.filmSections as Preferences["filmSections"],
+  defaultExploreType: SESSION_DEFAULTS.defaultExploreType as Preferences["defaultExploreType"],
+  defaultExploreOrder: SESSION_DEFAULTS.defaultExploreOrder as Preferences["defaultExploreOrder"],
 };
 
-const STORAGE_KEY = "cinemix_preferences";
-
-// ─── Read / Write ─────────────────────────────────────────────────────────────
-
-// In-memory cache — avoids re-parsing localStorage on every apiFetch call
-let _cache: Preferences | null = null;
-
-// Invalidate cache when another tab writes preferences
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", (e: StorageEvent) => {
-    if (e.key === STORAGE_KEY) {
-      _cache = null; // force re-parse on next getPreferences() call
-    }
-  });
-}
-
 export function getPreferences(): Preferences {
-  if (_cache) return _cache;
-  if (typeof window === "undefined") return DEFAULT_PREFERENCES;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_PREFERENCES;
-    const parsed = JSON.parse(raw) as Partial<Preferences>;
-    _cache = {
-      ...DEFAULT_PREFERENCES,
-      ...parsed,
-      homeSections: {
-        ...DEFAULT_PREFERENCES.homeSections,
-        ...(parsed.homeSections ?? {}),
-      },
-      filmSections: {
-        ...DEFAULT_PREFERENCES.filmSections,
-        ...(parsed.filmSections ?? {}),
-      },
-    };
-    return _cache;
-  } catch {
-    return DEFAULT_PREFERENCES;
-  }
+  const s = getSession();
+  const prefs = s.preferences;
+  return {
+    apiKeys: s.api_keys.keys,
+    searchSuggestionsEnabled: prefs.searchSuggestionsEnabled,
+    suggestionDebounceMs: prefs.suggestionDebounceMs,
+    suggestionLimit: prefs.suggestionLimit,
+    autoTranslateEnabled: prefs.autoTranslateEnabled,
+    historyEnabled: prefs.historyEnabled ?? true,
+    homeSections: prefs.homeSections as Preferences["homeSections"],
+    filmSections: prefs.filmSections as Preferences["filmSections"],
+    defaultExploreType: prefs.defaultExploreType as Preferences["defaultExploreType"],
+    defaultExploreOrder: prefs.defaultExploreOrder as Preferences["defaultExploreOrder"],
+  };
 }
 
 export function savePreferences(prefs: Preferences): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-  _cache = prefs;
+  const { apiKeys, ...rest } = prefs;
+  const s = getSession();
+  s.preferences = rest as SessionPreferences;
+  s.api_keys.keys = apiKeys.filter(Boolean);
+  saveSession(s);
 }
 
-// ─── Key helpers (used by lib/kinopoisk.ts) ───────────────────────────────────
-
 export function getApiKeys(): string[] {
-  const prefs = getPreferences();
-  if (prefs.apiKeys.length > 0) return prefs.apiKeys;
-  // Fallback to env (for self-hosted deployments)
-  const env = process.env.NEXT_PUBLIC_KINOPOISK_API_KEYS ?? "";
-  return env
-    .split(",")
-    .map((k) => k.trim())
-    .filter(Boolean);
+  return sessionGetApiKeys();
 }
 
 export function hasApiKeys(): boolean {
-  return getApiKeys().length > 0;
+  return sessionHasApiKeys();
 }

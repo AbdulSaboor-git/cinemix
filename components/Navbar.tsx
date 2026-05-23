@@ -158,19 +158,21 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* Desktop preferences icon */}
-        <Link
-          href="/preferences"
-          className="hidden md:block no-underline ml-1"
-          title="Preferences"
-        >
-          <NavIconBtn
-            active={pathname === "/preferences"}
-            aria-label="Preferences"
-          >
-            <SettingsIcon />
-          </NavIconBtn>
-        </Link>
+        {/* Desktop preferences + profile icons */}
+        <div className="hidden md:flex items-center gap-1 ml-1">
+          <Link href="/profile" className="no-underline" title="Profile">
+            <NavIconBtn active={pathname.startsWith("/profile")} aria-label="Profile">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+              </svg>
+            </NavIconBtn>
+          </Link>
+          <Link href="/preferences" className="no-underline" title="Preferences">
+            <NavIconBtn active={pathname === "/preferences"} aria-label="Preferences">
+              <SettingsIcon />
+            </NavIconBtn>
+          </Link>
+        </div>
 
         {/* Mobile icons */}
         <div className="flex md:hidden items-center gap-[2px]">
@@ -185,11 +187,16 @@ export default function Navbar() {
                 <SearchIcon className="w-[19px] h-[19px]" />
               </NavIconBtn>
 
+              <Link href="/profile" className="no-underline">
+                <NavIconBtn active={pathname.startsWith("/profile")} aria-label="Profile">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+                  </svg>
+                </NavIconBtn>
+              </Link>
+
               <Link href="/preferences" className="no-underline">
-                <NavIconBtn
-                  active={pathname === "/preferences"}
-                  aria-label="Preferences"
-                >
+                <NavIconBtn active={pathname === "/preferences"} aria-label="Preferences">
                   <SettingsIcon />
                 </NavIconBtn>
               </Link>
@@ -303,6 +310,21 @@ export default function Navbar() {
               >
                 <SettingsIcon />
                 Preferences
+              </Link>
+
+              <Link
+                href="/profile"
+                className={`no-underline px-5 py-[18px] rounded-[12px] font-display text-2xl tracking-[2px]
+                  transition-all duration-[180ms] flex items-center gap-[14px] ${
+                    pathname.startsWith("/profile")
+                      ? "text-white bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.2)]"
+                      : "text-[var(--text-dim)] border border-transparent hover:text-white hover:bg-[rgba(255,255,255,0.04)]"
+                  }`}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+                </svg>
+                Profile
               </Link>
             </nav>
           </div>

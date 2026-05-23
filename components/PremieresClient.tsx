@@ -91,24 +91,22 @@ export default function PremieresClient({
         </h1>
 
         {/* Month / Year Navigator */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={prevMonth}
-            className="w-9 h-9 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M15 18l-6-6 6-6"/>
-            </svg>
-          </button>
-
+        <div className="flex flex-col gap-3">
+          {/* Month pills row — scrollable on mobile */}
           <div className="flex items-center gap-2">
-            {/* Month pills */}
-            <div className="flex gap-[5px] overflow-x-auto scrollbar-none pb-1">
+            <button
+              onClick={prevMonth}
+              className="flex-shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] transition-colors"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+
+            <div className="flex gap-[5px] overflow-x-auto scrollbar-none pb-1 flex-1">
               {MONTH_LABELS.map((lbl, i) => (
                 <button
                   key={i}
                   onClick={() => setMonthIdx(i)}
-                  className={`flex-shrink-0 px-3 py-[5px] rounded-[8px] text-[12px] font-semibold cursor-pointer transition-all duration-150
+                  className={`flex-shrink-0 px-[10px] sm:px-3 py-[5px] rounded-[8px] text-[11px] sm:text-[12px] font-semibold cursor-pointer transition-all duration-150
                     ${monthIdx === i
                       ? "bg-[var(--accent)] text-white border border-[var(--accent)]"
                       : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border border-[var(--border)] hover:border-[var(--border-hover)]"
@@ -118,42 +116,38 @@ export default function PremieresClient({
                 </button>
               ))}
             </div>
-          </div>
 
-          <button
-            onClick={nextMonth}
-            className="w-9 h-9 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M9 18l6-6-6-6"/>
-            </svg>
-          </button>
-
-          {/* Year selector */}
-          <div className="flex items-center gap-2 ml-1">
             <button
-              onClick={() => setYear((y) => y - 1)}
-              className="w-7 h-7 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] transition-colors text-[11px]"
+              onClick={nextMonth}
+              className="flex-shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] transition-colors"
             >
-              −
-            </button>
-            <span className="font-display text-[18px] tracking-[1px] text-[var(--text)] min-w-[50px] text-center">{year}</span>
-            <button
-              onClick={() => setYear((y) => y + 1)}
-              className="w-7 h-7 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] transition-colors text-[11px]"
-            >
-              +
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6"/></svg>
             </button>
           </div>
 
-          {!isCurrent && (
-            <button
-              onClick={() => { setYear(CUR_YEAR); setMonthIdx(CUR_MONTH_IDX); }}
-              className="text-[11px] text-[var(--accent)] border border-[rgba(229,9,20,0.3)] rounded-[8px] px-3 py-[5px] cursor-pointer hover:border-[var(--accent)] transition-colors"
-            >
-              This month
-            </button>
-          )}
+          {/* Year row */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setYear((y) => y - 1)}
+                className="w-7 h-7 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] transition-colors text-[11px]"
+              >−</button>
+              <span className="font-display text-[18px] tracking-[1px] text-[var(--text)] min-w-[50px] text-center">{year}</span>
+              <button
+                onClick={() => setYear((y) => y + 1)}
+                className="w-7 h-7 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] transition-colors text-[11px]"
+              >+</button>
+            </div>
+
+            {!isCurrent && (
+              <button
+                onClick={() => { setYear(CUR_YEAR); setMonthIdx(CUR_MONTH_IDX); }}
+                className="text-[11px] text-[var(--accent)] border border-[rgba(229,9,20,0.3)] rounded-[8px] px-3 py-[5px] cursor-pointer hover:border-[var(--accent)] transition-colors"
+              >
+                This month
+              </button>
+            )}
+          </div>
         </div>
 
         <p className="text-[14px] text-[var(--text-dim)] mt-3">

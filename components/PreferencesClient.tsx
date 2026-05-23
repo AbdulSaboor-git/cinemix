@@ -6,6 +6,9 @@ import {
   getPreferences,
   savePreferences,
 } from "@/lib/preferences";
+import { saveApiKeys, getSession } from "@/lib/session";
+import { clearHistory } from "@/lib/userLists";
+import { useToast } from "@/lib/toast";
 import ApiKeyQuotaModal from "@/components/ApiKeyQuotaModal";
 
 function Toggle({
@@ -227,19 +230,15 @@ export default function PreferencesClient() {
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFERENCES);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [savingKeys, setSavingKeys] = useState(false);
+  const [unsaved, setUnsaved] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     setPrefs(getPreferences());
     setLoaded(true);
   }, []);
-
-  const pushToast = (message: string, type: Toast["type"]) => {
-    const id = Date.now();
-    setToasts((t) => [...t, { id, message, type }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
-  };
 
   const handleSave = () => {
     setSaving(true);
@@ -250,34 +249,68 @@ export default function PreferencesClient() {
       };
       savePreferences(cleaned);
       setPrefs(cleaned);
-      pushToast("Preferences saved.", "success");
+      setUnsaved(false);
+      toast.success("Preferences saved.");
     } catch {
-      pushToast("Failed to save preferences.", "error");
+      toast.error("Failed to save preferences.");
     } finally {
       setSaving(false);
     }
   };
 
+  const handleSaveKeys = () => {
+    setSavingKeys(true);
+    try {
+      const keys = prefs.apiKeys.map((k) => k.trim()).filter(Boolean);
+      saveApiKeys(keys);
+      savePreferences({ ...prefs, apiKeys: keys });
+      setPrefs((p) => ({ ...p, apiKeys: keys }));
+      toast.success("API keys saved.");
+    } catch {
+      toast.error("Failed to save keys.");
+    } finally {
+      setSavingKeys(false);
+    }
+  };
+
   const handleReset = () => {
     setPrefs(DEFAULT_PREFERENCES);
-    pushToast("Reset to defaults — click Save to apply.", "success");
+    setUnsaved(true);
+    toast.info("Reset to defaults — click Save to apply.");
   };
+
+  const handleClearHistory = () => {
+    if (!confirm("Clear all watch history? This can't be undone.")) return;
+    clearHistory();
+    toast.info("Watch history cleared.");
+  };
+
   const setKey = (i: number, val: string) => {
     const u = [...prefs.apiKeys];
     u[i] = val;
     setPrefs((p) => ({ ...p, apiKeys: u }));
+    // Keys have their own Save Keys button — don't mark global unsaved
   };
-  const removeKey = (i: number) =>
+  const removeKey = (i: number) => {
     setPrefs((p) => ({
       ...p,
       apiKeys: p.apiKeys.filter((_, idx) => idx !== i),
     }));
+  };
   const addKey = () => setPrefs((p) => ({ ...p, apiKeys: [...p.apiKeys, ""] }));
-  const setSection = (key: keyof Preferences["homeSections"], val: boolean) =>
+  const setSection = (key: keyof Preferences["homeSections"], val: boolean) => {
     setPrefs((p) => ({
       ...p,
       homeSections: { ...p.homeSections, [key]: val },
     }));
+    setUnsaved(true);
+  };
+
+  // Generic pref updater that also marks unsaved
+  const updatePref = (updater: (p: Preferences) => Preferences) => {
+    setPrefs(updater);
+    setUnsaved(true);
+  };
 
   if (!loaded)
     return (
@@ -304,29 +337,88 @@ export default function PreferencesClient() {
   return (
     <div className="min-h-screen px-4 sm:px-[clamp(16px,5vw,48px)] py-8 sm:py-12 pb-24">
       <div className="max-w-[760px] mx-auto">
-        {/* Header */}
-        <div className="mb-7 sm:mb-10 pb-5 sm:pb-6 border-b border-[var(--border)]">
-          <div className="flex items-center gap-3 mb-[6px]">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--accent)"
-              strokeWidth="2"
-            >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14" />
-              <path d="M15.54 8.46a5 5 0 0 1 0 7.07M8.46 8.46a5 5 0 0 0 0 7.07" />
-            </svg>
-            <h1 className="font-display tracking-[2px] text-[var(--text)] m-0 text-[clamp(20px,4vw,34px)]">
-              PREFERENCES
-            </h1>
+        {/* ── Sticky Save Bar ── */}
+        <div
+          className={`sticky top-[var(--nav-height)] z-[100] -mx-4 sm:-mx-[clamp(16px,5vw,48px)] px-4 sm:px-[clamp(16px,5vw,48px)] py-[10px] mb-6
+            bg-[#08080815] backdrop-blur-[20px] 
+            transition-all duration-300
+            `}
+        >
+          <div className="flex items-center justify-between gap-3">
+            {/* Left — title or unsaved indicator */}
+            <div className="flex items-center gap-[10px] min-w-0">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth="2"
+                className="flex-shrink-0"
+              >
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14" />
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07M8.46 8.46a5 5 0 0 0 0 7.07" />
+              </svg>
+              <h1 className="font-display tracking-[2px] text-[var(--text)] m-0 text-[clamp(15px,3vw,22px)]">
+                PREFERENCES
+              </h1>
+              {unsaved && (
+                <span className="hidden sm:inline-flex items-center gap-[5px] bg-[rgba(229,9,20,0.1)] border border-[rgba(229,9,20,0.25)] rounded-full px-[10px] py-[3px] text-[11px] text-[var(--accent)] font-medium">
+                  <span className="w-[5px] h-[5px] rounded-full bg-[var(--accent)] shadow-[0_0_6px_var(--accent-glow)]" />
+                  Unsaved
+                </span>
+              )}
+            </div>
+
+            {/* Right — buttons */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {unsaved && (
+                <button
+                  onClick={handleReset}
+                  className="bg-transparent border border-[var(--border)] rounded-[var(--radius)] px-3 sm:px-4 py-[7px] text-[12px] font-medium text-[var(--text-muted)] cursor-pointer transition-all duration-150 hover:border-[var(--border-hover)] hover:text-[var(--text-dim)]"
+                >
+                  Reset
+                </button>
+              )}
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className={`bg-[var(--accent)] border-none rounded-[var(--radius)] px-4 sm:px-5 py-[7px] text-[12px] sm:text-[13px] font-bold text-white flex items-center gap-[6px] transition-all duration-150
+                  shadow-[0_0_20px_var(--accent-glow)]
+                  ${saving ? "opacity-70 cursor-not-allowed" : "cursor-pointer hover:opacity-90 hover:shadow-[0_0_32px_var(--accent-glow)]"}`}
+              >
+                {saving ? (
+                  <>
+                    <div className="w-3 h-3 rounded-full border-2 border-[rgba(255,255,255,0.3)] border-t-white animate-spin-fast" />
+                    <span className="hidden sm:inline">Saving…</span>
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    Save
+                  </>
+                )}
+              </button>
+            </div>
           </div>
-          <p className="text-[12px] sm:text-[13px] text-[var(--text-muted)] ml-7 sm:ml-8">
+        </div>
+
+        {/* Header — shown below the sticky bar, no title duplication */}
+        {/* <div className="mb-7 sm:mb-10 pb-5 sm:pb-6 border-b border-[var(--border)]">
+          <p className="text-[12px] sm:text-[13px] text-[var(--text-muted)]">
             Stored locally in your browser. Never sent to any server.
           </p>
-        </div>
+        </div> */}
 
         {/* API Keys */}
         <div className={card}>
@@ -412,7 +504,7 @@ export default function PreferencesClient() {
                 />
               ))
             )}
-            <div className="px-3 sm:px-6 pt-[10px] pb-1">
+            <div className="px-3 sm:px-6 pt-[10px] pb-1 flex items-center gap-3 flex-wrap">
               <button
                 onClick={addKey}
                 className="inline-flex items-center gap-[7px] bg-transparent border border-dashed border-[var(--border-hover)] rounded-[var(--radius)] px-[12px] sm:px-[14px] py-[7px] text-[12px] font-semibold text-[var(--text-dim)] cursor-pointer transition-all duration-[180ms] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)] tracking-[0.3px]"
@@ -429,6 +521,81 @@ export default function PreferencesClient() {
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
                 Add another key
+              </button>
+              {prefs.apiKeys.filter((k) => k.trim()).length > 0 && (
+                <button
+                  onClick={handleSaveKeys}
+                  disabled={savingKeys}
+                  className="inline-flex items-center gap-[7px] bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.4)] rounded-[var(--radius)] px-[12px] sm:px-[14px] py-[7px] text-[12px] font-semibold text-[var(--accent)] cursor-pointer transition-all duration-[180ms] hover:border-[rgba(229,9,20,0.7)] tracking-[0.3px] disabled:opacity-50"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  {savingKeys ? "Saving…" : "Save Keys"}
+                </button>
+              )}
+            </div>
+            {/* <div className="px-4 sm:px-6 pb-3">
+              <p className="text-[10px] text-[var(--text-muted)] leading-[1.5]">
+                💡 In a future update, saving keys will generate an 8-character
+                code you can use to restore them on a new device.
+              </p>
+            </div> */}
+          </div>
+        </div>
+
+        {/* History */}
+        <div className={card}>
+          <div className={cardHdr}>
+            <SectionIcon>
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M3 3v5h5" />
+                <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+              </svg>
+            </SectionIcon>
+            <SectionTitle>Watch History</SectionTitle>
+          </div>
+          <div className="py-2">
+            <div className={row}>
+              <div className="min-w-0 flex-1">
+                <p className={lbl}>Enable watch history</p>
+                <p className={hint}>
+                  Films are added after 10+ seconds of playback.
+                </p>
+              </div>
+              <Toggle
+                checked={prefs.historyEnabled ?? true}
+                onChange={(v) =>
+                  updatePref((p) => ({ ...p, historyEnabled: v }))
+                }
+              />
+            </div>
+            <div className={rowLast}>
+              <div className="min-w-0 flex-1">
+                <p className={lbl}>Clear history</p>
+                <p className={hint}>
+                  Remove all entries from your watch history.
+                </p>
+              </div>
+              <button
+                onClick={handleClearHistory}
+                className="flex-shrink-0 bg-transparent border border-[var(--border)] rounded-[var(--radius)] px-[12px] py-[7px] text-[12px] font-semibold text-[var(--text-muted)] cursor-pointer hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)] transition-all"
+              >
+                Clear
               </button>
             </div>
           </div>
@@ -464,7 +631,7 @@ export default function PreferencesClient() {
               <Toggle
                 checked={prefs.searchSuggestionsEnabled}
                 onChange={(v) =>
-                  setPrefs((p) => ({ ...p, searchSuggestionsEnabled: v }))
+                  updatePref((p) => ({ ...p, searchSuggestionsEnabled: v }))
                 }
               />
             </div>
@@ -485,7 +652,7 @@ export default function PreferencesClient() {
                       step={50}
                       value={prefs.suggestionDebounceMs}
                       onChange={(e) =>
-                        setPrefs((p) => ({
+                        updatePref((p) => ({
                           ...p,
                           suggestionDebounceMs: +e.target.value,
                         }))
@@ -509,7 +676,7 @@ export default function PreferencesClient() {
                       <button
                         key={n}
                         onClick={() =>
-                          setPrefs((p) => ({ ...p, suggestionLimit: n }))
+                          updatePref((p) => ({ ...p, suggestionLimit: n }))
                         }
                         className={`${optBtn(prefs.suggestionLimit === n)} w-8 sm:w-9 h-8`}
                       >
@@ -543,21 +710,6 @@ export default function PreferencesClient() {
             <SectionTitle>Content & Display</SectionTitle>
           </div>
           <div className="py-2">
-            {/* <div className={row}>
-              <div className="min-w-0 flex-1 pr-2">
-                <p className={lbl}>Auto-translate Russian text</p>
-                <p className={hint}>
-                  Translate descriptions and titles via Google Translate.
-                </p>
-              </div>
-              <Toggle
-                checked={prefs.autoTranslateEnabled}
-                onChange={(v) =>
-                  setPrefs((p) => ({ ...p, autoTranslateEnabled: v }))
-                }
-              />
-            </div> */}
-
             <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
               <p className={`${lbl} mb-1`}>Default Explore sort</p>
               <p className={`${hint} mb-3`}>
@@ -575,7 +727,7 @@ export default function PreferencesClient() {
                     <button
                       key={o}
                       onClick={() =>
-                        setPrefs((p) => ({ ...p, defaultExploreOrder: o }))
+                        updatePref((p) => ({ ...p, defaultExploreOrder: o }))
                       }
                       className={optBtn(prefs.defaultExploreOrder === o)}
                     >
@@ -585,7 +737,6 @@ export default function PreferencesClient() {
                 })}
               </div>
             </div>
-
             <div className="px-4 sm:px-6 py-3 sm:py-4">
               <p className={`${lbl} mb-1`}>Default Explore type</p>
               <p className={`${hint} mb-3`}>
@@ -606,7 +757,7 @@ export default function PreferencesClient() {
                       <button
                         key={t}
                         onClick={() =>
-                          setPrefs((p) => ({ ...p, defaultExploreType: t }))
+                          updatePref((p) => ({ ...p, defaultExploreType: t }))
                         }
                         className={optBtn(prefs.defaultExploreType === t)}
                       >
@@ -714,7 +865,6 @@ export default function PreferencesClient() {
                   "Release Dates",
                   "Country-by-country release info — 1 call",
                 ],
-                // ["videos",        "Trailers",         "Trailers and teasers — 1 call"],
               ] as [keyof Preferences["filmSections"], string, string][]
             ).map(([key, label, hint_], i, arr) => (
               <div key={key} className={i === arr.length - 1 ? rowLast : row}>
@@ -725,7 +875,7 @@ export default function PreferencesClient() {
                 <Toggle
                   checked={prefs.filmSections[key]}
                   onChange={(v) =>
-                    setPrefs((p) => ({
+                    updatePref((p) => ({
                       ...p,
                       filmSections: { ...p.filmSections, [key]: v },
                     }))
@@ -735,90 +885,14 @@ export default function PreferencesClient() {
             ))}
           </div>
         </div>
-
-        {/* Action bar — stacks on mobile */}
-        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between pt-2 gap-3">
-          <button
-            onClick={handleReset}
-            className="bg-transparent border border-[var(--border)] rounded-[var(--radius)] px-5 py-[11px] sm:py-[10px] text-[13px] font-medium text-[var(--text-muted)] cursor-pointer transition-all duration-[180ms] hover:border-[var(--border-hover)] hover:text-[var(--text-dim)] text-center"
-          >
-            Reset to defaults
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className={`bg-[var(--accent)] border-none rounded-[var(--radius)] px-7 py-[11px] sm:py-[10px] text-[13px] font-bold text-white flex items-center justify-center gap-2 transition-opacity shadow-[0_0_20px_var(--accent-glow)] hover:shadow-[0_0_32px_var(--accent-glow)] tracking-[0.5px]
-              ${saving ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
-          >
-            {saving ? (
-              <>
-                <div className="w-3 h-3 rounded-full border-2 border-[rgba(255,255,255,0.3)] border-t-white animate-spin-fast" />
-                Saving…
-              </>
-            ) : (
-              <>
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                Save preferences
-              </>
-            )}
-          </button>
-        </div>
       </div>
 
-      {/* Quota Modal */}
       {quotaOpen && (
         <ApiKeyQuotaModal
           apiKeys={prefs.apiKeys}
           onClose={() => setQuotaOpen(false)}
         />
       )}
-
-      {/* Toast stack */}
-      <div className="fixed bottom-5 sm:bottom-7 right-4 sm:right-6 flex flex-col gap-[10px] z-[9999] pointer-events-none max-w-[calc(100vw-32px)]">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={`flex items-center gap-[10px] rounded-[var(--radius)] px-4 py-[10px] text-[12px] sm:text-[13px] text-[var(--text)] backdrop-blur-[8px] shadow-[0_4px_24px_rgba(0,0,0,0.4)] pointer-events-auto slide-down
-              ${t.type === "success" ? "bg-[var(--bg-elevated)] border border-[var(--border-hover)]" : "bg-[rgba(229,9,20,0.15)] border border-[rgba(229,9,20,0.35)]"}`}
-          >
-            {t.type === "success" ? (
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#22c55e"
-                strokeWidth="2.5"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            ) : (
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--accent)"
-                strokeWidth="2.5"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-            )}
-            {t.message}
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

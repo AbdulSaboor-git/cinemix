@@ -1,8 +1,10 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Film } from "@/types/kinopoisk";
 import { FilmPosterFallback } from "./posterFallback";
 import { lockScroll, unlockScroll } from "@/lib/scrollLock";
+import { addToHistory } from "@/lib/userLists";
+import { useToast } from "@/lib/toast";
 
 interface PlayerSectionProps {
   filmId: number;
@@ -10,53 +12,81 @@ interface PlayerSectionProps {
 }
 
 const PLAYER_BASE = "https://flcksbr.top/film";
+/** Minimum seconds of active playback before adding to history */
+const HISTORY_THRESHOLD_S = 10;
 
 export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
   const [playerActive, setPlayerActive] = useState(false);
   const [posterError, setPosterError] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const secondsRef = useRef(0);
+  const addedRef = useRef(false);
+  const { toast } = useToast();
 
-  // Lock scroll on mobile only when player is active
+  // ── Watch-history timer ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (playerActive && !addedRef.current) {
+      timerRef.current = setInterval(() => {
+        secondsRef.current += 1;
+        if (secondsRef.current >= HISTORY_THRESHOLD_S && !addedRef.current) {
+          addedRef.current = true;
+          const name = film.nameEn || film.nameOriginal || film.nameRu || "Unknown";
+          addToHistory({
+            film_id: filmId,
+            film_name: name,
+            poster_url: film.posterUrlPreview || film.posterUrl || null,
+            year: film.year ?? film.startYear ?? null,
+            rating: film.ratingKinopoisk ?? film.ratingImdb ?? null,
+          });
+          toast.info(`Added to watch history`);
+          if (timerRef.current) clearInterval(timerRef.current);
+        }
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [playerActive, filmId, film, toast]);
+
+  // ── Scroll lock on mobile ──────────────────────────────────────────────────
   useEffect(() => {
     const isMobile = window.matchMedia("(max-width: 768px)").matches;
     if (!isMobile) return;
-
     if (playerActive) {
       lockScroll();
-      return () => unlockScroll(); // ← only unlocks when playerActive was true
+      return () => unlockScroll();
     }
   }, [playerActive]);
 
-  // Handle browser back button closing the player
+  // ── Browser back closes player ─────────────────────────────────────────────
   useEffect(() => {
     if (!playerActive) return;
-
-    // Push a dummy history entry so back button can close the player
     window.history.pushState({ player: true }, "");
-
-    const handlePopState = (e: PopStateEvent) => {
-      setPlayerActive(false);
-    };
-
+    const handlePopState = () => setPlayerActive(false);
     window.addEventListener("popstate", handlePopState);
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-    };
+    return () => window.removeEventListener("popstate", handlePopState);
   }, [playerActive]);
 
-  // Block window.open popups from the iframe
+  // ── Block popup ads from iframe ────────────────────────────────────────────
   useEffect(() => {
     const originalOpen = window.open;
     window.open = function (url, target, features) {
       if (target === "_blank" || !target) return null;
       return originalOpen.call(window, url, target, features);
     };
-    return () => {
-      window.open = originalOpen;
-    };
+    return () => { window.open = originalOpen; };
   }, []);
 
   const closePlayer = () => {
-    // If we pushed a history state, go back to remove it
     if (window.history.state?.player) {
       window.history.back();
     } else {
@@ -64,7 +94,6 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
     }
   };
 
-  const type = film.type === "TV_SERIES" ? "series" : "movie";
   const name = film.nameOriginal || film.nameRu || film.nameEn || "Unknown";
   const playerUrl = `${PLAYER_BASE}/${filmId}/`;
 
@@ -73,14 +102,9 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
       {!playerActive ? (
         <div
           className="relative w-full overflow-hidden cursor-pointer bg-black aspect-video max-h-[75vh]"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setPlayerActive(true);
-          }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPlayerActive(true); }}
         >
-          {(film.coverUrl || film.posterUrl || film.posterUrlPreview) &&
-          !posterError ? (
+          {(film.coverUrl || film.posterUrl || film.posterUrlPreview) && !posterError ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={film.coverUrl || film.posterUrl || film.posterUrlPreview}
@@ -97,40 +121,22 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 pointer-events-none">
             <div
               className="w-[88px] h-[88px] rounded-full bg-[rgba(229,9,20,0.9)] flex items-center justify-center pointer-events-auto transition-transform duration-200 hover:scale-110 shadow-[0_0_60px_var(--accent-glow),0_0_120px_rgba(229,9,20,0.2)]"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setPlayerActive(true);
-              }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPlayerActive(true); }}
             >
-              <svg
-                width="32"
-                height="32"
-                viewBox="0 0 24 24"
-                fill="white"
-                className="ml-1 pointer-events-none"
-              >
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="white" className="ml-1 pointer-events-none">
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
             </div>
             <div className="text-center">
-              <p className="font-display text-white mb-2 text-[clamp(20px,3vw,40px)] tracking-[1px]">
-                {name}
-              </p>
-              <p className="text-[14px] text-[rgba(255,255,255,0.5)]">
-                Click to watch
-              </p>
+              <p className="font-display text-white mb-2 text-[clamp(20px,3vw,40px)] tracking-[1px]">{name}</p>
+              <p className="text-[14px] text-[rgba(255,255,255,0.5)]">Click to watch</p>
             </div>
           </div>
 
           <style>{`@keyframes pulse-ring { 0%{transform:scale(1);opacity:0.6} 100%{transform:scale(1.5);opacity:0} }`}</style>
           <div
             className="absolute w-[88px] h-[88px] rounded-full border-2 border-[var(--accent)] pointer-events-none animate-[pulse-ring_2s_ease-out_infinite]"
-            style={{
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -54px)",
-            }}
+            style={{ top: "50%", left: "50%", transform: "translate(-50%, -54px)" }}
           />
         </div>
       ) : (
@@ -143,25 +149,11 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
             title={name}
           />
           <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              closePlayer();
-            }}
-            className="absolute top-[10px] right-4 bg-[rgba(0,0,0,0.8)] 
-            backdrop-blur-[8px] border border-[rgba(255,255,255,0.2)] rounded-[8px] px-[14px] 
-            py-2 text-white text-[13px] font-medium cursor-pointer flex items-center gap-[6px] z-10"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); closePlayer(); }}
+            className="absolute top-[10px] right-4 bg-[rgba(0,0,0,0.8)] backdrop-blur-[8px] border border-[rgba(255,255,255,0.2)] rounded-[8px] px-[14px] py-2 text-white text-[13px] font-medium cursor-pointer flex items-center gap-[6px] z-10"
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
             Close
           </button>

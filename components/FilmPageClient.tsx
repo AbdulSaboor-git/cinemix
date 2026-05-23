@@ -42,6 +42,8 @@ import ActorCard from "@/components/ActorCard";
 import FilmCard from "@/components/FilmCard";
 import Link from "next/link";
 import { FilmPosterFallback } from "./posterFallback";
+import { toggleFavorite, toggleWatchLater, isInList } from "@/lib/userLists";
+import { useToast } from "@/lib/toast";
 
 export default function FilmPageClient({ filmId }: { filmId: string }) {
   const id = parseInt(filmId);
@@ -197,6 +199,35 @@ function FilmDetail({
   const [showSpoilers, setShowSpoilers] = useState(false);
   const [activeTab, setActiveTab] = useState<"facts" | "bloopers">("facts");
   const [posterError, setPosterError] = useState(false);
+  const [isFav, setIsFav] = useState(false);
+  const [isWL, setIsWL] = useState(false);
+  const { toast } = useToast();
+
+  // Hydrate fav/WL state client-side
+  useEffect(() => {
+    setIsFav(isInList("favorites", filmId));
+    setIsWL(isInList("watchlater", filmId));
+  }, [filmId]);
+
+  const filmEntry = {
+    film_id: filmId,
+    film_name: film.nameEn || film.nameOriginal || film.nameRu || "Unknown",
+    poster_url: film.posterUrlPreview || film.posterUrl || null,
+    year: film.year ?? film.startYear ?? null,
+    rating: film.ratingKinopoisk ?? film.ratingImdb ?? null,
+  };
+
+  const handleFav = () => {
+    const added = toggleFavorite(filmEntry);
+    setIsFav(added);
+    toast.success(added ? "Added to Favorites ❤️" : "Removed from Favorites");
+  };
+
+  const handleWL = () => {
+    const added = toggleWatchLater(filmEntry);
+    setIsWL(added);
+    toast.info(added ? "Saved to Watch Later 🕐" : "Removed from Watch Later");
+  };
 
   const directors = staff
     .filter((s) => s.professionKey === "DIRECTOR")
@@ -494,6 +525,36 @@ function FilmDetail({
             )}
             {composerNames && <InfoRow label="Music" value={composerNames} />}
             {film.imdbId && <InfoRow label="IMDb ID" value={film.imdbId} />}
+
+            {/* ── Action buttons ── */}
+            <div className="flex flex-wrap gap-[8px] mt-6">
+              <button
+                onClick={handleFav}
+                className={`flex items-center gap-[7px] rounded-[var(--radius)] px-4 py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150
+                  ${isFav
+                    ? "bg-[rgba(229,9,20,0.15)] border-[rgba(229,9,20,0.5)] text-[var(--accent)] shadow-[0_0_14px_rgba(229,9,20,0.2)]"
+                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)]"
+                  }`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill={isFav ? "var(--accent)" : "none"} stroke="currentColor" strokeWidth="2">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                </svg>
+                {isFav ? "Favorited" : "Add to Favorites"}
+              </button>
+              <button
+                onClick={handleWL}
+                className={`flex items-center gap-[7px] rounded-[var(--radius)] px-4 py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150
+                  ${isWL
+                    ? "bg-[rgba(96,165,250,0.12)] border-[rgba(96,165,250,0.4)] text-[#60a5fa]"
+                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(96,165,250,0.4)] hover:text-[#60a5fa]"
+                  }`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                </svg>
+                {isWL ? "In Watch Later" : "Watch Later"}
+              </button>
+            </div>
           </div>
         </div>
 

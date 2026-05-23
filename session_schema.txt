@@ -1,0 +1,28 @@
+23-5-2026
+
+
+cinemix_session (localStorage key)
+│
+├── meta                          → sessions table
+│   ├── id (PK, 16-char)
+│   ├── name
+│   ├── ip, country, city
+│   ├── device, browser, user_agent
+│   └── created_at, updated_at
+│
+├── lists                         → user_lists table
+│   ├── favorites[]               list_type = 'favorites'
+│   ├── watchlater[]              list_type = 'watchlater'
+│   └── history[]                 list_type = 'history'
+│       each entry: film_id (FK→film), film_name,
+│                   poster_url, year, rating, added_at
+│
+├── api_keys                      → api_key_store table
+│   ├── sync_code (null for now, 8-char after DB)
+│   ├── keys[]
+│   └── saved_at
+│
+└── preferences                   → jsonb column on sessions
+    ├── historyEnabled, searchSuggestionsEnabled, ...
+    ├── homeSections {}
+    └── filmSections {}
