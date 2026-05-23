@@ -100,7 +100,7 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
           />
         </div>
       ) : (
-        <div className="relative w-full bg-black z-20 aspect-video max-h-[75vh] overflow-hidden">
+        <div className="relative w-full bg-black z-20 aspect-video max-h-screen md:max-h-[85vh] overflow-hidden">
           <iframe
             src={playerUrl}
             allowFullScreen
