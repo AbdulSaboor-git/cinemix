@@ -100,11 +100,12 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
           />
         </div>
       ) : (
-        <div className="relative w-full bg-black z-20 aspect-video max-h-[75vh]">
+        <div className="relative w-full bg-black z-20 aspect-video max-h-[75vh] overflow-hidden">
           <iframe
             src={playerUrl}
             allowFullScreen
-            className="absolute w-full border-none block bg-black top-0 md:-top-[89%] h-[300%] md:h-[180%]"
+            className="absolute w-full border-none block 
+            bg-black top-0 md:-top-[89%] h-[200%] md:h-[180%]"
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             title={name}
           />
@@ -114,7 +115,9 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
               e.stopPropagation();
               setPlayerActive(false);
             }}
-            className="absolute top-[10px] right-4 bg-[rgba(0,0,0,0.8)] backdrop-blur-[8px] border border-[rgba(255,255,255,0.2)] rounded-[8px] px-[14px] py-2 text-white text-[13px] font-medium cursor-pointer flex items-center gap-[6px] z-10"
+            className="absolute top-[10px] right-4 bg-[rgba(0,0,0,0.8)] 
+            backdrop-blur-[8px] border border-[rgba(255,255,255,0.2)] rounded-[8px] px-[14px] 
+            py-2 text-white text-[13px] font-medium cursor-pointer flex items-center gap-[6px] z-10"
           >
             <svg
               width="14"
