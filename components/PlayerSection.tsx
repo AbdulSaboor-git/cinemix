@@ -12,17 +12,43 @@ const PLAYER_BASE = "https://flcksbr.top/film";
 
 export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
   const [playerActive, setPlayerActive] = useState(false);
-  const [scrollLocked, setScrollLocked] = useState(false);
+  const [posterError, setPosterError] = useState(false);
 
-  const toggleScroll = () => {
-    if (scrollLocked) {
-      document.body.style.overflow = "";
-    } else {
+  // Lock scroll on mobile only when player is active
+  useEffect(() => {
+    const isMobile = window.matchMedia("(max-width: 768px)").matches;
+    if (!isMobile) return;
+
+    if (playerActive) {
       document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
     }
-    setScrollLocked(!scrollLocked);
-  };
 
+    // Always restore on unmount (page leave, navigation)
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [playerActive]);
+
+  // Handle browser back button closing the player
+  useEffect(() => {
+    if (!playerActive) return;
+
+    // Push a dummy history entry so back button can close the player
+    window.history.pushState({ player: true }, "");
+
+    const handlePopState = (e: PopStateEvent) => {
+      setPlayerActive(false);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [playerActive]);
+
+  // Block window.open popups from the iframe
   useEffect(() => {
     const originalOpen = window.open;
     window.open = function (url, target, features) {
@@ -34,14 +60,18 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
     };
   }, []);
 
+  const closePlayer = () => {
+    // If we pushed a history state, go back to remove it
+    if (window.history.state?.player) {
+      window.history.back();
+    } else {
+      setPlayerActive(false);
+    }
+  };
+
   const type = film.type === "TV_SERIES" ? "series" : "movie";
   const name = film.nameOriginal || film.nameRu || film.nameEn || "Unknown";
   const playerUrl = `${PLAYER_BASE}/${filmId}/`;
-  // const playerUrl =
-  //   type === "series"
-  //     ? `${PLAYER_BASE}/${filmId}/`
-  //     : `https://vidcore.net/movie/${film.imdbId}`;
-  const [posterError, setPosterError] = useState(false);
 
   return (
     <div className="w-full bg-[var(--bg)] relative">
@@ -54,9 +84,9 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
             setPlayerActive(true);
           }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           {(film.coverUrl || film.posterUrl || film.posterUrlPreview) &&
           !posterError ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={film.coverUrl || film.posterUrl || film.posterUrlPreview}
               alt={name}
@@ -68,7 +98,7 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
           )}
 
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_30%,rgba(0,0,0,0.7)_100%)]" />
-          {/* Play button + title */}
+
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 pointer-events-none">
             <div
               className="w-[88px] h-[88px] rounded-full bg-[rgba(229,9,20,0.9)] flex items-center justify-center pointer-events-auto transition-transform duration-200 hover:scale-110 shadow-[0_0_60px_var(--accent-glow),0_0_120px_rgba(229,9,20,0.2)]"
@@ -76,7 +106,6 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
                 e.preventDefault();
                 e.stopPropagation();
                 setPlayerActive(true);
-                toggleScroll();
               }}
             >
               <svg
@@ -99,7 +128,6 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
             </div>
           </div>
 
-          {/* Pulsing ring */}
           <style>{`@keyframes pulse-ring { 0%{transform:scale(1);opacity:0.6} 100%{transform:scale(1.5);opacity:0} }`}</style>
           <div
             className="absolute w-[88px] h-[88px] rounded-full border-2 border-[var(--accent)] pointer-events-none animate-[pulse-ring_2s_ease-out_infinite]"
@@ -115,8 +143,7 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
           <iframe
             src={playerUrl}
             allowFullScreen
-            className="absolute w-full border-none block 
-            bg-black top-0 md:-top-[81%] h-screen md:h-[180%]"
+            className="absolute w-full border-none block bg-black top-0 md:-top-[81%] h-screen md:h-[180%]"
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             title={name}
           />
@@ -124,8 +151,7 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setPlayerActive(false);
-              toggleScroll();
+              closePlayer();
             }}
             className="absolute top-[10px] right-4 bg-[rgba(0,0,0,0.8)] 
             backdrop-blur-[8px] border border-[rgba(255,255,255,0.2)] rounded-[8px] px-[14px] 
