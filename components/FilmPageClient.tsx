@@ -32,7 +32,11 @@ import {
   translateCountry,
 } from "@/lib/translate";
 import { getPreferences } from "@/lib/preferences";
-import { useTranslate, useTranslateHtml, useAutoTranslate } from "@/hooks/useTranslate";
+import {
+  useTranslate,
+  useTranslateHtml,
+  useAutoTranslate,
+} from "@/hooks/useTranslate";
 import PlayerSection from "@/components/PlayerSection";
 import ActorCard from "@/components/ActorCard";
 import FilmCard from "@/components/FilmCard";
@@ -54,7 +58,6 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
   const [distributions, setDistributions] = useState<Distribution[]>([]);
   const [loading, setLoading] = useState(!isNaN(id));
   const [error, setError] = useState(isNaN(id));
-
 
   useEffect(() => {
     if (isNaN(id)) return;
@@ -111,7 +114,10 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
             .then((d) => mounted && setDistributions(d.items || []))
             .catch(() => {});
         }
-        if ((f.serial || f.type === "TV_SERIES" || f.type === "MINI_SERIES") && fs.cast) {
+        if (
+          (f.serial || f.type === "TV_SERIES" || f.type === "MINI_SERIES") &&
+          fs.cast
+        ) {
           getFilmSeasons(id)
             .then((d) => mounted && setSeasons(d.items || []))
             .catch(() => {});
@@ -177,7 +183,12 @@ function FilmDetail({
   distributions: Distribution[];
 }) {
   const autoTranslate = useAutoTranslate();
-  const name = getEnglishName(film.nameRu, film.nameEn, film.nameOriginal, autoTranslate);
+  const name = getEnglishName(
+    film.nameRu,
+    film.nameEn,
+    film.nameOriginal,
+    autoTranslate,
+  );
   const description = useTranslate(film.description);
   const slogan = useTranslate(film.slogan);
 
@@ -365,18 +376,18 @@ function FilmDetail({
               {name}
             </h1>
 
-            {film.nameRu && film.nameRu !== name && (
+            {/* {film.nameRu && film.nameRu !== name && (
               <p className="text-[13px] sm:text-[14px] text-[var(--text-muted)] mb-3 italic">
                 {film.nameRu}
               </p>
-            )}
-            {film.nameOriginal &&
+            )} */}
+            {/* {film.nameOriginal &&
               film.nameOriginal !== name &&
               film.nameOriginal !== film.nameRu && (
                 <p className="text-[11px] sm:text-[12px] text-[var(--text-muted)] mb-3 italic">
                   {film.nameOriginal}
                 </p>
-              )}
+              )} */}
 
             <div className="flex flex-wrap gap-[6px] sm:gap-2 mb-4">
               {displayYear && <MetaTag>{displayYear}</MetaTag>}
@@ -399,7 +410,9 @@ function FilmDetail({
                   href={`/explore?countries=${encodeURIComponent(c.country)}`}
                   className="no-underline"
                 >
-                  <MetaTag clickable>{translateCountry(c.country, autoTranslate)}</MetaTag>
+                  <MetaTag clickable>
+                    {translateCountry(c.country, autoTranslate)}
+                  </MetaTag>
                 </Link>
               ))}
               {film.type && film.type !== "FILM" && (
@@ -425,7 +438,7 @@ function FilmDetail({
               {film.genres?.map((g) => (
                 <Link
                   key={g.genre}
-                  href="/explore?type=ALL"
+                  href={`/explore?genres=${encodeURIComponent(g.genre)}`}
                   className="no-underline"
                 >
                   <span className="tag tag-accent cursor-pointer capitalize">
@@ -573,9 +586,7 @@ function FilmDetail({
         )}
 
         {/* ── Awards ── */}
-        {awards.length > 0 && (
-          <AwardsSection awards={awards} />
-        )}
+        {awards.length > 0 && <AwardsSection awards={awards} />}
 
         {/* ── Distributions ── */}
         {distributions.length > 0 && (
@@ -589,7 +600,12 @@ function FilmDetail({
             <div className="flex gap-3 overflow-x-auto pb-3 -mx-4 px-4 md:mx-0 md:px-0 scrollbar-none">
               {similars.slice(0, 12).map((sf) => {
                 const sfId = sf.filmId;
-                const sfName = getEnglishName(sf.nameRu, sf.nameEn, undefined, autoTranslate);
+                const sfName = getEnglishName(
+                  sf.nameRu,
+                  sf.nameEn,
+                  undefined,
+                  autoTranslate,
+                );
                 return (
                   <Link
                     key={sfId}
@@ -625,7 +641,9 @@ function FilmDetail({
             <SectionHeader>SEQUELS & PREQUELS</SectionHeader>
             <div className="flex gap-3 sm:gap-4 flex-wrap">
               {Array.from(
-                new Map(related.map((rf) => [rf.kinopoiskId ?? rf.filmId, rf])).values()
+                new Map(
+                  related.map((rf) => [rf.kinopoiskId ?? rf.filmId, rf]),
+                ).values(),
               ).map((rf) => (
                 <FilmCard
                   key={rf.kinopoiskId ?? rf.filmId}
@@ -765,7 +783,12 @@ function SeasonsSection({ seasons }: { seasons: Season[] }) {
       {season && (
         <div className="flex flex-col gap-[2px]">
           {season.episodes.map((ep, i) => {
-            const epName = getEnglishName(ep.nameRu, ep.nameEn, undefined, autoTranslate);
+            const epName = getEnglishName(
+              ep.nameRu,
+              ep.nameEn,
+              undefined,
+              autoTranslate,
+            );
             return (
               <div
                 key={i}
@@ -801,12 +824,22 @@ function SeasonsSection({ seasons }: { seasons: Season[] }) {
 
 // ── Gallery ───────────────────────────────────────────────────────────────────
 
-function GallerySection({ images, filmId }: { images: ImageItem[]; filmId: number }) {
+function GallerySection({
+  images,
+  filmId,
+}: {
+  images: ImageItem[];
+  filmId: number;
+}) {
   const [lightbox, setLightbox] = useState<number | null>(null);
   const visible = images.slice(0, 12);
 
-  const prev = () => setLightbox((i) => (i !== null ? Math.max(0, i - 1) : null));
-  const next = () => setLightbox((i) => (i !== null ? Math.min(visible.length - 1, i + 1) : null));
+  const prev = () =>
+    setLightbox((i) => (i !== null ? Math.max(0, i - 1) : null));
+  const next = () =>
+    setLightbox((i) =>
+      i !== null ? Math.min(visible.length - 1, i + 1) : null,
+    );
 
   // Close lightbox on Escape
   useEffect(() => {
@@ -818,14 +851,16 @@ function GallerySection({ images, filmId }: { images: ImageItem[]; filmId: numbe
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lightbox]);
 
   // Lock scroll when lightbox open
   useEffect(() => {
     if (lightbox !== null) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
-    return () => { document.body.style.overflow = ""; };
+    return () => {
+      document.body.style.overflow = "";
+    };
   }, [lightbox]);
 
   return (
@@ -853,15 +888,30 @@ function GallerySection({ images, filmId }: { images: ImageItem[]; filmId: numbe
       {lightbox !== null && (
         <div
           className="fixed inset-0 z-[9998] flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)" }}
+          style={{
+            background: "rgba(0,0,0,0.92)",
+            backdropFilter: "blur(8px)",
+          }}
           onClick={() => setLightbox(null)}
         >
           {/* Prev */}
           <button
             className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-[rgba(255,255,255,0.08)] border border-[rgba(255,255,255,0.15)] flex items-center justify-center cursor-pointer hover:bg-[rgba(255,255,255,0.15)] transition-colors z-10 border-none"
-            onClick={(e) => { e.stopPropagation(); prev(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              prev();
+            }}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              strokeWidth="2.5"
+            >
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
           </button>
 
           {/* Image */}
@@ -885,9 +935,21 @@ function GallerySection({ images, filmId }: { images: ImageItem[]; filmId: numbe
           {/* Next */}
           <button
             className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-[rgba(255,255,255,0.08)] border border-[rgba(255,255,255,0.15)] flex items-center justify-center cursor-pointer hover:bg-[rgba(255,255,255,0.15)] transition-colors z-10 border-none"
-            onClick={(e) => { e.stopPropagation(); next(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              next();
+            }}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><path d="M9 18l6-6-6-6"/></svg>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              strokeWidth="2.5"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
           </button>
 
           {/* Close */}
@@ -895,8 +957,16 @@ function GallerySection({ images, filmId }: { images: ImageItem[]; filmId: numbe
             className="absolute top-4 right-4 sm:top-6 sm:right-6 w-9 h-9 rounded-full bg-[rgba(255,255,255,0.08)] flex items-center justify-center cursor-pointer hover:bg-[rgba(255,255,255,0.15)] transition-colors border-none"
             onClick={() => setLightbox(null)}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              strokeWidth="2.5"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
@@ -927,7 +997,8 @@ function AwardsSection({ awards }: { awards: Award[] }) {
           )}
           {nominations.length > 0 && (
             <span className="text-[11px] font-semibold text-[var(--text-muted)] bg-[var(--surface)] border border-[var(--border)] px-2 py-[3px] rounded-[6px]">
-              {nominations.length} Nomination{nominations.length !== 1 ? "s" : ""}
+              {nominations.length} Nomination
+              {nominations.length !== 1 ? "s" : ""}
             </span>
           )}
         </div>
@@ -956,28 +1027,46 @@ function AwardRow({ award }: { award: Award }) {
     .join(", ");
 
   return (
-    <div className={`flex items-center gap-3 sm:gap-4 bg-[var(--bg-card)] border rounded-[var(--radius)] px-3 sm:px-4 py-[10px] sm:py-3
-      ${award.win ? "border-[rgba(245,197,24,0.2)] border-l-[3px] border-l-[#f5c518]" : "border-[var(--border)] border-l-[3px] border-l-[var(--border)]"}`}>
+    <div
+      className={`flex items-center gap-3 sm:gap-4 bg-[var(--bg-card)] border rounded-[var(--radius)] px-3 sm:px-4 py-[10px] sm:py-3
+      ${award.win ? "border-[rgba(245,197,24,0.2)] border-l-[3px] border-l-[#f5c518]" : "border-[var(--border)] border-l-[3px] border-l-[var(--border)]"}`}
+    >
       {/* Award icon / image */}
       <div className="w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0 flex items-center justify-center">
         {award.imageUrl ? (
-          <Image src={award.imageUrl} alt={award.name} width={32} height={32} className="object-contain rounded-[4px]" />
+          <Image
+            src={award.imageUrl}
+            alt={award.name}
+            width={32}
+            height={32}
+            className="object-contain rounded-[4px]"
+          />
         ) : (
-          <span className="text-[18px] sm:text-[20px]">{award.win ? "🏆" : "🎬"}</span>
+          <span className="text-[18px] sm:text-[20px]">
+            {award.win ? "🏆" : "🎬"}
+          </span>
         )}
       </div>
       {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[12px] sm:text-[13px] font-bold text-[var(--text)]">{award.name}</span>
-          <span className="text-[10px] sm:text-[11px] text-[var(--text-muted)]">{award.year}</span>
+          <span className="text-[12px] sm:text-[13px] font-bold text-[var(--text)]">
+            {award.name}
+          </span>
+          <span className="text-[10px] sm:text-[11px] text-[var(--text-muted)]">
+            {award.year}
+          </span>
           {award.win && (
-            <span className="text-[9px] sm:text-[10px] font-bold text-[#f5c518] uppercase tracking-[0.5px]">WON</span>
+            <span className="text-[9px] sm:text-[10px] font-bold text-[#f5c518] uppercase tracking-[0.5px]">
+              WON
+            </span>
           )}
         </div>
         <p className="text-[11px] sm:text-[12px] text-[var(--text-muted)] mt-[1px]">
           {award.nominationName}
-          {personNames && <span className="ml-1 text-[var(--text-dim)]">— {personNames}</span>}
+          {personNames && (
+            <span className="ml-1 text-[var(--text-dim)]">— {personNames}</span>
+          )}
         </p>
       </div>
     </div>
@@ -999,7 +1088,11 @@ const DIST_SUBTYPE_LABELS: Record<string, string> = {
   DIGITAL: "Digital",
 };
 
-function DistributionsSection({ distributions }: { distributions: Distribution[] }) {
+function DistributionsSection({
+  distributions,
+}: {
+  distributions: Distribution[];
+}) {
   const [expanded, setExpanded] = useState(false);
   // Deduplicate and sort by date
   const sorted = [...distributions]
@@ -1018,30 +1111,49 @@ function DistributionsSection({ distributions }: { distributions: Distribution[]
             ? translateCountry(d.country.country, true)
             : "";
           const label = DIST_TYPE_LABELS[d.type] ?? d.type.replace(/_/g, " ");
-          const subLabel = d.subType ? (DIST_SUBTYPE_LABELS[d.subType] ?? d.subType) : null;
+          const subLabel = d.subType
+            ? (DIST_SUBTYPE_LABELS[d.subType] ?? d.subType)
+            : null;
           const companies = d.companies?.map((c) => c.name).join(", ");
           return (
-            <div key={i} className="flex items-center gap-3 sm:gap-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius)] px-3 sm:px-4 py-[9px] sm:py-[11px]">
+            <div
+              key={i}
+              className="flex items-center gap-3 sm:gap-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius)] px-3 sm:px-4 py-[9px] sm:py-[11px]"
+            >
               <div className="flex-shrink-0 w-[90px] sm:w-[105px]">
                 <span className="font-display text-[13px] sm:text-[15px] text-[var(--accent)]">
-                  {new Date(d.date!).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                  {new Date(d.date!).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
                 </span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[12px] sm:text-[13px] font-semibold text-[var(--text)] truncate">{country}</span>
+                  <span className="text-[12px] sm:text-[13px] font-semibold text-[var(--text)] truncate">
+                    {country}
+                  </span>
                   {subLabel && (
-                    <span className="text-[10px] text-[var(--text-muted)] bg-[var(--surface)] px-[6px] py-[2px] rounded-[4px] flex-shrink-0">{subLabel}</span>
+                    <span className="text-[10px] text-[var(--text-muted)] bg-[var(--surface)] px-[6px] py-[2px] rounded-[4px] flex-shrink-0">
+                      {subLabel}
+                    </span>
                   )}
                   {d.reRelease && (
-                    <span className="text-[10px] text-[var(--text-muted)] bg-[var(--surface)] px-[6px] py-[2px] rounded-[4px] flex-shrink-0">Re-release</span>
+                    <span className="text-[10px] text-[var(--text-muted)] bg-[var(--surface)] px-[6px] py-[2px] rounded-[4px] flex-shrink-0">
+                      Re-release
+                    </span>
                   )}
                 </div>
                 {companies && (
-                  <p className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-[1px] truncate">{companies}</p>
+                  <p className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-[1px] truncate">
+                    {companies}
+                  </p>
                 )}
               </div>
-              <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0 hidden sm:block">{label}</span>
+              <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0 hidden sm:block">
+                {label}
+              </span>
             </div>
           );
         })}

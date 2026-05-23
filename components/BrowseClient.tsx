@@ -53,8 +53,15 @@ export default function BrowseClient({
   type OrderType = "RATING" | "NUM_VOTE" | "YEAR";
 
   const page = Math.max(1, parseInt(pg || "1"));
-  const genreId = genreParam ? parseInt(genreParam) : undefined;
-  const countryId = countryParam ? parseInt(countryParam) : undefined;
+
+  // Parse numeric values — may be undefined if param is a name string
+  const parsedGenreId =
+    genreParam && !isNaN(Number(genreParam)) ? parseInt(genreParam) : undefined;
+  const parsedCountryId =
+    countryParam && !isNaN(Number(countryParam))
+      ? parseInt(countryParam)
+      : undefined;
+
   const ratingFrom = rfParam ? parseInt(rfParam) : undefined;
   const ratingTo = rtParam ? parseInt(rtParam) : undefined;
   const yearFrom = yfParam ? parseInt(yfParam) : undefined;
@@ -66,27 +73,56 @@ export default function BrowseClient({
   const [loading, setLoading] = useState(true);
   const [genres, setGenres] = useState<Genre[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
+
+  // Resolved IDs — may be resolved from a name string
+  const [resolvedGenreId, setResolvedGenreId] = useState<number | undefined>(
+    parsedGenreId,
+  );
+  const [resolvedCountryId, setResolvedCountryId] = useState<
+    number | undefined
+  >(parsedCountryId);
+
   // Mobile filter drawer state
   const [filterOpen, setFilterOpen] = useState(false);
   const router = useRouter();
   const autoTranslate = useAutoTranslate();
 
-  // Replace the prefs useEffect entirely — just load filters
+  // Load filters and resolve name→id if params are strings
   useEffect(() => {
+    // Reset to parsed values first (handles numeric params immediately)
+    setResolvedGenreId(parsedGenreId);
+    setResolvedCountryId(parsedCountryId);
+
     getFilters()
       .then((f) => {
         setGenres(f.genres);
         setCountries(f.countries);
+
+        // Resolve country name → id
+        if (countryParam && isNaN(Number(countryParam))) {
+          const match = f.countries.find(
+            (c) => c.country.toLowerCase() === countryParam.toLowerCase(),
+          );
+          if (match) setResolvedCountryId(match.id);
+        }
+
+        // Resolve genre name → id
+        if (genreParam && isNaN(Number(genreParam))) {
+          const match = f.genres.find(
+            (g) => g.genre.toLowerCase() === genreParam.toLowerCase(),
+          );
+          if (match) setResolvedGenreId(match.id);
+        }
       })
       .catch(() => {});
-  }, []);
+  }, [countryParam, genreParam, parsedCountryId, parsedGenreId]);
 
-  // And use prefs as defaults when URL params are absent:
+  // Prefs for defaults when URL params are absent
   const [ready, setReady] = useState(false);
   const [prefType, setPrefType] = useState<FilmType>("ALL");
   const [prefOrder, setPrefOrder] = useState<OrderType>("RATING");
 
-  // Resolved values — use URL params first (guard against empty string ""), then prefs, then defaults
+  // Resolved values — use URL params first, then prefs, then defaults
   const type = (tp || prefType) as FilmType;
   const order = (ord || prefOrder) as OrderType;
 
@@ -99,6 +135,20 @@ export default function BrowseClient({
 
   useEffect(() => {
     if (!ready) return;
+    // Wait until name params are resolved before fetching
+    if (
+      (genreParam &&
+        !isNaN(Number(genreParam)) === false &&
+        resolvedGenreId === undefined &&
+        genreParam) ||
+      (countryParam &&
+        isNaN(Number(countryParam)) &&
+        resolvedCountryId === undefined)
+    ) {
+      // Still resolving name → id, skip fetch for now
+      return;
+    }
+
     setLoading(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
     getFilmsByFilter({
@@ -108,8 +158,8 @@ export default function BrowseClient({
           : (type as "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES"),
       order,
       page,
-      genres: genreId,
-      countries: countryId,
+      genres: resolvedGenreId,
+      countries: resolvedCountryId,
       ratingFrom,
       ratingTo,
       yearFrom,
@@ -130,12 +180,14 @@ export default function BrowseClient({
     type,
     order,
     page,
-    genreId,
-    countryId,
+    resolvedGenreId,
+    resolvedCountryId,
     ratingFrom,
     ratingTo,
     yearFrom,
     yearTo,
+    genreParam,
+    countryParam,
   ]);
 
   const buildHref = useCallback(
@@ -143,8 +195,8 @@ export default function BrowseClient({
       const params = new URLSearchParams();
       if (type !== "ALL") params.set("type", type);
       if (order !== "RATING") params.set("order", order);
-      if (genreId) params.set("genres", String(genreId));
-      if (countryId) params.set("countries", String(countryId));
+      if (resolvedGenreId) params.set("genres", String(resolvedGenreId));
+      if (resolvedCountryId) params.set("countries", String(resolvedCountryId));
       if (ratingFrom) params.set("ratingFrom", String(ratingFrom));
       if (ratingTo) params.set("ratingTo", String(ratingTo));
       if (yearFrom) params.set("yearFrom", String(yearFrom));
@@ -152,7 +204,16 @@ export default function BrowseClient({
       params.set("page", String(p));
       return `/explore?${params.toString()}`;
     },
-    [type, order, genreId, countryId, ratingFrom, ratingTo, yearFrom, yearTo],
+    [
+      type,
+      order,
+      resolvedGenreId,
+      resolvedCountryId,
+      ratingFrom,
+      ratingTo,
+      yearFrom,
+      yearTo,
+    ],
   );
 
   const buildFilterHref = useCallback(
@@ -160,8 +221,8 @@ export default function BrowseClient({
       const merged: Record<string, string | undefined> = {
         type: type !== "ALL" ? type : undefined,
         order: order !== "RATING" ? order : undefined,
-        genres: genreId ? String(genreId) : undefined,
-        countries: countryId ? String(countryId) : undefined,
+        genres: resolvedGenreId ? String(resolvedGenreId) : undefined,
+        countries: resolvedCountryId ? String(resolvedCountryId) : undefined,
         ratingFrom: ratingFrom ? String(ratingFrom) : undefined,
         ratingTo: ratingTo ? String(ratingTo) : undefined,
         yearFrom: yearFrom ? String(yearFrom) : undefined,
@@ -174,12 +235,21 @@ export default function BrowseClient({
       });
       return `/explore?${params.toString()}`;
     },
-    [type, order, genreId, countryId, ratingFrom, ratingTo, yearFrom, yearTo],
+    [
+      type,
+      order,
+      resolvedGenreId,
+      resolvedCountryId,
+      ratingFrom,
+      ratingTo,
+      yearFrom,
+      yearTo,
+    ],
   );
 
   const activeFilterCount = [
-    genreId,
-    countryId,
+    resolvedGenreId,
+    resolvedCountryId,
     ratingFrom,
     ratingTo,
     yearFrom,
@@ -189,21 +259,21 @@ export default function BrowseClient({
   const title = TYPES.find((t) => t.value === type)?.label || "Explore";
 
   const activeFilterTags: { label: string; clearKey: string }[] = [];
-  if (genreId) {
-    const g = genres.find((g) => g.id === genreId);
+  if (resolvedGenreId) {
+    const g = genres.find((g) => g.id === resolvedGenreId);
     activeFilterTags.push({
       label: g
         ? translateGenre(g.genre, autoTranslate) || g.genre
-        : `Genre #${genreId}`,
+        : `Genre #${resolvedGenreId}`,
       clearKey: "genres",
     });
   }
-  if (countryId) {
-    const c = countries.find((c) => c.id === countryId);
+  if (resolvedCountryId) {
+    const c = countries.find((c) => c.id === resolvedCountryId);
     activeFilterTags.push({
       label: c
         ? translateCountry(c.country, autoTranslate) || c.country
-        : `Country #${countryId}`,
+        : `Country #${resolvedCountryId}`,
       clearKey: "countries",
     });
   }
@@ -240,7 +310,7 @@ export default function BrowseClient({
       </select>
       <select
         className="select w-full sm:w-auto"
-        value={genreId || ""}
+        value={resolvedGenreId || ""}
         onChange={(e) => {
           router.push(
             buildFilterHref({
@@ -262,7 +332,7 @@ export default function BrowseClient({
       </select>
       <select
         className="select w-full sm:w-auto"
-        value={countryId || ""}
+        value={resolvedCountryId || ""}
         onChange={(e) => {
           router.push(
             buildFilterHref({
