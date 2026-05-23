@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { Film } from "@/types/kinopoisk";
 import { FilmPosterFallback } from "./posterFallback";
+import { lockScroll, unlockScroll } from "@/lib/scrollLock";
 
 interface PlayerSectionProps {
   filmId: number;
@@ -20,15 +21,9 @@ export default function PlayerSection({ filmId, film }: PlayerSectionProps) {
     if (!isMobile) return;
 
     if (playerActive) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
+      lockScroll();
+      return () => unlockScroll(); // ← only unlocks when playerActive was true
     }
-
-    // Always restore on unmount (page leave, navigation)
-    return () => {
-      document.body.style.overflow = "";
-    };
   }, [playerActive]);
 
   // Handle browser back button closing the player

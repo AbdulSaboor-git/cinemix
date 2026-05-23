@@ -8,6 +8,7 @@ import { Film } from "@/types/kinopoisk";
 import { getEnglishName } from "@/lib/translate";
 import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import Logo from "./logo";
+import { lockScroll, unlockScroll } from "@/lib/scrollLock";
 
 const NAV_LINKS = [
   { href: "/", label: "Home" },
@@ -53,10 +54,11 @@ export default function Navbar() {
 
   // Lock body scroll when menu open
   useEffect(() => {
-    document.body.style.overflow = menuOpen ? "hidden" : "";
-    return () => {
-      document.body.style.overflow = "";
-    };
+    if (menuOpen) {
+      lockScroll();
+      return () => unlockScroll(); // ← only unlocks when menuOpen was true
+    }
+    // no cleanup needed when menuOpen is false
   }, [menuOpen]);
 
   useEffect(() => {

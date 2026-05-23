@@ -78,6 +78,10 @@ body {
   color: white;
 }
 
+body.scroll-locked {
+  overflow: hidden;
+}
+
 @keyframes shimmer {
   0% {
     background-position: -800px 0;
