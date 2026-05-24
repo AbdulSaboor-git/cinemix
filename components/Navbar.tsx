@@ -4,6 +4,13 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
+import {
+  Home,
+  Compass,
+  BarChart2,
+  Clapperboard,
+  Newspaper,
+} from "lucide-react";
 import { Film } from "@/types/kinopoisk";
 import { getEnglishName } from "@/lib/translate";
 import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
@@ -18,10 +25,17 @@ const NAV_LINKS = [
   { href: "/news", label: "News" },
 ];
 
+const BOTTOM_NAV_LINKS = [
+  { href: "/", label: "Home", Icon: Home },
+  { href: "/explore", label: "Explore", Icon: Compass },
+  { href: "/top240", label: "Top 240", Icon: BarChart2 },
+  { href: "/premieres", label: "Premieres", Icon: Clapperboard },
+  { href: "/news", label: "News", Icon: Newspaper },
+];
+
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [search, setSearch] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -47,19 +61,9 @@ export default function Navbar() {
   }, []);
 
   useEffect(() => {
-    setMenuOpen(false);
     setSearchOpen(false);
     clearSuggestions();
   }, [pathname, clearSuggestions]);
-
-  // Lock body scroll when menu open
-  useEffect(() => {
-    if (menuOpen) {
-      lockScroll();
-      return () => unlockScroll(); // ← only unlocks when menuOpen was true
-    }
-    // no cleanup needed when menuOpen is false
-  }, [menuOpen]);
 
   useEffect(() => {
     if (searchOpen) {
@@ -93,14 +97,12 @@ export default function Navbar() {
 
   return (
     <>
-      {/* ── Main Nav (always on top, z-[200] so it sits above the menu overlay) ── */}
+      {/* ── Main Nav ── */}
       <nav
         className={`fixed top-0 left-0 right-0 z-[200] flex items-center gap-3 transition-all duration-300
           px-4 md:px-[clamp(16px,4vw,48px)] h-(--nav-height)
           bg-linear-to-br from-black/80 to-black/20 backdrop-blur-[20px]
-          ${scrolled ? "shadow-[0_1px_0_var(--border)]" : "shadow-none"}
-          ${menuOpen && "bg-black/95 backdrop-blur-[20px] shadow-none"}
-          `}
+          ${scrolled ? "shadow-[0_1px_0_var(--border)]" : "shadow-none"}`}
       >
         <Logo />
 
@@ -158,64 +160,62 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* Desktop preferences + profile icons */}
+        {/* Desktop profile + preferences */}
         <div className="hidden md:flex items-center gap-1 ml-1">
           <Link href="/profile" className="no-underline" title="Profile">
-            <NavIconBtn active={pathname.startsWith("/profile")} aria-label="Profile">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-              </svg>
+            <NavIconBtn
+              active={pathname.startsWith("/profile")}
+              aria-label="Profile"
+            >
+              <ProfileIcon />
             </NavIconBtn>
           </Link>
-          <Link href="/preferences" className="no-underline" title="Preferences">
-            <NavIconBtn active={pathname === "/preferences"} aria-label="Preferences">
+          <Link
+            href="/preferences"
+            className="no-underline"
+            title="Preferences"
+          >
+            <NavIconBtn
+              active={pathname === "/preferences"}
+              aria-label="Preferences"
+            >
               <SettingsIcon />
             </NavIconBtn>
           </Link>
         </div>
 
-        {/* Mobile icons */}
+        {/* Mobile top-right: search + profile + preferences (no hamburger) */}
         <div className="flex md:hidden items-center gap-[2px]">
-          {/* Hide search & settings when menu is open */}
-          {!menuOpen && (
-            <>
-              <NavIconBtn
-                onClick={() => setSearchOpen((v) => !v)}
-                active={searchOpen}
-                aria-label="Search"
-              >
-                <SearchIcon className="w-[19px] h-[19px]" />
-              </NavIconBtn>
-
-              <Link href="/profile" className="no-underline">
-                <NavIconBtn active={pathname.startsWith("/profile")} aria-label="Profile">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-                  </svg>
-                </NavIconBtn>
-              </Link>
-
-              <Link href="/preferences" className="no-underline">
-                <NavIconBtn active={pathname === "/preferences"} aria-label="Preferences">
-                  <SettingsIcon />
-                </NavIconBtn>
-              </Link>
-            </>
-          )}
-
-          {/* Animated hamburger / close toggle */}
           <NavIconBtn
-            onClick={() => setMenuOpen((v) => !v)}
-            active={menuOpen}
-            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            onClick={() => setSearchOpen((v) => !v)}
+            active={searchOpen}
+            aria-label="Search"
           >
-            <MenuToggleIcon open={menuOpen} />
+            <SearchIcon className="w-[19px] h-[19px]" />
           </NavIconBtn>
+
+          <Link href="/profile" className="no-underline">
+            <NavIconBtn
+              active={pathname.startsWith("/profile")}
+              aria-label="Profile"
+            >
+              <ProfileIcon />
+            </NavIconBtn>
+          </Link>
+
+          <Link href="/preferences" className="no-underline">
+            <NavIconBtn
+              active={pathname === "/preferences"}
+              aria-label="Preferences"
+            >
+              <SettingsIcon />
+            </NavIconBtn>
+          </Link>
         </div>
       </nav>
 
       {/* ── Mobile search bar ── */}
-      {searchOpen && !menuOpen && (
+      {searchOpen && (
         <div
           className="md:hidden fixed left-0 right-0 z-[99] bg-[rgba(8,8,8,0.98)] backdrop-blur-[20px]
             shadow-[0_1px_0_var(--border)] px-4 py-3 slide-down"
@@ -267,124 +267,55 @@ export default function Navbar() {
         </div>
       )}
 
-      {/* ── Mobile fullscreen menu overlay*/}
-      {menuOpen && (
-        <div
-          className="md:hidden fixed inset-0 z-200 flex flex-col justify-between
-           bg-black/95 backdrop-blur-[20px] px-4 py-[14px] mobile-menu"
-          style={{ top: "var(--nav-height)" }} // ← starts right below the navbar
-          role="dialog"
-          aria-modal="true"
-          aria-label="Navigation menu"
-          onKeyDown={(e) => e.key === "Escape" && setMenuOpen(false)}
-        >
-          <div className="pt-8">
-            {/* Nav links */}
-            <nav
-              className="flex flex-col gap-[6px]"
-              aria-label="Main navigation"
+      {/* ── Mobile Bottom Nav ── */}
+      <div
+        className="md:hidden fixed bottom-0 left-0 right-0 z-[200]
+          flex items-center justify-around
+          px-2 py-2
+          bg-black/60 backdrop-blur-[24px]
+          border-t border-[var(--border)]
+          safe-bottom"
+        style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
+      >
+        {BOTTOM_NAV_LINKS.map(({ href, label, Icon }) => {
+          const active = isActive(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              aria-label={label}
+              className="no-underline flex-1 flex justify-center"
             >
-              {NAV_LINKS.map(({ href, label }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`no-underline px-5 py-[18px] rounded-[12px] font-display text-2xl tracking-[2px]
-                    transition-all duration-[180ms] ${
-                      isActive(href)
-                        ? "text-white bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.2)]"
-                        : "text-[var(--text-dim)] border border-transparent hover:text-white hover:bg-[rgba(255,255,255,0.04)]"
-                    }`}
-                >
-                  {label}
-                </Link>
-              ))}
-
-              <Link
-                href="/preferences"
-                className={`no-underline px-5 py-[18px] rounded-[12px] font-display text-2xl tracking-[2px]
-                  transition-all duration-[180ms] flex items-center gap-[14px] ${
-                    pathname === "/preferences"
-                      ? "text-white bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.2)]"
-                      : "text-[var(--text-dim)] border border-transparent hover:text-white hover:bg-[rgba(255,255,255,0.04)]"
+              <div
+                className={`relative flex items-center justify-center w-11 h-11 rounded-[12px]
+                  transition-all duration-200
+                  ${
+                    active
+                      ? "bg-[rgba(229,9,20,0.15)] text-[rgb(229,9,20)]"
+                      : "text-[var(--text-muted)] hover:text-[var(--text)]"
                   }`}
               >
-                <SettingsIcon />
-                Preferences
-              </Link>
-
-              <Link
-                href="/profile"
-                className={`no-underline px-5 py-[18px] rounded-[12px] font-display text-2xl tracking-[2px]
-                  transition-all duration-[180ms] flex items-center gap-[14px] ${
-                    pathname.startsWith("/profile")
-                      ? "text-white bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.2)]"
-                      : "text-[var(--text-dim)] border border-transparent hover:text-white hover:bg-[rgba(255,255,255,0.04)]"
-                  }`}
-              >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-                </svg>
-                Profile
-              </Link>
-            </nav>
-          </div>
-
-          <p className="text-[11px] text-[var(--text-muted)] text-center pb-2">
-            © {new Date().getFullYear()} CineMix
-          </p>
-        </div>
-      )}
+                <Icon
+                  size={22}
+                  strokeWidth={active ? 2.4 : 1.8}
+                  // Fill the icon slightly when active for that polished "selected" feel
+                  className={
+                    active ? "drop-shadow-[0_0_6px_rgba(229,9,20,0.5)]" : ""
+                  }
+                />
+                {/* Active dot indicator */}
+                {/* {active && (
+                  <span
+                    className="absolute bottom-[5px] left-1/2 -translate-x-1/2
+                      w-1 h-1 rounded-full bg-[rgb(229,9,20)]"
+                  />
+                )} */}
+              </div>
+            </Link>
+          );
+        })}
+      </div>
     </>
-  );
-}
-
-// ─────────────────────────── Animated Menu Toggle Icon ───────────────────────────
-function MenuToggleIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      className={`transition-transform duration-500 ${open ? "rotate-90" : "rotate-0"}`}
-    >
-      <line
-        x1="3"
-        y1="6"
-        x2="21"
-        y2="6"
-        style={{
-          transition: "transform 0.5s ease",
-          transform: open ? "translateY(6px) rotate(45deg)" : "none",
-          transformOrigin: "center",
-          transformBox: "fill-box",
-        }}
-      />
-      <line
-        x1="3"
-        y1="12"
-        x2="21"
-        y2="12"
-        style={{
-          transition: "opacity 0.3s ease",
-          opacity: open ? 0 : 1,
-        }}
-      />
-      <line
-        x1="3"
-        y1="18"
-        x2="21"
-        y2="18"
-        style={{
-          transition: "transform 0.3s ease",
-          transform: open ? "translateY(-6px) rotate(-45deg)" : "none",
-          transformOrigin: "center",
-          transformBox: "fill-box",
-        }}
-      />
-    </svg>
   );
 }
 
@@ -571,6 +502,22 @@ function CloseIcon({
     >
       <line x1="18" y1="6" x2="6" y2="18" />
       <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function ProfileIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
     </svg>
   );
 }

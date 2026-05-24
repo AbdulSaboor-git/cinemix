@@ -232,6 +232,12 @@ body.scroll-locked {
       gap: 24px;
     }
   }
+  /* globals.css or layout */
+  @media (max-width: 768px) {
+    main {
+      padding-bottom: calc(64px + env(safe-area-inset-bottom));
+    }
+  }
   @media (max-width: 480px) {
     .film-grid {
       grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));

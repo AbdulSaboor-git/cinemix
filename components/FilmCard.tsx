@@ -49,15 +49,14 @@ function formatRating(r: number | string): string {
   return String(r);
 }
 
-// ─── Heart icon ───────────────────────────────────────────────────────────────
 function HeartIcon({ filled }: { filled: boolean }) {
   return (
     <svg
-      width="13"
-      height="13"
+      width="14"
+      height="14"
       viewBox="0 0 24 24"
       fill={filled ? "var(--accent)" : "none"}
-      stroke="currentColor"
+      stroke={filled ? "var(--accent)" : "currentColor"}
       strokeWidth="2.2"
     >
       <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
@@ -65,12 +64,11 @@ function HeartIcon({ filled }: { filled: boolean }) {
   );
 }
 
-// ─── Clock icon ───────────────────────────────────────────────────────────────
 function ClockIcon({ filled }: { filled: boolean }) {
   return (
     <svg
-      width="13"
-      height="13"
+      width="14"
+      height="14"
       viewBox="0 0 24 24"
       fill="none"
       stroke={filled ? "#60a5fa" : "currentColor"}
@@ -101,7 +99,6 @@ export default function FilmCard({
   const isScroll = variant === "scroll";
   const [imgError, setImgError] = useState(false);
 
-  // ── List states (hydrated client-side) ──────────────────────────────────────
   const [isFav, setIsFav] = useState(false);
   const [isWL, setIsWL] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -115,19 +112,30 @@ export default function FilmCard({
 
   const { toast } = useToast();
 
-  // ── Long-press (mobile) ──────────────────────────────────────────────────────
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didLongPress = useRef(false);
+  // FIX: track if a touch moved (scroll) so we don't trigger long-press while scrolling
+  const touchMoved = useRef(false);
 
   const handleTouchStart = useCallback(() => {
     didLongPress.current = false;
+    touchMoved.current = false;
     longPressTimer.current = setTimeout(() => {
+      if (touchMoved.current) return; // user was scrolling, bail
       didLongPress.current = true;
       setMobileMenuOpen(true);
-      // Haptic feedback where supported
       if (navigator.vibrate) navigator.vibrate(40);
     }, 500);
+  }, []);
+
+  const handleTouchMove = useCallback(() => {
+    // FIX: mark as moved so long-press doesn't fire during scroll
+    touchMoved.current = true;
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
   }, []);
 
   const handleTouchEnd = useCallback(() => {
@@ -137,7 +145,6 @@ export default function FilmCard({
     }
   }, []);
 
-  // Close mobile menu on outside tap
   const cardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -154,7 +161,6 @@ export default function FilmCard({
     };
   }, [mobileMenuOpen]);
 
-  // ── Handlers ─────────────────────────────────────────────────────────────────
   const filmEntry = {
     film_id: id!,
     film_name: name,
@@ -163,25 +169,36 @@ export default function FilmCard({
     rating: film.ratingKinopoisk ?? film.ratingImdb ?? null,
   };
 
-  const handleFav = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const added = toggleFavorite(filmEntry);
-    setIsFav(added);
-    toast.success(added ? "Added to Favorites ❤️" : "Removed from Favorites");
-    setMobileMenuOpen(false);
-  };
+  // FIX: e.preventDefault() in touch handlers suppresses the synthesized onClick
+  // so we don't double-fire on mobile
+  const handleFav = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const added = toggleFavorite(filmEntry);
+      setIsFav(added);
+      toast.success(added ? "Added to Favorites ❤️" : "Removed from Favorites");
+      setMobileMenuOpen(false);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [isFav, filmEntry],
+  );
 
-  const handleWL = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const added = toggleWatchLater(filmEntry);
-    setIsWL(added);
-    toast.info(added ? "Saved to Watch Later 🕐" : "Removed from Watch Later");
-    setMobileMenuOpen(false);
-  };
+  const handleWL = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const added = toggleWatchLater(filmEntry);
+      setIsWL(added);
+      toast.info(
+        added ? "Saved to Watch Later 🕐" : "Removed from Watch Later",
+      );
+      setMobileMenuOpen(false);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [isWL, filmEntry],
+  );
 
-  // Block navigation on long-press link click
   const handleLinkClick = useCallback((e: React.MouseEvent) => {
     if (didLongPress.current) {
       e.preventDefault();
@@ -189,11 +206,18 @@ export default function FilmCard({
     }
   }, []);
 
+  // FIX: suppress browser native context menu (image save, copy link, etc.)
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+  }, []);
+
   return (
     <Link
       href={`/film/${id}`}
       className="group block shrink-0 no-underline"
       onClick={handleLinkClick}
+      // FIX: also suppress on the Link wrapper for good measure
+      onContextMenu={handleContextMenu}
     >
       <div
         ref={cardRef}
@@ -202,7 +226,13 @@ export default function FilmCard({
         }`}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
-        onTouchMove={handleTouchEnd}
+        // FIX: cancel long-press if finger moves (scrolling)
+        onTouchMove={handleTouchMove}
+        // FIX: prevent browser context menu on the container too
+        onContextMenu={handleContextMenu}
+        // FIX: CSS-level text/image selection prevention so browser doesn't
+        // intercept the long press for its own selection UI
+        style={{ WebkitUserSelect: "none", userSelect: "none" }}
       >
         {/* ── Poster ── */}
         <div
@@ -290,7 +320,7 @@ export default function FilmCard({
             </div>
           )}
 
-          {/* ── Play icon on hover (desktop) — only when no active states ── */}
+          {/* ── Play icon on hover (desktop) ── */}
           {!(isFav || isWL) && (
             <div className="absolute inset-0 items-center justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 hidden sm:flex pb-8">
               <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[rgba(229,9,20,0.9)] flex items-center justify-center shadow-[0_0_24px_var(--accent-glow)]">
@@ -301,7 +331,7 @@ export default function FilmCard({
             </div>
           )}
 
-          {/* ── Active state badges (always visible when in list) ── */}
+          {/* ── Active state badges ── */}
           {mounted && (isFav || isWL) && (
             <div className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 flex flex-col gap-[4px]">
               {isFav && (
@@ -338,61 +368,83 @@ export default function FilmCard({
           {/* ── Mobile long-press context menu ── */}
           {mobileMenuOpen && (
             <div
-              className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 sm:hidden"
+              className="absolute inset-0 z-20 p-4 flex items-center justify-center sm:hidden"
               style={{
-                background: "rgba(0,0,0,0.72)",
-                backdropFilter: "blur(4px)",
+                background: "rgba(0,0,0,0.65)",
+                backdropFilter: "blur(6px)",
+                WebkitUserSelect: "none",
+                userSelect: "none",
               }}
+              onTouchStart={(e) => e.stopPropagation()}
             >
-              <p className="text-[10px] text-[rgba(255,255,255,0.5)] uppercase tracking-[1px] mb-1 font-medium">
-                {name.length > 18 ? name.slice(0, 18) + "…" : name}
-              </p>
-              <button
-                onTouchEnd={handleFav}
-                onClick={handleFav}
-                className={`w-[130px] flex items-center gap-[8px] rounded-[8px] px-3 py-[9px] text-[12px] font-semibold border transition-all
-                  ${
-                    isFav
-                      ? "bg-[rgba(229,9,20,0.3)] border-[rgba(229,9,20,0.6)] text-[var(--accent)]"
-                      : "bg-[rgba(255,255,255,0.08)] border-[rgba(255,255,255,0.15)] text-white"
-                  }`}
-              >
-                <HeartIcon filled={isFav} />
-                {isFav ? "Unfavorite" : "Favorite"}
-              </button>
-              <button
-                onTouchEnd={handleWL}
-                onClick={handleWL}
-                className={`w-[130px] flex items-center gap-[8px] rounded-[8px] px-3 py-[9px] text-[12px] font-semibold border transition-all
-                  ${
-                    isWL
-                      ? "bg-[rgba(96,165,250,0.25)] border-[rgba(96,165,250,0.5)] text-[#60a5fa]"
-                      : "bg-[rgba(255,255,255,0.08)] border-[rgba(255,255,255,0.15)] text-white"
-                  }`}
-              >
-                <ClockIcon filled={isWL} />
-                {isWL ? "Remove WL" : "Watch Later"}
-              </button>
-              <button
-                onTouchEnd={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setMobileMenuOpen(false);
-                }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setMobileMenuOpen(false);
-                }}
-                className="mt-1 text-[10px] text-[rgba(255,255,255,0.35)] uppercase tracking-[1px]"
-              >
-                cancel
-              </button>
+              <div className="flex flex-col justify-between h-full items-center gap-2">
+                {/* Favorite */}
+                <div className="flex flex-col items-center gap-2">
+                  <div className="flex flex-col items-center gap-1">
+                    <button
+                      onTouchEnd={handleFav}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center border transition-all active:scale-90
+          ${
+            isFav
+              ? "bg-[rgba(229,9,20,0.3)] border-[rgba(229,9,20,0.6)]"
+              : "bg-[rgba(255,255,255,0.08)] border-[rgba(255,255,255,0.15)]"
+          }`}
+                    >
+                      <HeartIcon filled={isFav} />
+                    </button>
+                    <p className="text-[8px] sm:text-[11px] text-[var(--text)]">
+                      Favorite
+                    </p>
+                  </div>
+
+                  {/* Watch Later */}
+                  <div className="flex flex-col items-center gap-1">
+                    <button
+                      onTouchEnd={handleWL}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center border transition-all active:scale-90
+          ${
+            isWL
+              ? "bg-[rgba(96,165,250,0.25)] border-[rgba(96,165,250,0.5)]"
+              : "bg-[rgba(255,255,255,0.08)] border-[rgba(255,255,255,0.15)]"
+          }`}
+                    >
+                      <ClockIcon filled={isWL} />
+                    </button>
+                    <p className="text-[8px] sm:text-[11px] text-[var(--text)]">
+                      Watch Later
+                    </p>
+                  </div>
+                </div>
+
+                {/* Close */}
+                <button
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="w-8 h-8 rounded-full flex items-center justify-center
+          bg-[rgba(255,255,255,0.06)] border border-[rgba(255,255,255,0.12)]
+          text-[rgba(255,255,255,0.5)] active:scale-90 transition-all"
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
             </div>
           )}
         </div>
 
-        {/* ── Info below ── */}
+        {/* ── Info below poster ── */}
         <div className="mt-[8px] sm:mt-[10px] px-[2px]">
           <p className="text-[12px] sm:text-[13px] font-semibold overflow-hidden text-ellipsis whitespace-nowrap leading-[1.3] transition-colors duration-200 text-[var(--text)] group-hover:text-white">
             {name}
