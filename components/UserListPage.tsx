@@ -242,7 +242,7 @@ export default function UserListPage({ type }: { type: ListType }) {
               {entries.length} {entries.length === 1 ? "film" : "films"}
             </span>
           </div>
-          < />
+          <div />
           <div className="flex items-center gap-3 ml-7 sm:ml-8"></div>
         </div>
 

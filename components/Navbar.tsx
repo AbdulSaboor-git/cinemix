@@ -162,14 +162,6 @@ export default function Navbar() {
 
         {/* Desktop profile + preferences */}
         <div className="hidden md:flex items-center gap-1 ml-1">
-          <Link href="/profile" className="no-underline" title="Profile">
-            <NavIconBtn
-              active={pathname.startsWith("/profile")}
-              aria-label="Profile"
-            >
-              <ProfileIcon />
-            </NavIconBtn>
-          </Link>
           <Link
             href="/preferences"
             className="no-underline"
@@ -180,6 +172,14 @@ export default function Navbar() {
               aria-label="Preferences"
             >
               <SettingsIcon />
+            </NavIconBtn>
+          </Link>
+          <Link href="/profile" className="no-underline" title="Profile">
+            <NavIconBtn
+              active={pathname.startsWith("/profile")}
+              aria-label="Profile"
+            >
+              <ProfileIcon />
             </NavIconBtn>
           </Link>
         </div>
