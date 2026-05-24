@@ -237,9 +237,10 @@ export default function FilmCard({
         {/* ── Poster ── */}
         <div
           className={`rounded-[var(--radius-lg)] overflow-hidden relative bg-[var(--bg-card)] transition-all duration-200
-            border border-[var(--border)] group-hover:border-[rgba(229,9,20,0.35)]
-            shadow-[0_4px_16px_rgba(0,0,0,0.4)] group-hover:shadow-[0_16px_48px_rgba(0,0,0,0.7),0_0_0_1px_rgba(229,9,20,0.2)]
-            ${isScroll ? `${SCROLL_SIZE_CLASSES[size]}` : "w-full aspect-[2/3]"}`}
+            border border-[var(--border)] md:group-hover:border-[rgba(229,9,20,0.35)]
+            shadow-[0_4px_16px_rgba(0,0,0,0.4)] md:group-hover:shadow-[0_16px_48px_rgba(0,0,0,0.7),0_0_0_1px_rgba(229,9,20,0.2)]
+            ${isScroll ? `${SCROLL_SIZE_CLASSES[size]}` : "w-full aspect-[2/3]"}
+            `}
         >
           {(film.posterUrlPreview || film.posterUrl) && !imgError ? (
             <img
@@ -368,7 +369,7 @@ export default function FilmCard({
           {/* ── Mobile long-press context menu ── */}
           {mobileMenuOpen && (
             <div
-              className="absolute inset-0 z-20 p-4 flex items-center justify-center sm:hidden"
+              className="absolute inset-0 z-20 p-4 flex items-center justify-center sm:hidden "
               style={{
                 background: "rgba(0,0,0,0.65)",
                 backdropFilter: "blur(6px)",
