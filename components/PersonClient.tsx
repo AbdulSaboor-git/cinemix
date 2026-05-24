@@ -5,6 +5,7 @@ import { PersonDetail, PersonFilm } from "@/types/kinopoisk";
 import Link from "next/link";
 import { useTranslate, useTranslateHtml } from "@/hooks/useTranslate";
 import { translateRelation } from "@/lib/translate";
+import BackButton from "./BackButton";
 
 const PROF_LABELS: Record<string, string> = {
   ACTOR: "Actor",
@@ -105,7 +106,9 @@ export default function PersonClient({ personId }: { personId: string }) {
       : sortFilms(profGroups[resolvedActiveProf] || []);
 
   // Bug 6 fix: paginate filmography at FILMOGRAPHY_PAGE_SIZE
-  const filmTotalPages = Math.ceil(allDisplayedFilms.length / FILMOGRAPHY_PAGE_SIZE);
+  const filmTotalPages = Math.ceil(
+    allDisplayedFilms.length / FILMOGRAPHY_PAGE_SIZE,
+  );
   const displayedFilms = allDisplayedFilms.slice(
     (filmPage - 1) * FILMOGRAPHY_PAGE_SIZE,
     filmPage * FILMOGRAPHY_PAGE_SIZE,
@@ -121,22 +124,7 @@ export default function PersonClient({ personId }: { personId: string }) {
     <div className="min-h-screen pb-20">
       {/* Hero */}
       <div className="bg-gradient-to-b from-[var(--bg-card)] to-[var(--bg)] border-b border-[var(--border)] mb-8 sm:mb-10 px-4 sm:px-[var(--page-x)] py-6 sm:py-10">
-        <button
-          onClick={() => window.history.back()}
-          className="inline-flex items-center gap-[6px] text-[var(--text-muted)] bg-transparent border-none cursor-pointer text-[13px] mb-5 sm:mb-6 p-0"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-          Back
-        </button>
+        <BackButton />
 
         <div className="flex gap-5 sm:gap-[clamp(20px,4vw,40px)] items-start">
           {/* Photo */}
@@ -215,7 +203,13 @@ export default function PersonClient({ personId }: { personId: string }) {
                 </p>
                 <div className="flex flex-wrap gap-[6px] sm:gap-2">
                   {person.spouses.map((s, i) => (
-                    <SpouseTag key={i} name={s.name} relation={s.relation} divorced={s.divorced} children={s.children} />
+                    <SpouseTag
+                      key={i}
+                      name={s.name}
+                      relation={s.relation}
+                      divorced={s.divorced}
+                      children={s.children}
+                    />
                   ))}
                 </div>
               </div>
@@ -255,14 +249,20 @@ export default function PersonClient({ personId }: { personId: string }) {
           <ProfTab
             label={`All (${allFilms.length})`}
             active={resolvedActiveProf === "ALL"}
-            onClick={() => { setActiveProf("ALL"); setFilmPage(1); }}
+            onClick={() => {
+              setActiveProf("ALL");
+              setFilmPage(1);
+            }}
           />
           {availableProfs.map((p) => (
             <ProfTab
               key={p}
               label={`${PROF_LABELS[p] || p} (${profGroups[p].length})`}
               active={resolvedActiveProf === p}
-              onClick={() => { setActiveProf(p); setFilmPage(1); }}
+              onClick={() => {
+                setActiveProf(p);
+                setFilmPage(1);
+              }}
             />
           ))}
           {otherProfs.map((p) => (
@@ -270,7 +270,10 @@ export default function PersonClient({ personId }: { personId: string }) {
               key={p}
               label={`${PROF_LABELS[p] || p} (${profGroups[p].length})`}
               active={resolvedActiveProf === p}
-              onClick={() => { setActiveProf(p); setFilmPage(1); }}
+              onClick={() => {
+                setActiveProf(p);
+                setFilmPage(1);
+              }}
             />
           ))}
         </div>
@@ -323,7 +326,12 @@ export default function PersonClient({ personId }: { personId: string }) {
 }
 
 /** Bug 10: renders spouse name (translated) + relation label */
-function SpouseTag({ name, relation, divorced, children }: {
+function SpouseTag({
+  name,
+  relation,
+  divorced,
+  children,
+}: {
   name?: string;
   relation?: string;
   divorced?: boolean;
@@ -342,7 +350,13 @@ function SpouseTag({ name, relation, divorced, children }: {
 }
 
 /** Bug 3 & 4: translate birthplace/deathplace via hook */
-function TranslatedInfoItem({ label, value }: { label: string; value: string }) {
+function TranslatedInfoItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
   const translated = useTranslate(value);
   return <InfoItem label={label} value={translated || value} />;
 }
@@ -382,16 +396,18 @@ function FilmEntry({ film }: { film: PersonFilm }) {
   const name = film.nameEn || film.nameRu || "Unknown";
   const rating = parseFloat(film.rating || "0") || null;
   const profLabel = film.professionKey
-    ? ({
-        ACTOR: "Actor",
-        DIRECTOR: "Director",
-        WRITER: "Writer",
-        PRODUCER: "Producer",
-        COMPOSER: "Composer",
-        OPERATOR: "DOP",
-        DESIGN: "Prod. Design",
-        EDITOR: "Editor",
-      } as Record<string, string>)[film.professionKey] || film.professionKey
+    ? (
+        {
+          ACTOR: "Actor",
+          DIRECTOR: "Director",
+          WRITER: "Writer",
+          PRODUCER: "Producer",
+          COMPOSER: "Composer",
+          OPERATOR: "DOP",
+          DESIGN: "Prod. Design",
+          EDITOR: "Editor",
+        } as Record<string, string>
+      )[film.professionKey] || film.professionKey
     : null;
 
   return (

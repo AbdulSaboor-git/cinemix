@@ -44,6 +44,7 @@ import Link from "next/link";
 import { FilmPosterFallback } from "./posterFallback";
 import { toggleFavorite, toggleWatchLater, isInList } from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
+import BackButton from "./BackButton";
 
 export default function FilmPageClient({ filmId }: { filmId: string }) {
   const id = parseInt(filmId);
@@ -303,23 +304,7 @@ function FilmDetail({
 
   return (
     <div className="min-h-screen">
-      {/* Back button — desktop only */}
-      <button
-        onClick={() => window.history.back()}
-        className="hidden md:inline-flex items-center gap-[6px] text-[var(--text-muted)] bg-transparent border-none cursor-pointer text-[13px] mb-6 px-4 lg:px-6 py-[6px] font-[var(--font-body)] hover:text-[var(--text)] transition-colors"
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-        >
-          <path d="M15 18l-6-6 6-6" />
-        </svg>
-        Back
-      </button>
+      <BackButton desktopOnly={true} />
 
       {getPreferences().filmSections.videos && (
         <PlayerSection filmId={filmId} film={film} />
@@ -531,12 +516,20 @@ function FilmDetail({
               <button
                 onClick={handleFav}
                 className={`flex items-center gap-[7px] rounded-[var(--radius)] px-4 py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150
-                  ${isFav
-                    ? "bg-[rgba(229,9,20,0.15)] border-[rgba(229,9,20,0.5)] text-[var(--accent)] shadow-[0_0_14px_rgba(229,9,20,0.2)]"
-                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)]"
+                  ${
+                    isFav
+                      ? "bg-[rgba(229,9,20,0.15)] border-[rgba(229,9,20,0.5)] text-[var(--accent)] shadow-[0_0_14px_rgba(229,9,20,0.2)]"
+                      : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)]"
                   }`}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill={isFav ? "var(--accent)" : "none"} stroke="currentColor" strokeWidth="2">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill={isFav ? "var(--accent)" : "none"}
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
                 </svg>
                 {isFav ? "Favorited" : "Add to Favorites"}
@@ -544,13 +537,22 @@ function FilmDetail({
               <button
                 onClick={handleWL}
                 className={`flex items-center gap-[7px] rounded-[var(--radius)] px-4 py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150
-                  ${isWL
-                    ? "bg-[rgba(96,165,250,0.12)] border-[rgba(96,165,250,0.4)] text-[#60a5fa]"
-                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(96,165,250,0.4)] hover:text-[#60a5fa]"
+                  ${
+                    isWL
+                      ? "bg-[rgba(96,165,250,0.12)] border-[rgba(96,165,250,0.4)] text-[#60a5fa]"
+                      : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(96,165,250,0.4)] hover:text-[#60a5fa]"
                   }`}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
                 </svg>
                 {isWL ? "In Watch Later" : "Watch Later"}
               </button>
