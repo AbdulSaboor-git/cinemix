@@ -170,7 +170,7 @@ body.scroll-locked {
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  @media (hover: hover) {
+  @media (hover: hover) and (pointer: fine) {
     .film-card:hover {
       transform: scale(1.04) translateY(-4px);
     }
