@@ -30,8 +30,8 @@ function StatCard({
   icon: React.ReactNode;
 }) {
   return (
-    <Link href={href} className="no-underline group">
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-4 sm:p-5 flex flex-col gap-2 transition-all duration-200 hover:border-[rgba(229,9,20,0.35)] hover:shadow-[0_8px_32px_rgba(0,0,0,0.4)] active:scale-[0.97] cursor-pointer">
+    <Link href={href} className="no-underline group h-full">
+      <div className="h-full bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-4 sm:p-5 flex flex-col gap-2 transition-all duration-200 hover:border-[rgba(229,9,20,0.35)] hover:shadow-[0_8px_32px_rgba(0,0,0,0.4)] active:scale-[0.97] cursor-pointer">
         <div className="flex items-center justify-between">
           <span
             className="font-display text-[clamp(30px,6vw,42px)] leading-none"
@@ -43,7 +43,7 @@ function StatCard({
             {icon}
           </div>
         </div>
-        <span className="text-[11px] sm:text-[12px] text-[var(--text-muted)] group-hover:text-[var(--text-dim)] transition-colors font-medium uppercase tracking-[0.6px]">
+        <span className="text-[10px] sm:text-[12px] text-[var(--text-muted)] group-hover:text-[var(--text-dim)] transition-colors font-medium uppercase tracking-[0.6px]">
           {label}
         </span>
       </div>
@@ -173,20 +173,20 @@ function SectionCard({
   if (items.length === 0) return null;
   return (
     <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden mb-4">
-      <div className="flex items-center justify-between px-4 sm:px-5 py-[13px] border-b border-[var(--border)]">
+      <Link
+        href={href}
+        className="flex items-center justify-between px-4 sm:px-5 py-[13px] border-b border-[var(--border)]"
+      >
         <div className="flex items-center gap-2">
           {icon}
           <span className="text-[11px] font-semibold uppercase tracking-[0.8px] text-[var(--text-dim)]">
             {title}
           </span>
         </div>
-        <Link
-          href={href}
-          className="text-[11px] text-[var(--accent)] no-underline hover:underline font-medium"
-        >
-          See all →
-        </Link>
-      </div>
+        <div className="text-[11px] text-[var(--accent)] no-underline hover:underline font-medium">
+          See all
+        </div>
+      </Link>
       <div className="px-4 sm:px-5">
         {items.map((f) => (
           <RecentFilmRow key={f.film_id} {...f} />
@@ -325,7 +325,7 @@ export default function ProfileClient() {
         </div>
 
         {/* ── Stats ── */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-3 gap-3 mb-4 items-stretch">
           <StatCard
             label="Favorites"
             value={counts.favorites}

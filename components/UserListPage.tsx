@@ -12,6 +12,7 @@ import {
 import { getSessionName } from "@/lib/session";
 import { FilmListEntry } from "@/lib/session";
 import { useToast } from "@/lib/toast";
+import BackButton from "./BackButton";
 
 const CONFIG = {
   favorites: {
@@ -86,21 +87,33 @@ function FilmRow({
     e.preventDefault();
     e.stopPropagation();
     setRemoving(true);
-    // brief delay so the animation is visible before the row disappears
     setTimeout(() => onRemove(entry.film_id), 180);
   };
 
+  const formattedDate = new Date(entry.added_at).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  const dateLabel =
+    type === "history"
+      ? `Watched ${formattedDate}`
+      : type === "favorites"
+        ? `Saved ${formattedDate}`
+        : `Added ${formattedDate}`;
+
   return (
     <div
-      className={`flex items-center gap-3 py-3 border-b border-[var(--border)] last:border-b-0 transition-all duration-200
+      className={`flex items-center gap-3 py-3 sm:py-4 border-b border-[var(--border)] last:border-b-0 transition-all duration-200
         ${removing ? "opacity-0 scale-[0.97]" : "opacity-100"}`}
     >
-      {/* Poster + info — the tappable link area */}
       <Link
         href={`/film/${entry.film_id}`}
         className="no-underline flex items-center gap-3 flex-1 min-w-0 group active:opacity-80 transition-opacity"
       >
-        <div className="w-10 h-[58px] sm:w-12 sm:h-[68px] rounded-[8px] overflow-hidden bg-[var(--bg-elevated)] flex-shrink-0">
+        {/* Poster — taller on mobile now */}
+        <div className="w-12 h-[68px] sm:w-14 sm:h-[80px] rounded-[8px] overflow-hidden bg-[var(--bg-elevated)] flex-shrink-0 relative">
           {entry.poster_url && !imgErr ? (
             <img
               src={entry.poster_url}
@@ -124,36 +137,56 @@ function FilmRow({
             </div>
           )}
         </div>
-        <div className="flex-1 min-w-0">
+
+        {/* Info */}
+        <div className="flex-1 min-w-0 flex flex-col gap-[5px]">
+          {/* Title */}
           <p className="text-[13px] sm:text-[14px] font-semibold text-[var(--text)] group-hover:text-white truncate transition-colors leading-[1.3]">
             {entry.film_name}
           </p>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
+
+          {/* Year + Rating row */}
+          <div className="flex items-center gap-[8px] flex-wrap">
             {entry.year && (
               <span className="text-[11px] text-[var(--text-muted)]">
                 {entry.year}
               </span>
             )}
             {entry.rating && (
-              <span className="flex items-center gap-[3px] text-[11px] text-[#f5c518]">
+              <span className="flex items-center gap-[3px]">
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="#f5c518">
                   <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                 </svg>
-                {entry.rating.toFixed(1)}
+                <span className="text-[11px] text-[#f5c518] font-medium">
+                  {entry.rating.toFixed(1)}
+                </span>
               </span>
             )}
-            <span className="text-[10px] text-[var(--text-muted)] opacity-60">
-              {new Date(entry.added_at).toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
+          </div>
+
+          {/* Date label */}
+          <div className="flex items-center gap-[5px] ">
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--text-muted)"
+              strokeWidth="2"
+            >
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+            <span className="text-[10px] sm:text-[11px] text-[var(--text-muted)] ">
+              {dateLabel}
             </span>
           </div>
         </div>
       </Link>
 
-      {/* Remove button — always visible, large enough tap target on mobile */}
+      {/* Remove button */}
       <button
         onClick={handleRemove}
         onTouchEnd={handleRemove}
@@ -162,7 +195,6 @@ function FilmRow({
           text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[rgba(229,9,20,0.4)]
           active:scale-90 transition-all"
         aria-label="Remove"
-        title="Remove"
       >
         <svg
           width="13"
@@ -218,8 +250,9 @@ export default function UserListPage({ type }: { type: ListType }) {
   const listTitle = userName ? `${userName}'s ${cfg.label}` : cfg.label;
 
   return (
-    <div className="min-h-screen px-4 sm:px-[clamp(16px,5vw,48px)] py-8 sm:py-10 pb-28">
-      <div className="max-w-[720px] mx-auto">
+    <div className="min-h-screen max-w-[780px] mx-auto sm:px-[clamp(16px,5vw,48px)] py-8 sm:py-10 pb-28">
+      <BackButton />
+      <div className="px-4 lg:px-6">
         {/* Header */}
         <div className="mb-6 pb-5 border-b border-[var(--border)]">
           <div className="flex justify-between items-center gap-3">

@@ -9,7 +9,8 @@ export default function BackButton({
     <button
       onClick={() => window.history.back()}
       className={`items-center gap-[6px] text-[var(--text-muted)] bg-transparent border-none cursor-pointer text-[13px] 
-        mb-6 px-4 lg:px-6 py-[6px] font-[var(--font-body)] hover:text-[var(--text)] transition-colors ${desktopOnly ? "hidden md:inline-flex" : "inline-flex"}`}
+        mb-6 px-4 lg:px-6 py-[6px] font-[var(--font-body)] hover:text-[var(--text)] transition-colors 
+        ${desktopOnly ? "hidden md:inline-flex" : "inline-flex"}`}
     >
       <svg
         width="14"
