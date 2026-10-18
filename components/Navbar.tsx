@@ -19,7 +19,6 @@ import { Film } from "@/types/kinopoisk";
 import { getEnglishName } from "@/lib/translate";
 import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import Logo from "./logo";
-import { lockScroll, unlockScroll } from "@/lib/scrollLock";
 
 const NAV_LINKS = [
   { href: "/", label: "Home" },
