@@ -9,7 +9,11 @@ import {
   Compass,
   BarChart2,
   Clapperboard,
-  Newspaper,
+  User,
+  Search,
+  Settings,
+  Cross,
+  X,
 } from "lucide-react";
 import { Film } from "@/types/kinopoisk";
 import { getEnglishName } from "@/lib/translate";
@@ -22,7 +26,7 @@ const NAV_LINKS = [
   { href: "/explore", label: "Explore" },
   { href: "/top240", label: "Top 240" },
   { href: "/premieres", label: "Premieres" },
-  { href: "/news", label: "News" },
+  // { href: "/news", label: "News" },
 ];
 
 const BOTTOM_NAV_LINKS = [
@@ -30,7 +34,7 @@ const BOTTOM_NAV_LINKS = [
   { href: "/explore", label: "Explore", Icon: Compass },
   { href: "/top240", label: "Top 240", Icon: BarChart2 },
   { href: "/premieres", label: "Premieres", Icon: Clapperboard },
-  { href: "/news", label: "News", Icon: Newspaper },
+  { href: "/profile", label: "Profile", Icon: User },
 ];
 
 export default function Navbar() {
@@ -143,7 +147,21 @@ export default function Navbar() {
                   transition-[width,border-color,background] duration-300
                   w-[190px] focus:w-[260px] focus:border-[rgba(229,9,20,0.5)] focus:bg-[rgba(255,255,255,0.1)]"
               />
-              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 w-[13px] h-[13px]" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 w-[13px] h-[13px]" />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    clearSuggestions();
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]
+                    bg-transparent border-none cursor-pointer p-1 hover:text-[var(--text)] transition-colors"
+                  aria-label="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
           </form>
           {sugVisible && suggestions.length > 0 && (
@@ -171,7 +189,7 @@ export default function Navbar() {
               active={pathname === "/preferences"}
               aria-label="Preferences"
             >
-              <SettingsIcon />
+              <Settings width={20} />
             </NavIconBtn>
           </Link>
           <Link href="/profile" className="no-underline" title="Profile">
@@ -179,7 +197,7 @@ export default function Navbar() {
               active={pathname.startsWith("/profile")}
               aria-label="Profile"
             >
-              <ProfileIcon />
+              <User width={20} />
             </NavIconBtn>
           </Link>
         </div>
@@ -191,24 +209,15 @@ export default function Navbar() {
             active={searchOpen}
             aria-label="Search"
           >
-            <SearchIcon className="w-[19px] h-[19px]" />
+            <Search width={20} />
           </NavIconBtn>
-
-          <Link href="/profile" className="no-underline">
-            <NavIconBtn
-              active={pathname.startsWith("/profile")}
-              aria-label="Profile"
-            >
-              <ProfileIcon />
-            </NavIconBtn>
-          </Link>
 
           <Link href="/preferences" className="no-underline">
             <NavIconBtn
               active={pathname === "/preferences"}
               aria-label="Preferences"
             >
-              <SettingsIcon />
+              <Settings width={20} />
             </NavIconBtn>
           </Link>
         </div>
@@ -232,7 +241,7 @@ export default function Navbar() {
                 placeholder="Search films, series, actors…"
                 className="input pl-10 text-[15px] px-4 py-3"
               />
-              <SearchIcon className="absolute left-[14px] top-1/2 -translate-y-1/2 opacity-40 pointer-events-none w-4 h-4" />
+              <Search className="absolute left-[14px] top-1/2 -translate-y-1/2 opacity-40 pointer-events-none w-4 h-4" />
               {search && (
                 <button
                   type="button"
@@ -244,7 +253,7 @@ export default function Navbar() {
                     bg-transparent border-none cursor-pointer p-1 hover:text-[var(--text)] transition-colors"
                   aria-label="Clear search"
                 >
-                  <CloseIcon size={14} />
+                  <X size={14} />
                 </button>
               )}
             </div>
@@ -434,7 +443,7 @@ function SuggestionDropdown({
           text-[var(--accent)] bg-[var(--bg-card)] cursor-pointer
           hover:bg-[var(--bg-elevated)] transition-colors duration-100"
         >
-          <SearchIcon className="w-3 h-3" />
+          <Search className="w-3 h-3" />
           See all results for &ldquo;{search}&rdquo;
         </div>
       </Link>
@@ -464,80 +473,5 @@ function NavIconBtn({
     >
       {children}
     </button>
-  );
-}
-
-// ─────────────────────────── SVG Icons ───────────────────────────
-function SearchIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-    >
-      <circle cx="11" cy="11" r="8" />
-      <path d="m21 21-4.35-4.35" />
-    </svg>
-  );
-}
-
-function CloseIcon({
-  className = "",
-  size = 20,
-}: {
-  className?: string;
-  size?: number;
-}) {
-  return (
-    <svg
-      className={className}
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-    >
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-
-function ProfileIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
-    </svg>
-  );
-}
-
-function SettingsIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <circle cx="12" cy="12" r="3" />
-      <path d="M15.54 8.46a5 5 0 0 1 0 7.07M8.46 8.46a5 5 0 0 0 0 7.07" />
-      <path
-        d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"
-        strokeOpacity="0.45"
-      />
-    </svg>
   );
 }
