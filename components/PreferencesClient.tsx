@@ -10,6 +10,7 @@ import { saveApiKeys, getSession } from "@/lib/session";
 import { clearHistory } from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
 import ApiKeyQuotaModal from "@/components/ApiKeyQuotaModal";
+import { Settings } from "lucide-react";
 
 function Toggle({
   checked,
@@ -347,19 +348,7 @@ export default function PreferencesClient() {
           <div className="flex items-center justify-between gap-3">
             {/* Left — title or unsaved indicator */}
             <div className="flex items-center gap-[10px] min-w-0">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--accent)"
-                strokeWidth="2"
-                className="flex-shrink-0"
-              >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14" />
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07M8.46 8.46a5 5 0 0 0 0 7.07" />
-              </svg>
+              <Settings width={20} />
               <h1 className="font-display tracking-[2px] text-[var(--text)] m-0 text-[clamp(15px,3vw,22px)]">
                 PREFERENCES
               </h1>
