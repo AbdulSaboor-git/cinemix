@@ -4,12 +4,6 @@
  * Stores a single anonymous session in localStorage under `cinemix_session`.
  * Designed so that every field maps 1-to-1 with the SQL schema, making
  * future DB sync trivial — just POST the session object and you're done.
- *
- * SQL schema (reference):
- *   sessions      (id, name, ip, country, city, device, browser, user_agent, created_at, updated_at)
- *   log_events    (id, session_id, type, payload, created_at)
- *   user_lists    (session_id, list_type, film_id, film_name, poster_url, added_at)
- *   api_key_store (code, session_id, keys_json, created_at, revoked_at)
  */
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -60,6 +54,15 @@ export interface ApiKeyStore {
   saved_at: string | null;
 }
 
+export interface CustomPlayerServer {
+  id: string;
+  name: string;
+  label?: string;
+  quality?: string;
+  baseUrl: string;
+  cropTopHeader?: boolean;
+}
+
 /** Preferences blob (kept flat for easy SQL jsonb column) */
 export interface SessionPreferences {
   searchSuggestionsEnabled: boolean;
@@ -71,6 +74,9 @@ export interface SessionPreferences {
   filmSections: Record<string, boolean>;
   defaultExploreType: string;
   defaultExploreOrder: string;
+  preferredPlayerId: string;
+  alwaysAskPlayer: boolean;
+  customPlayers: CustomPlayerServer[];
 }
 
 /** The full local session object */
@@ -84,6 +90,7 @@ export interface CineMixSession {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const SESSION_KEY = "cinemix_session";
+export const TRANSLATE_CACHE_KEY = "cinemix_translate_cache_v1";
 export const MAX_HISTORY = 200;
 export const MAX_LIST = 500;
 
@@ -121,6 +128,9 @@ export const DEFAULT_PREFERENCES: SessionPreferences = {
   },
   defaultExploreType: "FILM",
   defaultExploreOrder: "RATING",
+  preferredPlayerId: "flcksbr",
+  alwaysAskPlayer: true,
+  customPlayers: [],
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -155,20 +165,23 @@ function detectBrowser(): string {
   return "unknown";
 }
 
-/** Fetch public IP + geo info from ip-api.com (free, no key needed, non-EU friendly) */
+/** Fetch public IP + geo info from geojs.io over HTTPS (free, CORS-enabled, no key needed) */
 export async function fetchGeo(): Promise<GeoInfo> {
   try {
-    const r = await fetch("https://ip-api.com/json/?fields=status,country,city,query", {
-      signal: AbortSignal.timeout(4000),
+    const r = await fetch("https://get.geojs.io/v1/ip/geo.json", {
+      signal: AbortSignal.timeout(3000),
     });
-    const d = await r.json();
-    if (d.status === "success") {
-      return { ip: d.query ?? null, country: d.country ?? null, city: d.city ?? null };
-    }
+    if (!r.ok) return { ip: null, country: null, city: null };
+    const d = (await r.json()) as { ip?: string; country?: string; city?: string };
+    return {
+      ip: d.ip ?? null,
+      country: d.country ?? null,
+      city: d.city ?? null,
+    };
   } catch {
     // silently fail — geo is best-effort
+    return { ip: null, country: null, city: null };
   }
-  return { ip: null, country: null, city: null };
 }
 
 // ─── In-memory cache ──────────────────────────────────────────────────────────
@@ -183,6 +196,49 @@ if (typeof window !== "undefined") {
 
 // ─── Core read/write ──────────────────────────────────────────────────────────
 
+function normalizeSession(parsed: Partial<CineMixSession>): CineMixSession {
+  const fresh = createDefaultSession();
+  const mergedPrefs: SessionPreferences = {
+    ...DEFAULT_PREFERENCES,
+    ...(parsed.preferences ?? {}),
+    homeSections: {
+      ...DEFAULT_PREFERENCES.homeSections,
+      ...(parsed.preferences?.homeSections ?? {}),
+    },
+    filmSections: {
+      ...DEFAULT_PREFERENCES.filmSections,
+      ...(parsed.preferences?.filmSections ?? {}),
+    },
+    preferredPlayerId:
+      parsed.preferences?.preferredPlayerId || DEFAULT_PREFERENCES.preferredPlayerId,
+    alwaysAskPlayer:
+      typeof parsed.preferences?.alwaysAskPlayer === "boolean"
+        ? parsed.preferences.alwaysAskPlayer
+        : DEFAULT_PREFERENCES.alwaysAskPlayer,
+    customPlayers: Array.isArray(parsed.preferences?.customPlayers)
+      ? parsed.preferences!.customPlayers
+      : [],
+  };
+
+  return {
+    meta: {
+      ...fresh.meta,
+      ...(parsed.meta ?? {}),
+    },
+    lists: {
+      favorites: Array.isArray(parsed.lists?.favorites) ? parsed.lists!.favorites : [],
+      watchlater: Array.isArray(parsed.lists?.watchlater) ? parsed.lists!.watchlater : [],
+      history: Array.isArray(parsed.lists?.history) ? parsed.lists!.history : [],
+    },
+    api_keys: {
+      sync_code: parsed.api_keys?.sync_code ?? null,
+      keys: Array.isArray(parsed.api_keys?.keys) ? parsed.api_keys!.keys : [],
+      saved_at: parsed.api_keys?.saved_at ?? null,
+    },
+    preferences: mergedPrefs,
+  };
+}
+
 export function getSession(): CineMixSession {
   if (_cache) return _cache;
   if (typeof window === "undefined") return createDefaultSession();
@@ -190,21 +246,8 @@ export function getSession(): CineMixSession {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as CineMixSession;
-      // Deep-merge preferences so new keys get defaults
-      parsed.preferences = {
-        ...DEFAULT_PREFERENCES,
-        ...parsed.preferences,
-        homeSections: { ...DEFAULT_PREFERENCES.homeSections, ...(parsed.preferences?.homeSections ?? {}) },
-        filmSections: { ...DEFAULT_PREFERENCES.filmSections, ...(parsed.preferences?.filmSections ?? {}) },
-      };
-      // Ensure lists exist (migration safety)
-      if (!parsed.lists) parsed.lists = { favorites: [], watchlater: [], history: [] };
-      if (!parsed.lists.favorites) parsed.lists.favorites = [];
-      if (!parsed.lists.watchlater) parsed.lists.watchlater = [];
-      if (!parsed.lists.history) parsed.lists.history = [];
-      if (!parsed.api_keys) parsed.api_keys = { sync_code: null, keys: [], saved_at: null };
-      _cache = parsed;
+      const parsed = JSON.parse(raw) as Partial<CineMixSession>;
+      _cache = normalizeSession(parsed);
       return _cache;
     }
   } catch {
@@ -223,6 +266,7 @@ export function saveSession(session: CineMixSession): void {
   session.meta.updated_at = new Date().toISOString();
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   _cache = session;
+  window.dispatchEvent(new CustomEvent("cinemix-session-change"));
 }
 
 function createDefaultSession(): CineMixSession {
@@ -242,7 +286,7 @@ function createDefaultSession(): CineMixSession {
     },
     lists: { favorites: [], watchlater: [], history: [] },
     api_keys: { sync_code: null, keys: [], saved_at: null },
-    preferences: DEFAULT_PREFERENCES,
+    preferences: { ...DEFAULT_PREFERENCES },
   };
 }
 
@@ -252,11 +296,83 @@ export async function initSession(): Promise<void> {
   const session = getSession();
   if (!session.meta.ip) {
     const geo = await fetchGeo();
-    const s = getSession();
-    s.meta.ip = geo.ip;
-    s.meta.country = geo.country;
-    s.meta.city = geo.city;
-    saveSession(s);
+    if (geo.ip || geo.country || geo.city) {
+      const s = getSession();
+      s.meta.ip = geo.ip;
+      s.meta.country = geo.country;
+      s.meta.city = geo.city;
+      saveSession(s);
+    }
+  }
+}
+
+// ─── Backup Export / Import ───────────────────────────────────────────────────
+
+export function exportSessionBackup(): string {
+  const session = getSession();
+  let translateCache: Record<string, string> | null = null;
+  if (typeof window !== "undefined") {
+    try {
+      const rawCache = localStorage.getItem(TRANSLATE_CACHE_KEY);
+      translateCache = rawCache ? JSON.parse(rawCache) : null;
+    } catch {
+      translateCache = null;
+    }
+  }
+  return JSON.stringify(
+    {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      session,
+      translateCache,
+    },
+    null,
+    2,
+  );
+}
+
+export function importSessionBackup(rawJson: string): { ok: boolean; error?: string } {
+  if (typeof window === "undefined") {
+    return { ok: false, error: "Window unavailable" };
+  }
+  try {
+    const parsed = JSON.parse(rawJson) as {
+      version?: number;
+      session?: Partial<CineMixSession>;
+      translateCache?: unknown;
+      meta?: SessionMeta;
+      lists?: UserLists;
+      preferences?: SessionPreferences;
+    };
+
+    const candidateSession = parsed.session ?? (parsed.meta || parsed.lists ? parsed : null);
+    if (!candidateSession || typeof candidateSession !== "object") {
+      return { ok: false, error: "Invalid backup file structure." };
+    }
+
+    const normalized = normalizeSession(candidateSession);
+    saveSession(normalized);
+
+    if (parsed.translateCache && typeof parsed.translateCache === "object") {
+      try {
+        localStorage.setItem(TRANSLATE_CACHE_KEY, JSON.stringify(parsed.translateCache));
+      } catch {
+        // ignore storage quota errors
+      }
+    } else if (typeof parsed.translateCache === "string") {
+      try {
+        localStorage.setItem(TRANSLATE_CACHE_KEY, parsed.translateCache);
+      } catch {
+        // ignore
+      }
+    }
+
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Failed to parse JSON backup.",
+    };
   }
 }
 
@@ -289,8 +405,14 @@ export function saveSessionName(name: string): void {
 export function getApiKeys(): string[] {
   const s = getSession();
   if (s.api_keys.keys.length > 0) return s.api_keys.keys;
-  const env = process.env.NEXT_PUBLIC_KINOPOISK_API_KEYS ?? "";
-  return env.split(",").map((k) => k.trim()).filter(Boolean);
+  const env =
+    process.env.NEXT_PUBLIC_KINOPOISK_API_KEYS ||
+    process.env.NEXT_PUBLIC_KINOPOISK_API_KEY ||
+    "";
+  return env
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean);
 }
 
 export function saveApiKeys(keys: string[]): void {

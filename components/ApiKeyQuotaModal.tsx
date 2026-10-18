@@ -1,7 +1,9 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { CircleAlert, RefreshCw, KeyRound } from "lucide-react";
 import { getApiKeyInfo } from "@/lib/kinopoisk";
 import { ApiKeyResponse } from "@/types/kinopoisk";
+import ModalShell from "@/components/ui/ModalShell";
 
 interface KeyQuotaState {
   status: "idle" | "loading" | "loaded" | "error";
@@ -51,7 +53,8 @@ function QuotaBar({
         className="text-right text-[10px] mt-[3px]"
         style={{ color: barColor }}
       >
-        {pct.toFixed(1)}% used · {(total - used).toLocaleString()} remaining
+        {pct.toFixed(1)}% used · {Math.max(0, total - used).toLocaleString()}{" "}
+        remaining
       </p>
     </div>
   );
@@ -117,36 +120,13 @@ function SingleKeyQuota({ apiKey, index }: { apiKey: string; index: number }) {
 
       {state.status === "error" && (
         <div className="flex items-center gap-2 text-[12px] text-[var(--accent)]">
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
+          <CircleAlert size={13} strokeWidth={2} />
           {state.error ?? "Could not load quota"}
         </div>
       )}
 
       {state.status === "loaded" && state.data && (
         <div className="flex flex-col gap-3">
-          {/* Total quota */}
-          {/* <div>
-            <p className="text-[11px] text-[var(--text-muted)] uppercase tracking-[0.8px] mb-[6px]">
-              Total Quota
-            </p>
-            <QuotaBar
-              used={state.data.totalQuota.used}
-              total={state.data.totalQuota.value}
-              color="#60a5fa"
-            />
-          </div> */}
-          {/* Daily quota */}
           <div>
             <p className="text-[11px] text-[var(--text-muted)] uppercase tracking-[0.8px] mb-[6px]">
               Daily Quota
@@ -162,20 +142,11 @@ function SingleKeyQuota({ apiKey, index }: { apiKey: string; index: number }) {
 
       {state.status !== "loading" && (
         <button
+          type="button"
           onClick={load}
           className="self-start text-[11px] text-[var(--text-muted)] hover:text-[var(--text)] flex items-center gap-1 bg-transparent border-none cursor-pointer p-0 mt-1 transition-colors"
         >
-          <svg
-            width="11"
-            height="11"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <path d="M23 4v6h-6M1 20v-6h6" />
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-          </svg>
+          <RefreshCw size={11} strokeWidth={2.5} />
           Refresh
         </button>
       )}
@@ -189,101 +160,33 @@ interface Props {
 }
 
 export default function ApiKeyQuotaModal({ apiKeys, onClose }: Props) {
-  // Close on Escape
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  // Lock body scroll
-  useEffect(() => {
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, []);
-
   const validKeys = apiKeys.filter((k) => k.trim());
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4"
-      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <ModalShell
+      open={true}
+      onClose={onClose}
+      title="API KEY QUOTA"
+      subtitle={`${validKeys.length} key${validKeys.length !== 1 ? "s" : ""} configured`}
+      icon={<KeyRound size={15} strokeWidth={2} />}
+      footer={
+        <p className="text-[10px] sm:text-[11px] text-[var(--text-muted)] text-center m-0">
+          Quota resets daily. Keys rotate automatically when the daily limit is
+          reached.
+        </p>
+      }
     >
-      <div
-        className="bg-[var(--bg-card)] border border-[var(--border)] w-full sm:max-w-[520px] rounded-t-[20px] sm:rounded-[var(--radius-lg)] overflow-hidden shadow-[0_24px_80px_rgba(0,0,0,0.8)] flex flex-col max-h-[92vh] sm:max-h-[80vh]"
-        style={{ animation: "scaleIn 0.18s ease" }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-[8px] bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.2)] flex items-center justify-center text-[var(--accent)]">
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-              </svg>
-            </div>
-            <div>
-              <h2 className="font-display tracking-[1px] text-[var(--text)] text-[16px] sm:text-[18px]">
-                API KEY QUOTA
-              </h2>
-              <p className="text-[11px] text-[var(--text-muted)]">
-                {validKeys.length} key{validKeys.length !== 1 ? "s" : ""}{" "}
-                configured
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-full border border-[var(--border)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] hover:bg-[var(--bg-elevated)] transition-all text-[var(--text-muted)] hover:text-[var(--text)] bg-transparent"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="overflow-y-auto flex-1 p-4 sm:p-5 flex flex-col gap-3">
-          {validKeys.length === 0 ? (
-            <p className="text-[13px] text-[var(--text-muted)] text-center py-8">
-              No API keys configured.
-            </p>
-          ) : (
-            validKeys.map((key, i) => (
-              <SingleKeyQuota key={key} apiKey={key} index={i} />
-            ))
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-4 sm:px-5 py-3 border-t border-[var(--border)] flex-shrink-0">
-          <p className="text-[10px] sm:text-[11px] text-[var(--text-muted)] text-center">
-            Quota resets daily. Keys rotate automatically when the daily limit
-            is reached.
+      <div className="flex flex-col gap-3">
+        {validKeys.length === 0 ? (
+          <p className="text-[13px] text-[var(--text-muted)] text-center py-8">
+            No API keys configured.
           </p>
-        </div>
+        ) : (
+          validKeys.map((key, i) => (
+            <SingleKeyQuota key={`${key}-${i}`} apiKey={key} index={i} />
+          ))
+        )}
       </div>
-    </div>
+    </ModalShell>
   );
 }

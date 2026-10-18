@@ -1,15 +1,23 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { searchFilms } from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
 import { getPreferences } from "@/lib/preferences";
 
 export function useSearchSuggestions() {
   const [suggestions, setSuggestions] = useState<Film[]>([]);
-  const [sugLoading, setSugLoading]   = useState(false);
-  const [sugVisible, setSugVisible]   = useState(false);
+  const [sugLoading, setSugLoading] = useState(false);
+  const [sugVisible, setSugVisible] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reqIdRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      reqIdRef.current += 1;
+    };
+  }, []);
 
   const fetchSuggestions = useCallback((q: string, _limit?: number) => {
     const prefs = getPreferences();
@@ -19,29 +27,41 @@ export function useSearchSuggestions() {
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (q.trim().length < 2) {
+      reqIdRef.current += 1;
       setSuggestions([]);
       setSugVisible(false);
+      setSugLoading(false);
       return;
     }
+
+    const currentReqId = ++reqIdRef.current;
     debounceRef.current = setTimeout(async () => {
       setSugLoading(true);
       try {
         const res = await searchFilms(q.trim(), 1);
+        if (reqIdRef.current !== currentReqId) return;
         setSuggestions(res.items.slice(0, limit));
         setSugVisible(true);
         setSelectedIdx(-1);
       } catch {
-        setSuggestions([]);
+        if (reqIdRef.current === currentReqId) {
+          setSuggestions([]);
+        }
       } finally {
-        setSugLoading(false);
+        if (reqIdRef.current === currentReqId) {
+          setSugLoading(false);
+        }
       }
     }, debounce);
   }, []);
 
   const clearSuggestions = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    reqIdRef.current += 1;
     setSuggestions([]);
     setSugVisible(false);
     setSelectedIdx(-1);
+    setSugLoading(false);
   }, []);
 
   const handleKeyNav = useCallback(
@@ -57,7 +77,7 @@ export function useSearchSuggestions() {
         setSelectedIdx(-1);
       }
     },
-    []
+    [],
   );
 
   return {

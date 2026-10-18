@@ -2,12 +2,7 @@
 /**
  * CineMix Toast System
  * --------------------
- * Lightweight, zero-dependency toast.
- * Usage:
- *   const { toast } = useToast();
- *   toast.success("Added to favorites!");
- *   toast.error("Something went wrong.");
- *   toast.info("History cleared.");
+ * Lightweight, zero-dependency toast using lucide-react icons.
  */
 import {
   createContext,
@@ -17,6 +12,7 @@ import {
   ReactNode,
   ReactElement,
 } from "react";
+import { Check, CircleAlert, Info } from "lucide-react";
 
 export type ToastType = "success" | "error" | "info";
 
@@ -37,17 +33,17 @@ const ToastContext = createContext<ToastContextValue>({
 });
 
 let _globalPush: ((message: string, type: ToastType) => void) | null = null;
+let _toastSeq = 1;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const push = useCallback((message: string, type: ToastType) => {
-    const id = Date.now() + Math.random();
+    const id = _toastSeq++;
     setToasts((t) => [...t, { id, message, type }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
   }, []);
 
-  // Expose globally for non-component usage
   _globalPush = push;
 
   return (
@@ -77,46 +73,9 @@ export function toast(message: string, type: ToastType = "info") {
 // ─── Toast Stack UI ──────────────────────────────────────────────────────────
 
 const ICONS: Record<ToastType, ReactElement> = {
-  success: (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="#22c55e"
-      strokeWidth="2.5"
-    >
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  ),
-  error: (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="var(--accent)"
-      strokeWidth="2.5"
-    >
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  ),
-  info: (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="#60a5fa"
-      strokeWidth="2.5"
-    >
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="16" x2="12" y2="12" />
-      <line x1="12" y1="8" x2="12.01" y2="8" />
-    </svg>
-  ),
+  success: <Check size={14} stroke="#22c55e" strokeWidth={2.5} />,
+  error: <CircleAlert size={14} stroke="var(--accent)" strokeWidth={2.5} />,
+  info: <Info size={14} stroke="#60a5fa" strokeWidth={2.5} />,
 };
 
 const BG: Record<ToastType, string> = {

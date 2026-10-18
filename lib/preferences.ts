@@ -1,13 +1,11 @@
 /**
- * Legacy preferences shim — delegates to lib/session.ts.
- * Kept so existing imports (lib/kinopoisk.ts, hooks, etc.) still work unchanged.
+ * Preferences facade — delegates to lib/session.ts.
  */
 
 import {
   SessionPreferences,
+  CustomPlayerServer,
   DEFAULT_PREFERENCES as SESSION_DEFAULTS,
-  getSessionPreferences,
-  saveSessionPreferences,
   getApiKeys as sessionGetApiKeys,
   hasApiKeys as sessionHasApiKeys,
   getSession,
@@ -45,8 +43,11 @@ export type Preferences = {
     distributions: boolean;
     videos: boolean;
   };
-  defaultExploreType: "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
+  defaultExploreType: "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
   defaultExploreOrder: "RATING" | "NUM_VOTE" | "YEAR";
+  preferredPlayerId: string;
+  alwaysAskPlayer: boolean;
+  customPlayers: CustomPlayerServer[];
 };
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -60,6 +61,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
   filmSections: SESSION_DEFAULTS.filmSections as Preferences["filmSections"],
   defaultExploreType: SESSION_DEFAULTS.defaultExploreType as Preferences["defaultExploreType"],
   defaultExploreOrder: SESSION_DEFAULTS.defaultExploreOrder as Preferences["defaultExploreOrder"],
+  preferredPlayerId: SESSION_DEFAULTS.preferredPlayerId,
+  alwaysAskPlayer: SESSION_DEFAULTS.alwaysAskPlayer,
+  customPlayers: SESSION_DEFAULTS.customPlayers,
 };
 
 export function getPreferences(): Preferences {
@@ -76,6 +80,9 @@ export function getPreferences(): Preferences {
     filmSections: prefs.filmSections as Preferences["filmSections"],
     defaultExploreType: prefs.defaultExploreType as Preferences["defaultExploreType"],
     defaultExploreOrder: prefs.defaultExploreOrder as Preferences["defaultExploreOrder"],
+    preferredPlayerId: prefs.preferredPlayerId || "flcksbr",
+    alwaysAskPlayer: prefs.alwaysAskPlayer ?? true,
+    customPlayers: prefs.customPlayers ?? [],
   };
 }
 

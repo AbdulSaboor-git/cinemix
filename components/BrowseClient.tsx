@@ -1,17 +1,25 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { ListFilter, X, Search } from "lucide-react";
 import { getFilmsByFilter, getFilters } from "@/lib/kinopoisk";
 import { Film, Genre, Country } from "@/types/kinopoisk";
 import { translateGenre, translateCountry } from "@/lib/translate";
 import FilmCard from "@/components/FilmCard";
 import Pagination from "@/components/Pagination";
-import Link from "next/link";
-import { getPreferences } from "@/lib/preferences";
+import PageContainer from "@/components/ui/PageContainer";
+import PageHeader from "@/components/ui/PageHeader";
+import TabBar from "@/components/ui/TabBar";
+import TabPill from "@/components/ui/TabPill";
+import EmptyState from "@/components/ui/EmptyState";
+import NoKeyBanner from "@/components/ui/NoKeyBanner";
+import { getPreferences, hasApiKeys } from "@/lib/preferences";
 import { useAutoTranslate } from "@/hooks/useTranslate";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 
 const TYPES = [
-  // { value: "ALL", label: "All" },
+  { value: "ALL", label: "All" },
   { value: "FILM", label: "Movies" },
   { value: "TV_SERIES", label: "Series" },
   { value: "TV_SHOW", label: "TV Shows" },
@@ -25,6 +33,140 @@ const ORDERS = [
 const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = Array.from({ length: 80 }, (_, i) => CURRENT_YEAR + 1 - i);
 const RATING_OPTIONS = [9, 8, 7, 6, 5, 4];
+
+type FilmType = "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
+type OrderType = "RATING" | "NUM_VOTE" | "YEAR";
+
+interface FilterSelectsProps {
+  order: OrderType;
+  resolvedGenreId?: number;
+  resolvedCountryId?: number;
+  ratingFrom?: number;
+  yearFrom?: number;
+  yearTo?: number;
+  genres: Genre[];
+  countries: Country[];
+  autoTranslate: boolean;
+  onFilterChange: (overrides: Record<string, string | undefined>) => void;
+}
+
+function FilterSelects({
+  order,
+  resolvedGenreId,
+  resolvedCountryId,
+  ratingFrom,
+  yearFrom,
+  yearTo,
+  genres,
+  countries,
+  autoTranslate,
+  onFilterChange,
+}: FilterSelectsProps) {
+  return (
+    <>
+      <select
+        className="select w-full sm:w-auto"
+        value={order}
+        onChange={(e) =>
+          onFilterChange({ order: e.target.value, page: undefined })
+        }
+      >
+        {ORDERS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <select
+        className="select w-full sm:w-auto"
+        value={resolvedGenreId || ""}
+        onChange={(e) =>
+          onFilterChange({
+            genres: e.target.value || undefined,
+            page: undefined,
+          })
+        }
+      >
+        <option value="">All Genres</option>
+        {genres
+          .filter((g) => g.id !== 28 && g.id !== 25)
+          .map((g) => (
+            <option key={g.id} value={g.id}>
+              {translateGenre(g.genre, autoTranslate) || g.genre}
+            </option>
+          ))}
+      </select>
+      <select
+        className="select w-full sm:w-auto"
+        value={resolvedCountryId || ""}
+        onChange={(e) =>
+          onFilterChange({
+            countries: e.target.value || undefined,
+            page: undefined,
+          })
+        }
+      >
+        <option value="">All Countries</option>
+        {countries.map((c) => (
+          <option key={c.id} value={c.id}>
+            {translateCountry(c.country, autoTranslate) || c.country}
+          </option>
+        ))}
+      </select>
+      <select
+        className="select w-full sm:w-auto"
+        value={ratingFrom || ""}
+        onChange={(e) =>
+          onFilterChange({
+            ratingFrom: e.target.value || undefined,
+            page: undefined,
+          })
+        }
+      >
+        <option value="">Min Rating</option>
+        {RATING_OPTIONS.map((r) => (
+          <option key={r} value={r}>
+            {r}+ Rating
+          </option>
+        ))}
+      </select>
+      <select
+        className="select w-full sm:w-auto"
+        value={yearFrom || ""}
+        onChange={(e) =>
+          onFilterChange({
+            yearFrom: e.target.value || undefined,
+            page: undefined,
+          })
+        }
+      >
+        <option value="">From Year</option>
+        {YEAR_OPTIONS.map((y) => (
+          <option key={y} value={y}>
+            {y}
+          </option>
+        ))}
+      </select>
+      <select
+        className="select w-full sm:w-auto"
+        value={yearTo || ""}
+        onChange={(e) =>
+          onFilterChange({
+            yearTo: e.target.value || undefined,
+            page: undefined,
+          })
+        }
+      >
+        <option value="">To Year</option>
+        {YEAR_OPTIONS.map((y) => (
+          <option key={y} value={y}>
+            {y}
+          </option>
+        ))}
+      </select>
+    </>
+  );
+}
 
 interface Props {
   type?: string;
@@ -49,32 +191,31 @@ export default function BrowseClient({
   yearFrom: yfParam,
   yearTo: ytParam,
 }: Props) {
-  type FilmType = "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
-  type OrderType = "RATING" | "NUM_VOTE" | "YEAR";
+  const page = Math.max(1, parseInt(pg || "1", 10));
 
-  const page = Math.max(1, parseInt(pg || "1"));
-
-  // Parse numeric values — may be undefined if param is a name string
   const parsedGenreId =
-    genreParam && !isNaN(Number(genreParam)) ? parseInt(genreParam) : undefined;
+    genreParam && !isNaN(Number(genreParam))
+      ? parseInt(genreParam, 10)
+      : undefined;
   const parsedCountryId =
     countryParam && !isNaN(Number(countryParam))
-      ? parseInt(countryParam)
+      ? parseInt(countryParam, 10)
       : undefined;
 
-  const ratingFrom = rfParam ? parseInt(rfParam) : undefined;
-  const ratingTo = rtParam ? parseInt(rtParam) : undefined;
-  const yearFrom = yfParam ? parseInt(yfParam) : undefined;
-  const yearTo = ytParam ? parseInt(ytParam) : undefined;
+  const ratingFrom = rfParam ? parseInt(rfParam, 10) : undefined;
+  const ratingTo = rtParam ? parseInt(rtParam, 10) : undefined;
+  const yearFrom = yfParam ? parseInt(yfParam, 10) : undefined;
+  const yearTo = ytParam ? parseInt(ytParam, 10) : undefined;
 
+  const [noKey, setNoKey] = useState(false);
   const [films, setFilms] = useState<Film[]>([]);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [genres, setGenres] = useState<Genre[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
+  const [filtersLoaded, setFiltersLoaded] = useState(false);
 
-  // Resolved IDs — may be resolved from a name string
   const [resolvedGenreId, setResolvedGenreId] = useState<number | undefined>(
     parsedGenreId,
   );
@@ -82,51 +223,29 @@ export default function BrowseClient({
     number | undefined
   >(parsedCountryId);
 
-  // Mobile filter drawer state
   const [filterOpen, setFilterOpen] = useState(false);
   const router = useRouter();
   const autoTranslate = useAutoTranslate();
 
-  // Load filters and resolve name→id if params are strings
-  useEffect(() => {
-    // Reset to parsed values first (handles numeric params immediately)
-    setResolvedGenreId(parsedGenreId);
-    setResolvedCountryId(parsedCountryId);
-
-    getFilters()
-      .then((f) => {
-        setGenres(f.genres);
-        setCountries(f.countries);
-
-        // Resolve country name → id
-        if (countryParam && isNaN(Number(countryParam))) {
-          const match = f.countries.find(
-            (c) => c.country.toLowerCase() === countryParam.toLowerCase(),
-          );
-          if (match) setResolvedCountryId(match.id);
-        }
-
-        // Resolve genre name → id
-        if (genreParam && isNaN(Number(genreParam))) {
-          const match = f.genres.find(
-            (g) => g.genre.toLowerCase() === genreParam.toLowerCase(),
-          );
-          if (match) setResolvedGenreId(match.id);
-        }
-      })
-      .catch(() => {});
-  }, [countryParam, genreParam, parsedCountryId, parsedGenreId]);
-
-  // Prefs for defaults when URL params are absent
   const [ready, setReady] = useState(false);
   const [prefType, setPrefType] = useState<FilmType>("ALL");
   const [prefOrder, setPrefOrder] = useState<OrderType>("RATING");
 
-  // Resolved values — use URL params first, then prefs, then defaults
   const type = (tp || prefType) as FilmType;
   const order = (ord || prefOrder) as OrderType;
+  const title =
+    type === "ALL"
+      ? "Explore All"
+      : TYPES.find((t) => t.value === type)?.label || "Explore";
+
+  useDocumentTitle(title);
 
   useEffect(() => {
+    if (!hasApiKeys()) {
+      setNoKey(true);
+      setLoading(false);
+      return;
+    }
     const prefs = getPreferences();
     setPrefType((prefs.defaultExploreType as FilmType) || "ALL");
     setPrefOrder((prefs.defaultExploreOrder as OrderType) || "RATING");
@@ -134,20 +253,53 @@ export default function BrowseClient({
   }, []);
 
   useEffect(() => {
-    if (!ready) return;
-    // Wait until name params are resolved before fetching
-    if (
-      (genreParam &&
-        !isNaN(Number(genreParam)) === false &&
-        resolvedGenreId === undefined &&
-        genreParam) ||
-      (countryParam &&
-        isNaN(Number(countryParam)) &&
-        resolvedCountryId === undefined)
-    ) {
-      // Still resolving name → id, skip fetch for now
-      return;
+    if (!hasApiKeys()) return;
+    setResolvedGenreId(parsedGenreId);
+    setResolvedCountryId(parsedCountryId);
+
+    const needsStringResolution =
+      Boolean(genreParam && isNaN(Number(genreParam))) ||
+      Boolean(countryParam && isNaN(Number(countryParam)));
+
+    if (!needsStringResolution) {
+      setFiltersLoaded(true);
+    } else {
+      setFiltersLoaded(false);
     }
+
+    getFilters()
+      .then((f) => {
+        setGenres(f.genres);
+        setCountries(f.countries);
+
+        if (countryParam && isNaN(Number(countryParam))) {
+          const target = countryParam.trim().toLowerCase();
+          const match = f.countries.find(
+            (c) =>
+              c.country.toLowerCase() === target ||
+              translateCountry(c.country, true).toLowerCase() === target,
+          );
+          setResolvedCountryId(match?.id);
+        }
+
+        if (genreParam && isNaN(Number(genreParam))) {
+          const target = genreParam.trim().toLowerCase();
+          const match = f.genres.find(
+            (g) =>
+              g.genre.toLowerCase() === target ||
+              translateGenre(g.genre, true).toLowerCase() === target,
+          );
+          setResolvedGenreId(match?.id);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        setFiltersLoaded(true);
+      });
+  }, [countryParam, genreParam, parsedCountryId, parsedGenreId]);
+
+  useEffect(() => {
+    if (!ready || noKey || !filtersLoaded) return;
 
     setLoading(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -177,6 +329,8 @@ export default function BrowseClient({
       .finally(() => setLoading(false));
   }, [
     ready,
+    noKey,
+    filtersLoaded,
     type,
     order,
     page,
@@ -186,8 +340,6 @@ export default function BrowseClient({
     ratingTo,
     yearFrom,
     yearTo,
-    genreParam,
-    countryParam,
   ]);
 
   const buildHref = useCallback(
@@ -233,7 +385,8 @@ export default function BrowseClient({
       Object.entries(merged).forEach(([k, v]) => {
         if (v !== undefined) params.set(k, v);
       });
-      return `/explore?${params.toString()}`;
+      const qs = params.toString();
+      return qs ? `/explore?${qs}` : "/explore";
     },
     [
       type,
@@ -247,6 +400,8 @@ export default function BrowseClient({
     ],
   );
 
+  if (noKey) return <NoKeyBanner />;
+
   const activeFilterCount = [
     resolvedGenreId,
     resolvedCountryId,
@@ -255,8 +410,6 @@ export default function BrowseClient({
     yearFrom,
     yearTo,
   ].filter(Boolean).length;
-
-  const title = TYPES.find((t) => t.value === type)?.label || "Explore";
 
   const activeFilterTags: { label: string; clearKey: string }[] = [];
   if (resolvedGenreId) {
@@ -279,215 +432,60 @@ export default function BrowseClient({
   }
   if (ratingFrom)
     activeFilterTags.push({
-      label: `${ratingFrom}+ ★`,
+      label: `${ratingFrom}+ Rating`,
       clearKey: "ratingFrom",
     });
   if (ratingTo)
-    activeFilterTags.push({ label: `≤ ${ratingTo} ★`, clearKey: "ratingTo" });
+    activeFilterTags.push({ label: `<= ${ratingTo} Rating`, clearKey: "ratingTo" });
   if (yearFrom)
     activeFilterTags.push({ label: `From ${yearFrom}`, clearKey: "yearFrom" });
   if (yearTo)
     activeFilterTags.push({ label: `To ${yearTo}`, clearKey: "yearTo" });
 
-  // Shared filter selects — rendered in both drawer (mobile) and bar (desktop)
-  const FilterSelects = ({ onAfterChange }: { onAfterChange?: () => void }) => (
-    <>
-      <select
-        className="select w-full sm:w-auto"
-        value={order}
-        onChange={(e) => {
-          router.push(
-            buildFilterHref({ order: e.target.value, page: undefined }),
-          );
-          onAfterChange?.();
-        }}
-      >
-        {ORDERS.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <select
-        className="select w-full sm:w-auto"
-        value={resolvedGenreId || ""}
-        onChange={(e) => {
-          router.push(
-            buildFilterHref({
-              genres: e.target.value || undefined,
-              page: undefined,
-            }),
-          );
-          onAfterChange?.();
-        }}
-      >
-        <option value="">All Genres</option>
-        {genres
-          .filter((g) => g.id !== 28 && g.id !== 25)
-          .map((g) => (
-            <option key={g.id} value={g.id}>
-              {translateGenre(g.genre, autoTranslate) || g.genre}
-            </option>
-          ))}
-      </select>
-      <select
-        className="select w-full sm:w-auto"
-        value={resolvedCountryId || ""}
-        onChange={(e) => {
-          router.push(
-            buildFilterHref({
-              countries: e.target.value || undefined,
-              page: undefined,
-            }),
-          );
-          onAfterChange?.();
-        }}
-      >
-        <option value="">All Countries</option>
-        {countries.map((c) => (
-          <option key={c.id} value={c.id}>
-            {translateCountry(c.country, autoTranslate) || c.country}
-          </option>
-        ))}
-      </select>
-      <select
-        className="select w-full sm:w-auto"
-        value={ratingFrom || ""}
-        onChange={(e) => {
-          router.push(
-            buildFilterHref({
-              ratingFrom: e.target.value || undefined,
-              page: undefined,
-            }),
-          );
-          onAfterChange?.();
-        }}
-      >
-        <option value="">Min Rating</option>
-        {RATING_OPTIONS.map((r) => (
-          <option key={r} value={r}>
-            {r}+ ★
-          </option>
-        ))}
-      </select>
-      <select
-        className="select w-full sm:w-auto"
-        value={yearFrom || ""}
-        onChange={(e) => {
-          router.push(
-            buildFilterHref({
-              yearFrom: e.target.value || undefined,
-              page: undefined,
-            }),
-          );
-          onAfterChange?.();
-        }}
-      >
-        <option value="">From Year</option>
-        {YEAR_OPTIONS.map((y) => (
-          <option key={y} value={y}>
-            {y}
-          </option>
-        ))}
-      </select>
-      <select
-        className="select w-full sm:w-auto"
-        value={yearTo || ""}
-        onChange={(e) => {
-          router.push(
-            buildFilterHref({
-              yearTo: e.target.value || undefined,
-              page: undefined,
-            }),
-          );
-          onAfterChange?.();
-        }}
-      >
-        <option value="">To Year</option>
-        {YEAR_OPTIONS.map((y) => (
-          <option key={y} value={y}>
-            {y}
-          </option>
-        ))}
-      </select>
-    </>
-  );
-
   return (
-    <div className="min-h-screen pb-20">
-      {/* ── Page header ── */}
-      <div className="px-4 sm:px-[var(--page-x)] pt-7 sm:pt-10 pb-5 sm:pb-8">
-        <p className="text-[11px] text-[var(--text-muted)] uppercase tracking-[2px] mb-1 sm:mb-2">
-          Explore
-        </p>
-        <div className="flex items-end justify-between flex-wrap gap-2 sm:gap-3">
-          <h1
-            suppressHydrationWarning
-            className="font-display uppercase leading-none tracking-[2px]"
-            style={{ fontSize: "clamp(28px, 6vw, 60px)" }}
-          >
-            {title}
-          </h1>
-          {total > 0 && !loading && (
-            <span className="text-[12px] sm:text-[13px] text-[var(--text-muted)] pb-1">
+    <PageContainer>
+      <PageHeader
+        eyebrow="Explore"
+        title={title}
+        rightSlot={
+          total > 0 && !loading ? (
+            <span className="text-[12px] sm:text-[13px] text-[var(--text-muted)]">
               {total.toLocaleString()} titles
             </span>
-          )}
-        </div>
-      </div>
+          ) : null
+        }
+      />
 
-      {/* ── Type tabs — horizontal scroll on mobile ── */}
-      <div className="px-4 sm:px-[var(--page-x)] mb-4 sm:mb-5">
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {TYPES.map((t) => (
-            <Link
-              key={t.value}
-              href={buildFilterHref({
-                type: t.value === "ALL" ? undefined : t.value,
-                page: undefined,
-              })}
-              className="no-underline shrink-0"
-            >
-              <button
-                className={`px-3 sm:px-4 py-[8px] sm:py-[9px] rounded-[8px] text-[12px] sm:text-[13px] font-semibold cursor-pointer transition-all duration-[180ms] whitespace-nowrap
-                  ${
-                    type === t.value
-                      ? "bg-[var(--accent)] text-white border border-[var(--accent)]"
-                      : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border border-[var(--border)] hover:border-[var(--border-hover)] hover:text-[var(--text)]"
-                  }`}
-              >
-                {t.label}
-              </button>
-            </Link>
-          ))}
-        </div>
-      </div>
+      {/* ── Type tabs ── */}
+      <TabBar className="mb-4 sm:mb-5">
+        {TYPES.map((t) => (
+          <TabPill
+            key={t.value}
+            active={type === t.value}
+            href={buildFilterHref({
+              type: t.value === "ALL" ? "ALL" : t.value,
+              page: undefined,
+            })}
+          >
+            {t.label}
+          </TabPill>
+        ))}
+      </TabBar>
 
-      {/* ── Filter bar — desktop: inline row | mobile: toggle button + drawer ── */}
-      <div className="px-4 sm:px-[var(--page-x)] mb-5 sm:mb-6">
+      {/* ── Filter bar ── */}
+      <div className="mb-5 sm:mb-6">
         {/* Mobile: filter toggle button */}
         <div className="flex items-center gap-2 sm:hidden mb-3">
           <button
+            type="button"
             onClick={() => setFilterOpen((v) => !v)}
-            className={`flex items-center gap-2 px-4 py-[9px] rounded-[8px] text-[13px] font-semibold border transition-all duration-[180ms]
-              ${
-                filterOpen || activeFilterCount > 0
-                  ? "bg-[var(--accent-dim)] border-[rgba(229,9,20,0.4)] text-[var(--accent)]"
-                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)]"
-              }`}
+            className={`flex items-center gap-2 px-4 py-[9px] rounded-[8px] text-[13px] font-semibold border transition-all duration-[180ms] cursor-pointer ${
+              filterOpen || activeFilterCount > 0
+                ? "bg-[var(--accent-dim)] border-[rgba(229,9,20,0.4)] text-[var(--accent)]"
+                : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)]"
+            }`}
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-            >
-              <line x1="4" y1="6" x2="20" y2="6" />
-              <line x1="8" y1="12" x2="16" y2="12" />
-              <line x1="11" y1="18" x2="13" y2="18" />
-            </svg>
+            <ListFilter size={14} strokeWidth={2.2} />
             Filters
             {activeFilterCount > 0 && (
               <span className="bg-[var(--accent)] text-white text-[10px] font-bold rounded-full w-[18px] h-[18px] flex items-center justify-center leading-none">
@@ -501,18 +499,11 @@ export default function BrowseClient({
               href={`/explore${type !== "ALL" ? `?type=${type}` : ""}`}
               className="no-underline"
             >
-              <button className="btn btn-ghost py-[9px] px-3 text-[12px]">
-                <svg
-                  width="11"
-                  height="11"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
+              <button
+                type="button"
+                className="btn btn-ghost py-[9px] px-3 text-[12px]"
+              >
+                <X size={11} strokeWidth={2.5} />
                 Clear
               </button>
             </Link>
@@ -522,30 +513,50 @@ export default function BrowseClient({
         {/* Mobile: collapsible filter drawer */}
         {filterOpen && (
           <div className="sm:hidden flex flex-col gap-2 mb-3 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[12px] p-4">
-            <FilterSelects onAfterChange={() => setFilterOpen(false)} />
+            <FilterSelects
+              order={order}
+              resolvedGenreId={resolvedGenreId}
+              resolvedCountryId={resolvedCountryId}
+              ratingFrom={ratingFrom}
+              yearFrom={yearFrom}
+              yearTo={yearTo}
+              genres={genres}
+              countries={countries}
+              autoTranslate={autoTranslate}
+              onFilterChange={(overrides) => {
+                router.push(buildFilterHref(overrides));
+                setFilterOpen(false);
+              }}
+            />
           </div>
         )}
 
         {/* Desktop: inline filter row */}
         <div className="hidden sm:flex flex-wrap gap-2 items-center">
-          <FilterSelects />
+          <FilterSelects
+            order={order}
+            resolvedGenreId={resolvedGenreId}
+            resolvedCountryId={resolvedCountryId}
+            ratingFrom={ratingFrom}
+            yearFrom={yearFrom}
+            yearTo={yearTo}
+            genres={genres}
+            countries={countries}
+            autoTranslate={autoTranslate}
+            onFilterChange={(overrides) =>
+              router.push(buildFilterHref(overrides))
+            }
+          />
           {activeFilterCount > 0 && (
             <Link
               href={`/explore${type !== "ALL" ? `?type=${type}` : ""}`}
               className="no-underline"
             >
-              <button className="btn btn-ghost py-[9px] px-4 text-[12px]">
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
+              <button
+                type="button"
+                className="btn btn-ghost py-[9px] px-4 text-[12px]"
+              >
+                <X size={12} strokeWidth={2.5} />
                 Clear ({activeFilterCount})
               </button>
             </Link>
@@ -566,17 +577,7 @@ export default function BrowseClient({
               >
                 <span className="inline-flex items-center gap-[5px] text-[11px] sm:text-[12px] text-[var(--text-dim)] bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.25)] rounded-full px-3 py-1 cursor-pointer hover:border-[var(--accent)] transition-colors">
                   {tag.label}
-                  <svg
-                    width="10"
-                    height="10"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
+                  <X size={10} strokeWidth={3} />
                 </span>
               </Link>
             ))}
@@ -585,50 +586,36 @@ export default function BrowseClient({
       </div>
 
       {/* ── Film grid ── */}
-      <div className="px-4 sm:px-[var(--page-x)]">
-        {loading ? (
-          <div className="film-grid">
-            {Array.from({ length: 20 }).map((_, i) => (
-              <div
-                key={i}
-                className="skeleton aspect-[2/3] rounded-[10px] sm:rounded-[12px]"
-              />
-            ))}
-          </div>
-        ) : films.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 sm:py-32 gap-4 text-[var(--text-dim)]">
-            <svg
-              width="48"
-              height="48"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--text-muted)"
-              strokeWidth="1.5"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <path d="m21 21-4.35-4.35" />
-            </svg>
-            <p className="text-[16px] sm:text-[18px] font-medium">
-              No results found
-            </p>
-            <p className="text-[12px] sm:text-[13px] text-[var(--text-muted)]">
-              Try adjusting the filters
-            </p>
-          </div>
-        ) : (
-          <div className="film-grid">
-            {films.map((film, i) => (
-              <FilmCard
-                key={film.kinopoiskId ?? film.filmId ?? i}
-                film={film}
-                variant="grid"
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      {loading ? (
+        <div className="film-grid">
+          {Array.from({ length: 20 }).map((_, i) => (
+            <div
+              key={i}
+              className="skeleton aspect-[2/3] rounded-[10px] sm:rounded-[12px]"
+            />
+          ))}
+        </div>
+      ) : films.length === 0 ? (
+        <EmptyState
+          icon={<Search size={36} />}
+          title="No Results Found"
+          description="Try adjusting your genre, country, rating, or year filters."
+          actionLabel="Reset Filters"
+          actionHref="/explore"
+        />
+      ) : (
+        <div className="film-grid">
+          {films.map((film, i) => (
+            <FilmCard
+              key={film.kinopoiskId ?? film.filmId ?? i}
+              film={film}
+              variant="grid"
+            />
+          ))}
+        </div>
+      )}
 
       <Pagination page={page} totalPages={totalPages} buildHref={buildHref} />
-    </div>
+    </PageContainer>
   );
 }

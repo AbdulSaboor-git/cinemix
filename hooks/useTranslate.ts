@@ -1,45 +1,19 @@
 "use client";
 import { useState, useEffect } from "react";
-import { translateText, translateHtml, isRussian, stripHtml } from "@/lib/translate";
+import {
+  translateText,
+  translateHtml,
+  isRussian,
+  stripHtml,
+  getCachedTranslation,
+  getEnglishName,
+} from "@/lib/translate";
 import { getPreferences } from "@/lib/preferences";
-
-/** Translate plain text (description, slogan, etc.) */
-export function useTranslate(text: string | undefined): string {
-  const [translated, setTranslated] = useState<string>(text || "");
-
-  useEffect(() => {
-    if (!text) { setTranslated(""); return; }
-    const prefs = getPreferences();
-    if (!prefs.autoTranslateEnabled || !isRussian(text)) { setTranslated(text); return; }
-    translateText(text).then(setTranslated).catch(() => setTranslated(text));
-  }, [text]);
-
-  return translated;
-}
+import { SESSION_KEY } from "@/lib/session";
 
 /**
- * Strips HTML tags from content, then translates Russian text.
- * Use this instead of dangerouslySetInnerHTML to avoid XSS.
- * When autoTranslateEnabled is false, still strips HTML safely but doesn't translate.
- */
-export function useTranslateHtml(html: string | undefined): string {
-  const [translated, setTranslated] = useState<string>(html ? stripHtml(html) : "");
-
-  useEffect(() => {
-    if (!html) { setTranslated(""); return; }
-    const plain = stripHtml(html);
-    const prefs = getPreferences();
-    if (!prefs.autoTranslateEnabled || !isRussian(plain)) { setTranslated(plain); return; }
-    translateHtml(html).then(setTranslated).catch(() => setTranslated(plain));
-  }, [html]);
-
-  return translated;
-}
-
-/**
- * Returns the current autoTranslateEnabled preference, reactive to storage events.
- * Use this in components that call translateGenre/translateCountry/getEnglishName
- * directly (synchronously) so they can re-render when the preference changes.
+ * Returns the current autoTranslateEnabled preference, reactive to both
+ * cross-tab storage events and same-tab "cinemix-session-change" events.
  */
 export function useAutoTranslate(): boolean {
   const [enabled, setEnabled] = useState<boolean>(() => {
@@ -48,25 +22,149 @@ export function useAutoTranslate(): boolean {
   });
 
   useEffect(() => {
-    // Sync on mount (handles SSR→client hydration gap)
-    setEnabled(getPreferences().autoTranslateEnabled);
+    const sync = () => {
+      setEnabled(getPreferences().autoTranslateEnabled);
+    };
+    sync();
 
-    // Cross-tab sync via storage event
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "cinemix_preferences" && e.newValue) {
+      if (e.key === SESSION_KEY && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
-          if (typeof parsed.autoTranslateEnabled === "boolean") {
-            setEnabled(parsed.autoTranslateEnabled);
-          }
+          const next = parsed?.preferences?.autoTranslateEnabled;
+          if (typeof next === "boolean") setEnabled(next);
         } catch {
           // ignore malformed
         }
       }
     };
+
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    window.addEventListener("cinemix-session-change", sync);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("cinemix-session-change", sync);
+    };
   }, []);
 
   return enabled;
+}
+
+/** Translate plain text (description, slogan, names, etc.) without Cyrillic flash */
+export function useTranslate(text: string | undefined | null): string {
+  const autoTranslate = useAutoTranslate();
+
+  const [translated, setTranslated] = useState<string>(() => {
+    if (!text) return "";
+    if (!isRussian(text)) return text;
+    if (typeof window !== "undefined" && !getPreferences().autoTranslateEnabled) {
+      return text;
+    }
+    return getCachedTranslation(text) ?? "";
+  });
+
+  useEffect(() => {
+    if (!text) {
+      setTranslated("");
+      return;
+    }
+    if (!autoTranslate || !isRussian(text)) {
+      setTranslated(text);
+      return;
+    }
+    const cached = getCachedTranslation(text);
+    if (cached) {
+      setTranslated(cached);
+      return;
+    }
+    let active = true;
+    translateText(text)
+      .then((res) => {
+        if (active) setTranslated(res);
+      })
+      .catch(() => {
+        if (active) setTranslated(text);
+      });
+    return () => {
+      active = false;
+    };
+  }, [text, autoTranslate]);
+
+  return translated;
+}
+
+/**
+ * Strips HTML tags from content, then translates Russian text.
+ * Use this instead of dangerouslySetInnerHTML to avoid XSS.
+ */
+export function useTranslateHtml(html: string | undefined | null): string {
+  const autoTranslate = useAutoTranslate();
+
+  const [translated, setTranslated] = useState<string>(() => {
+    if (!html) return "";
+    const plain = stripHtml(html);
+    if (!isRussian(plain)) return plain;
+    if (typeof window !== "undefined" && !getPreferences().autoTranslateEnabled) {
+      return plain;
+    }
+    return getCachedTranslation(plain) ?? "";
+  });
+
+  useEffect(() => {
+    if (!html) {
+      setTranslated("");
+      return;
+    }
+    const plain = stripHtml(html);
+    if (!autoTranslate || !isRussian(plain)) {
+      setTranslated(plain);
+      return;
+    }
+    const cached = getCachedTranslation(plain);
+    if (cached) {
+      setTranslated(cached);
+      return;
+    }
+    let active = true;
+    translateHtml(html)
+      .then((res) => {
+        if (active) setTranslated(res);
+      })
+      .catch(() => {
+        if (active) setTranslated(plain);
+      });
+    return () => {
+      active = false;
+    };
+  }, [html, autoTranslate]);
+
+  return translated;
+}
+
+/**
+ * Resolves the best film/episode title and automatically translates it if only
+ * a Russian title is available and autoTranslate is enabled.
+ */
+export function useFilmTitle(
+  film?: {
+    nameRu?: string;
+    nameEn?: string;
+    nameOriginal?: string;
+  } | null,
+  autoTranslateOverride?: boolean,
+): string {
+  const autoTranslateHook = useAutoTranslate();
+  const autoTranslate = autoTranslateOverride ?? autoTranslateHook;
+  const baseName = film
+    ? getEnglishName(
+        film.nameRu,
+        film.nameEn,
+        film.nameOriginal,
+        autoTranslate,
+      )
+    : "Unknown";
+  const translated = useTranslate(
+    autoTranslate && isRussian(baseName) ? baseName : baseName,
+  );
+  return translated || baseName;
 }

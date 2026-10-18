@@ -6,7 +6,7 @@ export default function Footer() {
   const year = new Date().getFullYear();
   return (
     <footer className="border-t border-[var(--border)] bg-[var(--bg-card)] mt-auto">
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-[var(--page-x)] py-10 sm:py-12">
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-[var(--page-x)] py-10 sm:py-12">
         <div className="flex flex-col gap-8 sm:gap-10 sm:flex-row sm:justify-between">
           {/* Logo */}
           <div className="max-w-full sm:max-w-[280px]">
@@ -16,22 +16,23 @@ export default function Footer() {
             </p>
           </div>
 
-          {/* Nav groups — 2-col grid on mobile, row on sm+ */}
+          {/* Nav groups */}
           <div className="grid grid-cols-3 gap-8 sm:flex sm:gap-14">
             <FooterGroup title="Explore">
               <FooterLink href="/explore?type=FILM">Movies</FooterLink>
               <FooterLink href="/explore?type=TV_SERIES">Series</FooterLink>
               <FooterLink href="/top250">Top 250</FooterLink>
-              <FooterLink href="/explore?order=YEAR">New Releases</FooterLink>
+              <FooterLink href="/premieres">Premieres</FooterLink>
             </FooterGroup>
             <FooterGroup title="Genres">
-              <FooterLink href="/explore?genres=1">Action</FooterLink>
+              <FooterLink href="/explore?genres=11">Action</FooterLink>
               <FooterLink href="/explore?genres=2">Drama</FooterLink>
-              <FooterLink href="/explore?genres=10">Comedy</FooterLink>
+              <FooterLink href="/explore?genres=13">Comedy</FooterLink>
               <FooterLink href="/explore?genres=6">Sci-Fi</FooterLink>
             </FooterGroup>
             <FooterGroup title="Settings">
               <FooterLink href="/preferences">Preferences</FooterLink>
+              <FooterLink href="/profile">Profile</FooterLink>
               <FooterLink
                 href="https://kinopoiskapiunofficial.tech"
                 target="_blank"

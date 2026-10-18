@@ -1,11 +1,30 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Star, ChevronRight, User } from "lucide-react";
 import { getPerson } from "@/lib/kinopoisk";
 import { PersonDetail, PersonFilm } from "@/types/kinopoisk";
-import Link from "next/link";
-import { useTranslate, useTranslateHtml } from "@/hooks/useTranslate";
-import { translateRelation } from "@/lib/translate";
-import BackButton from "./BackButton";
+import {
+  useTranslate,
+  useTranslateHtml,
+  useAutoTranslate,
+  useFilmTitle,
+} from "@/hooks/useTranslate";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import {
+  translateRelation,
+  translateRole,
+  isRussian,
+} from "@/lib/translate";
+import { hasApiKeys } from "@/lib/preferences";
+import BackButton from "@/components/BackButton";
+import PageContainer from "@/components/ui/PageContainer";
+import SectionHeader from "@/components/ui/SectionHeader";
+import TabBar from "@/components/ui/TabBar";
+import TabPill from "@/components/ui/TabPill";
+import PosterImage from "@/components/ui/PosterImage";
+import EmptyState from "@/components/ui/EmptyState";
+import NoKeyBanner from "@/components/ui/NoKeyBanner";
 
 const PROF_LABELS: Record<string, string> = {
   ACTOR: "Actor",
@@ -17,7 +36,9 @@ const PROF_LABELS: Record<string, string> = {
   OPERATOR: "Cinematographer",
   DESIGN: "Production Design",
   VOICE_DIRECTOR: "Voice Director",
-  UNKNOWN: "",
+  HIMSELF: "Self",
+  HERSELF: "Self",
+  UNKNOWN: "Other",
 };
 const PROF_ORDER = [
   "ACTOR",
@@ -34,14 +55,33 @@ const PROF_ORDER = [
 const FILMOGRAPHY_PAGE_SIZE = 20;
 
 export default function PersonClient({ personId }: { personId: string }) {
-  const id = parseInt(personId);
+  const id = parseInt(personId, 10);
+  const autoTranslate = useAutoTranslate();
+  const [noKey, setNoKey] = useState(false);
   const [person, setPerson] = useState<PersonDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [activeProf, setActiveProf] = useState<string | null>(null); // null = not yet resolved
+  const [activeProf, setActiveProf] = useState<string | null>(null);
   const [filmPage, setFilmPage] = useState(1);
+  const [showAllFilms, setShowAllFilms] = useState(false);
+
+  const rawName =
+    person && autoTranslate && person.nameEn && !isRussian(person.nameEn)
+      ? person.nameEn
+      : person?.nameRu || person?.nameEn || "Unknown";
+  const translatedName = useTranslate(rawName);
+  const name = translatedName || rawName;
+
+  const translatedProfession = useTranslate(person?.profession);
+
+  useDocumentTitle(person ? name : "Person");
 
   useEffect(() => {
+    if (!hasApiKeys()) {
+      setNoKey(true);
+      setLoading(false);
+      return;
+    }
     if (isNaN(id)) {
       setError(true);
       setLoading(false);
@@ -54,36 +94,37 @@ export default function PersonClient({ personId }: { personId: string }) {
       .finally(() => setLoading(false));
   }, [id]);
 
+  if (noKey) return <NoKeyBanner />;
   if (loading) return <LoadingSkeleton />;
-  if (error || !person)
+  if (error || !person) {
     return (
-      <div className="min-h-[80vh] flex flex-col items-center justify-center gap-4 px-4 text-center">
-        <p className="text-[20px] sm:text-[22px] font-display">
-          Person not found
-        </p>
-        <Link href="/" className="text-[var(--accent)]">
-          ← Back to home
-        </Link>
-      </div>
+      <PageContainer className="flex items-center justify-center">
+        <EmptyState
+          icon={<User size={44} />}
+          title="Person Not Found"
+          description="The requested actor or crew member could not be loaded."
+          actionLabel="Back to Home"
+          actionHref="/"
+        />
+      </PageContainer>
     );
+  }
 
-  const name = person.nameEn || person.nameRu || "Unknown";
   const allFilms = person.films || [];
-  const sortFilms = (films: PersonFilm[]) =>
-    removeDuplicates(films).sort(
-      (a, b) =>
-        (parseFloat(b.rating || "0") || 0) - (parseFloat(a.rating || "0") || 0),
-    );
-
-  // remove films with duplicate filmId
   const removeDuplicates = (films: PersonFilm[]) => {
-    const seen = new Set();
+    const seen = new Set<number>();
     return films.filter((f) => {
       if (seen.has(f.filmId)) return false;
       seen.add(f.filmId);
       return true;
     });
   };
+
+  const sortFilms = (films: PersonFilm[]) =>
+    removeDuplicates(films).sort(
+      (a, b) =>
+        (parseFloat(b.rating || "0") || 0) - (parseFloat(a.rating || "0") || 0),
+    );
 
   const profGroups: Record<string, PersonFilm[]> = {};
   for (const film of allFilms) {
@@ -97,7 +138,6 @@ export default function PersonClient({ personId }: { personId: string }) {
     (p) => !PROF_ORDER.includes(p) && profGroups[p].length > 0,
   );
 
-  // Bug 5 fix: default to first available prof (usually ACTOR), not "ALL"
   const resolvedActiveProf = activeProf ?? (availableProfs[0] || "ALL");
 
   const allDisplayedFilms =
@@ -105,17 +145,18 @@ export default function PersonClient({ personId }: { personId: string }) {
       ? sortFilms(allFilms)
       : sortFilms(profGroups[resolvedActiveProf] || []);
 
-  // Bug 6 fix: paginate filmography at FILMOGRAPHY_PAGE_SIZE
   const filmTotalPages = Math.ceil(
     allDisplayedFilms.length / FILMOGRAPHY_PAGE_SIZE,
   );
-  const displayedFilms = allDisplayedFilms.slice(
-    (filmPage - 1) * FILMOGRAPHY_PAGE_SIZE,
-    filmPage * FILMOGRAPHY_PAGE_SIZE,
-  );
+  const displayedFilms = showAllFilms
+    ? allDisplayedFilms
+    : allDisplayedFilms.slice(
+        (filmPage - 1) * FILMOGRAPHY_PAGE_SIZE,
+        filmPage * FILMOGRAPHY_PAGE_SIZE,
+      );
 
-  // Bug 11 fix: map profession through PROF_LABELS; fall back to raw API value
   const professionLabel =
+    translatedProfession ||
     (availableProfs[0] ? PROF_LABELS[availableProfs[0]] : "") ||
     person.profession ||
     "";
@@ -123,160 +164,161 @@ export default function PersonClient({ personId }: { personId: string }) {
   return (
     <div className="min-h-screen pb-20">
       {/* Hero */}
-      <div className="bg-gradient-to-b from-[var(--bg-card)] to-[var(--bg)] border-b border-[var(--border)] mb-8 sm:mb-10 px-4 sm:px-[var(--page-x)] py-6 sm:py-10">
-        <BackButton />
+      <div className="bg-gradient-to-b from-[var(--bg-card)] to-[var(--bg)] border-b border-[var(--border)] mb-8 sm:mb-10">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-[var(--page-x)] py-6 sm:py-10">
+          <BackButton />
 
-        <div className="flex gap-5 sm:gap-[clamp(20px,4vw,40px)] items-start">
-          {/* Photo */}
-          <div className="rounded-[var(--radius-lg)] overflow-hidden border border-[var(--border)] shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex-shrink-0 w-[90px] sm:w-[130px] md:w-[200px]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={person.posterUrl || ""}
+          <div className="flex gap-5 sm:gap-[clamp(20px,4vw,40px)] items-start">
+            {/* Photo */}
+            <PosterImage
+              src={person.posterUrl}
               alt={name}
-              className="w-full aspect-[2/3] object-cover block bg-[var(--surface)]"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
-              draggable={false}
+              title={name}
+              fallbackType="person"
+              priority
+              className="rounded-[var(--radius-lg)] overflow-hidden border border-[var(--border)] shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex-shrink-0 w-[95px] sm:w-[140px] md:w-[200px] aspect-[2/3] relative bg-[var(--surface)]"
             />
-          </div>
 
-          {/* Info */}
-          <div className="flex-1 min-w-0">
-            {professionLabel && (
-              <p className="text-[11px] sm:text-[12px] text-[var(--accent)] uppercase tracking-[1.5px] font-semibold mb-1 sm:mb-2">
-                {professionLabel}
-              </p>
-            )}
-            <h1 className="font-display leading-none tracking-[1px] sm:tracking-[2px] mb-2 sm:mb-4 text-[clamp(22px,5vw,64px)]">
-              {name}
-            </h1>
-
-            {/* Info grid — 2-col on mobile */}
-            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-4 gap-y-3 sm:gap-6 mb-4">
-              {person.sex && person.sex !== "UNKNOWN" && (
-                <InfoItem
-                  label="Gender"
-                  value={person.sex === "MALE" ? "Male" : "Female"}
-                />
-              )}
-              {person.birthday && (
-                <InfoItem
-                  label="Born"
-                  value={new Date(person.birthday).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
-                />
-              )}
-              {person.birthplace && (
-                <TranslatedInfoItem label="From" value={person.birthplace} />
-              )}
-              {person.age && !person.death && (
-                <InfoItem label="Age" value={String(person.age)} />
-              )}
-              {person.death && (
-                <InfoItem
-                  label="Died"
-                  value={new Date(person.death).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
-                />
-              )}
-              {person.deathplace && (
-                <TranslatedInfoItem label="Died in" value={person.deathplace} />
-              )}
-              {person.hasAwards !== undefined && person.hasAwards > 0 && (
-                <InfoItem label="Awards" value={`${person.hasAwards}`} />
-              )}
-              <InfoItem label="Credits" value={String(allFilms.length)} />
-            </div>
-
-            {/* Bug 10 fix: show spouse relation label (translated) */}
-            {person.spouses && person.spouses.length > 0 && (
-              <div className="mt-2">
-                <p className="text-[11px] text-[var(--text-muted)] uppercase tracking-[0.8px] mb-[6px]">
-                  Relationships
+            {/* Info */}
+            <div className="flex-1 min-w-0">
+              {professionLabel && (
+                <p className="text-[11px] sm:text-[12px] text-[var(--accent)] uppercase tracking-[1.5px] font-semibold mb-1 sm:mb-2">
+                  {professionLabel}
                 </p>
-                <div className="flex flex-wrap gap-[6px] sm:gap-2">
-                  {person.spouses.map((s, i) => (
-                    <SpouseTag
-                      key={i}
-                      name={s.name}
-                      relation={s.relation}
-                      divorced={s.divorced}
-                      children={s.children}
-                    />
-                  ))}
+              )}
+              <h1 className="font-display leading-none tracking-[1px] sm:tracking-[2px] mb-2 sm:mb-4 text-[clamp(22px,5vw,64px)]">
+                {name}
+              </h1>
+
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-4 gap-y-3 sm:gap-6 mb-4">
+                {person.sex && person.sex !== "UNKNOWN" && (
+                  <InfoItem
+                    label="Gender"
+                    value={person.sex === "MALE" ? "Male" : "Female"}
+                  />
+                )}
+                {person.birthday && (
+                  <InfoItem
+                    label="Born"
+                    value={new Date(person.birthday).toLocaleDateString(
+                      "en-US",
+                      {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      },
+                    )}
+                  />
+                )}
+                {person.birthplace && (
+                  <TranslatedInfoItem label="From" value={person.birthplace} />
+                )}
+                {person.age !== undefined && person.age > 0 && !person.death && (
+                  <InfoItem label="Age" value={String(person.age)} />
+                )}
+                {person.death && (
+                  <InfoItem
+                    label="Died"
+                    value={new Date(person.death).toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  />
+                )}
+                {person.deathplace && (
+                  <TranslatedInfoItem
+                    label="Died in"
+                    value={person.deathplace}
+                  />
+                )}
+                {person.hasAwards !== undefined && person.hasAwards > 0 && (
+                  <InfoItem label="Awards" value={`${person.hasAwards}`} />
+                )}
+                <InfoItem label="Credits" value={String(allFilms.length)} />
+              </div>
+
+              {person.spouses && person.spouses.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-[11px] text-[var(--text-muted)] uppercase tracking-[0.8px] mb-[6px]">
+                    Relationships
+                  </p>
+                  <div className="flex flex-wrap gap-[6px] sm:gap-2">
+                    {person.spouses.map((s, i) => (
+                      <SpouseTag
+                        key={i}
+                        name={s.name}
+                        relation={s.relation}
+                        divorced={s.divorced}
+                        childrenCount={s.children}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Bug 3 & 4 fix: facts translated + no dangerouslySetInnerHTML */}
-            {person.facts && person.facts.length > 0 && (
-              <div className="mt-3 sm:mt-4">
-                <p className="text-[11px] text-[var(--text-muted)] uppercase tracking-[0.8px] mb-[6px]">
-                  Facts
-                </p>
-                <ul className="list-none flex flex-col gap-[6px]">
-                  {person.facts.slice(0, 5).map((fact, i) => (
-                    <TranslatedFact key={i} html={fact} />
-                  ))}
-                </ul>
-              </div>
-            )}
+              {person.facts && person.facts.length > 0 && (
+                <div className="mt-3 sm:mt-4">
+                  <p className="text-[11px] text-[var(--text-muted)] uppercase tracking-[0.8px] mb-[6px]">
+                    Facts
+                  </p>
+                  <ul className="list-none flex flex-col gap-[6px] p-0 m-0">
+                    {person.facts.slice(0, 5).map((fact, i) => (
+                      <TranslatedFact key={i} html={fact} />
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Filmography */}
-      <div className="px-4 sm:px-[var(--page-x)]">
-        <div className="flex items-center justify-between flex-wrap gap-3 mb-5 sm:mb-6">
-          <h2 className="font-display tracking-[1.5px] text-[clamp(18px,3vw,30px)]">
-            FILMOGRAPHY
-          </h2>
-          <span className="text-[12px] sm:text-[13px] text-[var(--text-muted)]">
-            {allDisplayedFilms.length} credit
-            {allDisplayedFilms.length !== 1 ? "s" : ""}
-          </span>
-        </div>
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-[var(--page-x)]">
+        <SectionHeader
+          title="FILMOGRAPHY"
+          count={allDisplayedFilms.length}
+        />
 
-        {/* Prof tabs — horizontally scrollable on mobile */}
-        <div className="flex gap-[6px] mb-6 sm:mb-7 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-none flex-nowrap sm:flex-wrap">
-          <ProfTab
-            label={`All (${allFilms.length})`}
+        <TabBar className="mb-6">
+          <TabPill
             active={resolvedActiveProf === "ALL"}
             onClick={() => {
               setActiveProf("ALL");
               setFilmPage(1);
+              setShowAllFilms(false);
             }}
-          />
+          >
+            All ({allFilms.length})
+          </TabPill>
           {availableProfs.map((p) => (
-            <ProfTab
+            <TabPill
               key={p}
-              label={`${PROF_LABELS[p] || p} (${profGroups[p].length})`}
               active={resolvedActiveProf === p}
               onClick={() => {
                 setActiveProf(p);
                 setFilmPage(1);
+                setShowAllFilms(false);
               }}
-            />
+            >
+              {PROF_LABELS[p] || p} ({profGroups[p].length})
+            </TabPill>
           ))}
           {otherProfs.map((p) => (
-            <ProfTab
+            <TabPill
               key={p}
-              label={`${PROF_LABELS[p] || p} (${profGroups[p].length})`}
               active={resolvedActiveProf === p}
               onClick={() => {
                 setActiveProf(p);
                 setFilmPage(1);
+                setShowAllFilms(false);
               }}
-            />
+            >
+              {PROF_LABELS[p] || p} ({profGroups[p].length})
+            </TabPill>
           ))}
-        </div>
+        </TabBar>
 
         {displayedFilms.length === 0 ? (
           <p className="text-[var(--text-muted)] text-[14px] sm:text-[15px]">
@@ -284,39 +326,49 @@ export default function PersonClient({ personId }: { personId: string }) {
           </p>
         ) : (
           <div className="flex flex-col gap-[2px]">
-            {/* Bug 7 fix: descriptions always shown in full, no spoiler toggle */}
-            {displayedFilms.map((film) => (
-              <FilmEntry key={`${film.filmId}`} film={film} />
+            {displayedFilms.map((film, i) => (
+              <FilmEntry
+                key={`${film.filmId}-${i}`}
+                film={film}
+                autoTranslate={autoTranslate}
+              />
             ))}
           </div>
         )}
 
-        {/* Bug 6 fix: pagination controls for filmography */}
         {filmTotalPages > 1 && (
           <div className="flex items-center gap-2 mt-6 flex-wrap">
+            {!showAllFilms && (
+              <>
+                <button
+                  type="button"
+                  disabled={filmPage <= 1}
+                  onClick={() => setFilmPage((p) => p - 1)}
+                  className="px-3 py-[7px] rounded-[8px] text-[12px] font-semibold border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-dim)] disabled:opacity-40 cursor-pointer hover:border-[var(--border-hover)] disabled:cursor-default"
+                >
+                  ← Prev
+                </button>
+                <span className="text-[12px] text-[var(--text-muted)] px-2">
+                  {filmPage} / {filmTotalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={filmPage >= filmTotalPages}
+                  onClick={() => setFilmPage((p) => p + 1)}
+                  className="px-3 py-[7px] rounded-[8px] text-[12px] font-semibold border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-dim)] disabled:opacity-40 cursor-pointer hover:border-[var(--border-hover)] disabled:cursor-default"
+                >
+                  Next →
+                </button>
+              </>
+            )}
             <button
-              disabled={filmPage <= 1}
-              onClick={() => setFilmPage((p) => p - 1)}
-              className="px-3 py-[7px] rounded-[8px] text-[12px] font-semibold border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-dim)] disabled:opacity-40 cursor-pointer hover:border-[var(--border-hover)] disabled:cursor-default"
+              type="button"
+              onClick={() => setShowAllFilms((v) => !v)}
+              className="text-[12px] text-[var(--accent)] underline bg-transparent border-none cursor-pointer ml-1"
             >
-              ← Prev
-            </button>
-            <span className="text-[12px] text-[var(--text-muted)] px-2">
-              {filmPage} / {filmTotalPages}
-            </span>
-            <button
-              disabled={filmPage >= filmTotalPages}
-              onClick={() => setFilmPage((p) => p + 1)}
-              className="px-3 py-[7px] rounded-[8px] text-[12px] font-semibold border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-dim)] disabled:opacity-40 cursor-pointer hover:border-[var(--border-hover)] disabled:cursor-default"
-            >
-              Next →
-            </button>
-            <button
-              onClick={() => setFilmPage(filmTotalPages)}
-              disabled={filmPage >= filmTotalPages}
-              className="text-[11px] text-[var(--text-muted)] underline bg-transparent border-none cursor-pointer disabled:opacity-40 disabled:cursor-default"
-            >
-              Show all ({allDisplayedFilms.length})
+              {showAllFilms
+                ? "Paginate list"
+                : `Show all (${allDisplayedFilms.length})`}
             </button>
           </div>
         )}
@@ -325,17 +377,16 @@ export default function PersonClient({ personId }: { personId: string }) {
   );
 }
 
-/** Bug 10: renders spouse name (translated) + relation label */
 function SpouseTag({
   name,
   relation,
   divorced,
-  children,
+  childrenCount,
 }: {
   name?: string;
   relation?: string;
   divorced?: boolean;
-  children?: number;
+  childrenCount?: number;
 }) {
   const translatedName = useTranslate(name || "");
   const relationLabel = relation ? translateRelation(relation) : null;
@@ -344,12 +395,13 @@ function SpouseTag({
       {translatedName || name || "Unknown"}
       {relationLabel ? ` (${relationLabel})` : ""}
       {divorced ? " · divorced" : ""}
-      {children ? ` · ${children} child${children !== 1 ? "ren" : ""}` : ""}
+      {childrenCount
+        ? ` · ${childrenCount} child${childrenCount !== 1 ? "ren" : ""}`
+        : ""}
     </span>
   );
 }
 
-/** Bug 3 & 4: translate birthplace/deathplace via hook */
 function TranslatedInfoItem({
   label,
   value,
@@ -361,7 +413,6 @@ function TranslatedInfoItem({
   return <InfoItem label={label} value={translated || value} />;
 }
 
-/** Bug 4: strip HTML safely then translate — no XSS, no dangerouslySetInnerHTML */
 function TranslatedFact({ html }: { html: string }) {
   const text = useTranslateHtml(html);
   return (
@@ -371,43 +422,23 @@ function TranslatedFact({ html }: { html: string }) {
   );
 }
 
-function ProfTab({
-  label,
-  active,
-  onClick,
+function FilmEntry({
+  film,
+  autoTranslate,
 }: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
+  film: PersonFilm;
+  autoTranslate: boolean;
 }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-shrink-0 px-3 sm:px-4 py-2 rounded-[8px] text-[12px] sm:text-[13px] font-semibold cursor-pointer transition-all duration-[180ms] min-h-[36px]
-        ${active ? "bg-[var(--accent)] text-white border border-[var(--accent)]" : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border border-[var(--border)] hover:border-[var(--border-hover)]"}`}
-    >
-      {label}
-    </button>
-  );
-}
+  const name = useFilmTitle(film, autoTranslate);
+  const roleMapped = film.description
+    ? translateRole(film.description, autoTranslate)
+    : "";
+  const roleTranslated = useTranslate(roleMapped);
+  const roleDisplay = roleTranslated || roleMapped;
 
-// Bug 7 fix: removed showSpoilers prop — descriptions always shown in full
-function FilmEntry({ film }: { film: PersonFilm }) {
-  const name = film.nameEn || film.nameRu || "Unknown";
   const rating = parseFloat(film.rating || "0") || null;
   const profLabel = film.professionKey
-    ? (
-        {
-          ACTOR: "Actor",
-          DIRECTOR: "Director",
-          WRITER: "Writer",
-          PRODUCER: "Producer",
-          COMPOSER: "Composer",
-          OPERATOR: "DOP",
-          DESIGN: "Prod. Design",
-          EDITOR: "Editor",
-        } as Record<string, string>
-      )[film.professionKey] || film.professionKey
+    ? PROF_LABELS[film.professionKey] || film.professionKey
     : null;
 
   return (
@@ -429,33 +460,26 @@ function FilmEntry({ film }: { film: PersonFilm }) {
               </span>
             )}
           </div>
-          {film.description && (
+          {roleDisplay && (
             <p className="text-[11px] sm:text-[12px] text-[var(--text-muted)] mt-[2px] italic">
-              {film.description}
+              {roleDisplay}
             </p>
           )}
         </div>
         {rating && rating > 0 && (
           <div className="flex items-center gap-1 flex-shrink-0">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="#f5c518">
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-            </svg>
+            <Star size={11} fill="#f5c518" stroke="#f5c518" />
             <span className="font-display text-[15px] sm:text-[16px] text-[#f5c518]">
               {rating.toFixed(1)}
             </span>
           </div>
         )}
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
+        <ChevronRight
+          size={14}
           stroke="var(--text-muted)"
-          strokeWidth="2"
+          strokeWidth={2}
           className="flex-shrink-0"
-        >
-          <path d="M9 18l6-6-6-6" />
-        </svg>
+        />
       </div>
     </Link>
   );
@@ -476,10 +500,10 @@ function InfoItem({ label, value }: { label: string; value: string }) {
 
 function LoadingSkeleton() {
   return (
-    <div className="min-h-screen px-4 sm:px-[var(--page-x)] py-8 sm:py-10">
+    <PageContainer>
       <div className="skeleton h-[22px] w-20 rounded-[6px] mb-5 sm:mb-6" />
       <div className="flex gap-5 sm:gap-10">
-        <div className="skeleton w-[90px] sm:w-[200px] flex-shrink-0 rounded-[12px] aspect-[2/3]" />
+        <div className="skeleton w-[95px] sm:w-[200px] flex-shrink-0 rounded-[12px] aspect-[2/3]" />
         <div className="flex-1 flex flex-col gap-3 sm:gap-4">
           <div className="skeleton h-9 sm:h-12 w-[60%] rounded-[8px]" />
           <div className="skeleton h-4 sm:h-5 w-[40%] rounded-[8px]" />
@@ -493,6 +517,6 @@ function LoadingSkeleton() {
           </div>
         </div>
       </div>
-    </div>
+    </PageContainer>
   );
 }

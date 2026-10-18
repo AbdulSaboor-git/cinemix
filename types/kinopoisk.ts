@@ -1,3 +1,23 @@
+export type CollectionType =
+  | "TOP_POPULAR_ALL"
+  | "TOP_POPULAR_MOVIES"
+  | "TOP_250_MOVIES"
+  | "TOP_250_TV_SHOWS"
+  | "POPULAR_SERIES"
+  | "CLOSES_RELEASES"
+  | "VAMPIRE_THEME"
+  | "COMICS_THEME"
+  | "FAMILY"
+  | "OSKAR_WINNERS_2021"
+  | "LOVE_THEME"
+  | "ZOMBIE_THEME"
+  | "CATASTROPHE_THEME"
+  | "KIDS_ANIMATION_THEME"
+  // Legacy aliases transparently mapped to v2.2 collections
+  | "TOP_100_POPULAR_FILMS"
+  | "TOP_250_BEST_FILMS"
+  | "TOP_AWAIT_FILMS";
+
 export interface Film {
   filmId?: number;
   kinopoiskId: number;
@@ -22,10 +42,12 @@ export interface Film {
   ratingAwaitCount?: number;
   ratingRfCritics?: number;
   ratingRfCriticsVoteCount?: number;
-  rating?: number;
+  rating?: number | string;
   webUrl?: string;
   year?: number;
   filmLength?: number;
+  duration?: number;
+  premiereRu?: string;
   slogan?: string;
   description?: string;
   shortDescription?: string;
@@ -186,7 +208,7 @@ export interface SimilarsResponse {
   items: SimilarFilm[];
 }
 
-export interface Image {
+export interface ImageItem {
   imageUrl: string;
   previewUrl: string;
 }
@@ -194,7 +216,7 @@ export interface Image {
 export interface ImagesResponse {
   total: number;
   totalPages: number;
-  items: Image[];
+  items: ImageItem[];
 }
 
 export interface Review {
@@ -211,6 +233,9 @@ export interface Review {
 export interface ReviewsResponse {
   total: number;
   totalPages: number;
+  totalPositiveReviews?: number;
+  totalNegativeReviews?: number;
+  totalNeutralReviews?: number;
   items: Review[];
 }
 
@@ -266,37 +291,6 @@ export interface DistributionResponse {
   items: Distribution[];
 }
 
-// ─── External Sources (Where to Watch) ───────────────────────────────────────
-
-export interface ExternalSource {
-  url: string;
-  platform: string;
-  logoUrl: string;
-  positiveRating?: number;
-  negativeRating?: number;
-  author?: string;
-  title?: string;
-  description?: string;
-}
-
-export interface ExternalSourceResponse {
-  total: number;
-  items: ExternalSource[];
-}
-
-// ─── Images (already partial) ────────────────────────────────────────────────
-
-export interface ImageItem {
-  imageUrl: string;
-  previewUrl: string;
-}
-
-export interface ImageResponse {
-  total: number;
-  totalPages: number;
-  items: ImageItem[];
-}
-
 // ─── API Key Quota ────────────────────────────────────────────────────────────
 
 export interface ApiKeyQuota {
@@ -308,39 +302,4 @@ export interface ApiKeyResponse {
   totalQuota: ApiKeyQuota;
   dailyQuota: ApiKeyQuota;
   accountType: "FREE" | "BASIC" | "EXTENDED";
-}
-
-// ─── Media Posts ─────────────────────────────────────────────────────────────
-
-export interface MediaPost {
-  kinopoiskId: number;
-  imageUrl: string;
-  title: string;
-  description: string;
-  url: string;
-  publishedAt: string;
-}
-
-export interface MediaPostsResponse {
-  total: number;
-  totalPages: number;
-  items: MediaPost[];
-}
-
-// ─── Relations (v2.2) ────────────────────────────────────────────────────────
-
-export interface RelatedFilm {
-  filmId?: number;
-  kinopoiskId?: number;
-  nameRu?: string;
-  nameEn?: string;
-  nameOriginal?: string;
-  posterUrl: string;
-  posterUrlPreview: string;
-  relationType: string;
-}
-
-export interface RelatedFilmResponse {
-  total: number;
-  items: RelatedFilm[];
 }

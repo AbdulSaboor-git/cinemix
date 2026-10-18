@@ -6,16 +6,23 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "kinopoiskapiunofficial.tech" },
       { protocol: "https", hostname: "st.kp.yandex.net" },
       { protocol: "https", hostname: "*.kinopoisk.ru" },
-      {
-      protocol: "https",
-      hostname: "avatars.mds.yandex.net",
-    },
+      { protocol: "https", hostname: "avatars.mds.yandex.net" },
     ],
   },
   env: {
     NEXT_PUBLIC_KINOPOISK_API_KEY: process.env.NEXT_PUBLIC_KINOPOISK_API_KEY,
+    NEXT_PUBLIC_KINOPOISK_API_KEYS: process.env.NEXT_PUBLIC_KINOPOISK_API_KEYS,
     NEXT_PUBLIC_PLAYER_BASE_URL: process.env.NEXT_PUBLIC_PLAYER_BASE_URL,
     NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
+  },
+  async redirects() {
+    return [
+      {
+        source: "/top240",
+        destination: "/top250",
+        permanent: true,
+      },
+    ];
   },
 };
 

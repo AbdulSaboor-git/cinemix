@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface PaginationProps {
   page: number;
@@ -13,7 +14,6 @@ export default function Pagination({
 }: PaginationProps) {
   if (totalPages <= 1) return null;
 
-  // Wider window on desktop (delta=2), tighter on mobile (delta=1 handled via CSS hide)
   const delta = 2;
   const left = Math.max(2, page - delta);
   const right = Math.min(totalPages - 1, page + delta);
@@ -25,7 +25,6 @@ export default function Pagination({
   if (right < totalPages - 1) pages.push("...");
   if (totalPages > 1) pages.push(totalPages);
 
-  // On mobile, only show current page ±1 neighbours (hide the rest via data attr)
   const mobileVisible = new Set(
     [1, page - 1, page, page + 1, totalPages].filter(
       (n) => n >= 1 && n <= totalPages,
@@ -41,20 +40,12 @@ export default function Pagination({
         aria-disabled={page <= 1}
       >
         <button
+          type="button"
           className="page-btn min-w-[40px] min-h-[40px] sm:min-w-[36px] sm:min-h-[36px]"
           disabled={page <= 1}
           aria-label="Previous page"
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
+          <ChevronLeft size={14} strokeWidth={2.5} />
         </button>
       </Link>
 
@@ -73,6 +64,7 @@ export default function Pagination({
             className={`no-underline flex-shrink-0 ${!mobileVisible.has(p as number) ? "hidden sm:inline-flex" : ""}`}
           >
             <button
+              type="button"
               className={`page-btn min-w-[40px] min-h-[40px] sm:min-w-[36px] sm:min-h-[36px] text-[13px] sm:text-[14px] ${page === p ? "active" : ""}`}
             >
               {p}
@@ -88,20 +80,12 @@ export default function Pagination({
         aria-disabled={page >= totalPages}
       >
         <button
+          type="button"
           className="page-btn min-w-[40px] min-h-[40px] sm:min-w-[36px] sm:min-h-[36px]"
           disabled={page >= totalPages}
           aria-label="Next page"
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <path d="M9 18l6-6-6-6" />
-          </svg>
+          <ChevronRight size={14} strokeWidth={2.5} />
         </button>
       </Link>
     </div>

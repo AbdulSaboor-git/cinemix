@@ -152,7 +152,6 @@ export const COUNTRY_MAP: Record<string, string> = {
   "Антигуа и Барбуда": "Antigua and Barbuda",
   "Сент-Китс и Невис": "Saint Kitts and Nevis",
   "Сент-Люсия": "Saint Lucia",
-  "Сент-Люсия ": "Saint Lucia",
   "Сент-Винсент и Гренадины": "Saint Vincent and the Grenadines",
   "Гренада": "Grenada",
   "Бермуды": "Bermuda",
@@ -172,7 +171,6 @@ export const COUNTRY_MAP: Record<string, string> = {
   "Монтсеррат": "Montserrat",
   "Внешние малые острова США": "US Minor Outlying Islands",
   "Американское Самоа": "American Samoa",
-  "": "Puerto Rico",
   // Asia & Middle East
   "Израиль": "Israel",
   "Иран": "Iran",
@@ -298,10 +296,11 @@ export const COUNTRY_MAP: Record<string, string> = {
   "Гуам": "Guam",
 };
 
-// ─── Russian profession labels ────────────────────────────────────────────────
+// ─── Russian relation labels ──────────────────────────────────────────────────
 export const RELATION_MAP: Record<string, string> = {
   "ЖЕН.": "wife",
   "МУЖ.": "husband",
+  "ЖЕНА": "wife",
   "ЖЕНA": "wife",
   "МУЖ": "husband",
 };
@@ -310,22 +309,81 @@ export function translateRelation(ru: string): string {
   return RELATION_MAP[ru.trim().toUpperCase()] ?? ru;
 }
 
-/**
- * translateGenre — respects autoTranslateEnabled.
- * When translate is OFF, returns the raw Russian value so the user
- * sees unmodified API data. Pass `enabled = true` (default) to get English.
- */
-export function translateGenre(ru: string, enabled = true): string {
-  if (!enabled) return ru;
-  return GENRE_MAP[ru.toLowerCase()] ?? GENRE_MAP[ru] ?? ru;
+// ─── Russian award names ──────────────────────────────────────────────────────
+export const AWARD_NAME_MAP: Record<string, string> = {
+  "Оскар": "Academy Awards (Oscar)",
+  "Золотой глобус": "Golden Globe",
+  "Британская академия": "BAFTA",
+  "Сатурн": "Saturn Award",
+  "Сезар": "César Award",
+  "Каннский кинофестиваль": "Cannes Film Festival",
+  "Венецианский кинофестиваль": "Venice Film Festival",
+  "Берлинский кинофестиваль": "Berlin International Film Festival",
+  "Премия Гильдии актеров": "Screen Actors Guild Awards",
+  "Эмми": "Primetime Emmy Awards",
+  "Золотая малина": "Golden Raspberry (Razzie)",
+  "Ника": "Nika Award",
+  "Золотой орел": "Golden Eagle Award",
+  "Жорж": "Georges Award",
+  "Кинотавр": "Kinotavr",
+  "Сандэнс": "Sundance Film Festival",
+  "Гойя": "Goya Awards",
+  "Европейская киноакадемия": "European Film Awards",
+  "Премия канала «MTV»": "MTV Movie & TV Awards",
+  "Азиатская киноакадемия": "Asian Film Awards",
+  "Карловы Вары": "Karlovy Vary International Film Festival",
+  "Сан-Себастьян": "San Sebastián International Film Festival",
+  "Московский международный кинофестиваль": "Moscow International Film Festival",
+};
+
+export function translateAwardName(ru: string, enabled = true): string {
+  if (!enabled || !ru) return ru;
+  const trimmed = ru.trim();
+  return AWARD_NAME_MAP[trimmed] ?? ru;
+}
+
+// ─── Russian role descriptions ────────────────────────────────────────────────
+export const ROLE_MAP: Record<string, string> = {
+  "главная роль": "Lead role",
+  "озвучка": "Voice",
+  "в титрах не указан": "Uncredited",
+  "в титрах не указана": "Uncredited",
+  "играет самого себя": "Self",
+  "играет саму себя": "Self",
+  "хроника": "Archive footage",
+  "архивные кадры": "Archive footage",
+  "рассказчик": "Narrator",
+};
+
+export function translateRole(ru: string, enabled = true): string {
+  if (!enabled || !ru) return ru;
+  const trimmed = ru.trim();
+  const lower = trimmed.toLowerCase();
+  if (ROLE_MAP[lower]) return ROLE_MAP[lower];
+  let result = trimmed;
+  for (const [k, v] of Object.entries(ROLE_MAP)) {
+    const regex = new RegExp(k, "gi");
+    result = result.replace(regex, v);
+  }
+  return result;
 }
 
 /**
- * translateCountry — same translate-toggle awareness as translateGenre.
+ * translateGenre — respects autoTranslateEnabled.
+ */
+export function translateGenre(ru: string, enabled = true): string {
+  if (!enabled || !ru) return ru;
+  const trimmed = ru.trim();
+  return GENRE_MAP[trimmed.toLowerCase()] ?? GENRE_MAP[trimmed] ?? trimmed;
+}
+
+/**
+ * translateCountry — respects autoTranslateEnabled.
  */
 export function translateCountry(ru: string, enabled = true): string {
-  if (!enabled) return ru;
-  return COUNTRY_MAP[ru] ?? ru;
+  if (!enabled || !ru) return ru;
+  const trimmed = ru.trim();
+  return COUNTRY_MAP[trimmed] ?? trimmed;
 }
 
 // ─── Strip HTML tags safely (no XSS risk) ─────────────────────────────────────
@@ -340,22 +398,84 @@ export function stripHtml(html: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&laquo;/g, "«")
+    .replace(/&raquo;/g, "»")
+    .replace(/&mdash;/g, "—")
+    .replace(/&ndash;/g, "–")
     .trim();
 }
 
-// ─── Auto-translate via Google Translate (unofficial, no key needed) ──────────
+// ─── Persistent Translation Cache & Deduplication ─────────────────────────────
 
-export async function translateText(text: string, from = "ru", to = "en"): Promise<string> {
-  if (!text || !isRussian(text)) return text;
+const TRANSLATE_CACHE_KEY = "cinemix_translate_cache_v1";
+const MAX_TRANSLATE_CACHE = 1500;
+let memoryTranslateCache: Record<string, string> | null = null;
+const inflightRequests = new Map<string, Promise<string>>();
+
+function getTranslateCache(): Record<string, string> {
+  if (memoryTranslateCache) return memoryTranslateCache;
+  if (typeof window === "undefined") return {};
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
-    const res = await fetch(url);
-    const json = await res.json();
-    const translated = (json[0] as [string, string][]).map(chunk => chunk[0]).join("");
-    return translated || text;
+    const raw = localStorage.getItem(TRANSLATE_CACHE_KEY);
+    memoryTranslateCache = raw ? (JSON.parse(raw) as Record<string, string>) : {};
   } catch {
-    return text;
+    memoryTranslateCache = {};
   }
+  return memoryTranslateCache!;
+}
+
+export function getCachedTranslation(text?: string | null): string | undefined {
+  if (!text) return "";
+  return getTranslateCache()[text];
+}
+
+function setCachedTranslation(source: string, translated: string) {
+  if (typeof window === "undefined") return;
+  const cache = getTranslateCache();
+  const keys = Object.keys(cache);
+  if (keys.length >= MAX_TRANSLATE_CACHE) {
+    delete cache[keys[0]];
+  }
+  cache[source] = translated;
+  try {
+    localStorage.setItem(TRANSLATE_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export async function translateText(
+  text: string,
+  from = "ru",
+  to = "en",
+): Promise<string> {
+  if (!text || !isRussian(text)) return text;
+  const cached = getCachedTranslation(text);
+  if (cached) return cached;
+
+  const existing = inflightRequests.get(text);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      const translated = (json[0] as [string, string][])
+        .map((chunk) => chunk[0])
+        .join("");
+      const result = translated || text;
+      setCachedTranslation(text, result);
+      return result;
+    } catch {
+      return text;
+    } finally {
+      inflightRequests.delete(text);
+    }
+  })();
+
+  inflightRequests.set(text, promise);
+  return promise;
 }
 
 /** Strip HTML first, then translate — safe alternative to dangerouslySetInnerHTML */
@@ -365,16 +485,15 @@ export async function translateHtml(html: string): Promise<string> {
 }
 
 // Heuristic: contains Cyrillic characters
-export function isRussian(text: string): boolean {
+export function isRussian(text?: string | null): boolean {
+  if (!text) return false;
   return /[а-яё]/i.test(text);
 }
 
 // ─── Preferred English name helper ────────────────────────────────────────────
 
 /**
- * Returns the best display name for a film given the translate setting.
- * When autoTranslateEnabled is false, prefer nameRu (original data).
- * When true, prefer the English/Original name.
+ * Returns the best synchronous display name for a film given the translate setting.
  */
 export function getEnglishName(
   nameRu?: string,
@@ -387,5 +506,10 @@ export function getEnglishName(
   }
   if (nameEn && !isRussian(nameEn)) return nameEn;
   if (nameOriginal && !isRussian(nameOriginal)) return nameOriginal;
-  return nameRu || nameEn || nameOriginal || "Unknown";
+  const fallback = nameEn || nameOriginal || nameRu || "Unknown";
+  if (isRussian(fallback)) {
+    const cached = getCachedTranslation(fallback);
+    if (cached) return cached;
+  }
+  return fallback;
 }

@@ -1,28 +1,41 @@
+"use client";
 import React from "react";
+import { useRouter } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
+
+interface BackButtonProps {
+  desktopOnly?: boolean;
+  fallbackHref?: string;
+  label?: string;
+  className?: string;
+}
 
 export default function BackButton({
   desktopOnly = false,
-}: {
-  desktopOnly?: boolean;
-}) {
+  fallbackHref = "/",
+  label = "Back",
+  className = "mb-5",
+}: BackButtonProps) {
+  const router = useRouter();
+
+  const handleBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push(fallbackHref);
+    }
+  };
+
   return (
     <button
-      onClick={() => window.history.back()}
-      className={`items-center gap-[6px] text-[var(--text-muted)] bg-transparent border-none cursor-pointer text-[13px] 
-        mb-6 px-4 lg:px-6 py-[6px] font-[var(--font-body)] hover:text-[var(--text)] transition-colors 
-        ${desktopOnly ? "hidden md:inline-flex" : "inline-flex"}`}
+      type="button"
+      onClick={handleBack}
+      className={`items-center gap-[6px] text-[var(--text-muted)] bg-transparent border-none cursor-pointer text-[13px] py-[6px] px-0 font-[var(--font-body)] hover:text-[var(--text)] transition-colors ${
+        desktopOnly ? "hidden md:inline-flex" : "inline-flex"
+      } ${className}`.trim()}
     >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-      >
-        <path d="M15 18l-6-6 6-6" />
-      </svg>
-      Back
+      <ChevronLeft size={14} strokeWidth={2.5} />
+      {label}
     </button>
   );
 }
