@@ -226,9 +226,11 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
   if (loading) {
     return (
-      <PageContainer>
-        <div className="skeleton h-10 w-64 rounded-[8px] mb-4" />
-        <div className="skeleton w-full h-[600px] rounded-[var(--radius-lg)]" />
+      <PageContainer className="pt-3 sm:pt-5">
+        <div className="max-w-[960px] mx-auto">
+          <div className="skeleton h-11 w-full rounded-[12px] mb-3" />
+          <div className="skeleton w-full h-[360px] sm:h-[460px] md:h-[520px] rounded-[16px]" />
+        </div>
       </PageContainer>
     );
   }
@@ -273,181 +275,188 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   };
 
   return (
-    <PageContainer className="pt-4 sm:pt-6">
-      {/* Top Cinema Control Bar */}
-      <div className="hidden sm:flex flex-row items-center flex-wrap justify-between gap-2 sm:gap-3 mb-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] px-4 py-3">
-        <div className="flex items-center gap-3 min-w-0 flex-wrap">
-          <BackButton
-            fallbackHref={`/film/${id}`}
-            label="Film Details"
-            className="mb-0"
-          />
-          <span className="text-[var(--border-hover)] hidden sm:inline">|</span>
-          <div className="min-w-0 flex items-center gap-2.5 flex-wrap">
-            <Link
-              href={`/film/${id}`}
-              className="no-underline hover:underline text-white"
+    <PageContainer className="pt-3 sm:pt-5">
+      <div className="max-w-[960px] mx-auto">
+        {/* Top Cinema Control Bar */}
+        <div className="flex flex-row items-center flex-wrap justify-between gap-2 sm:gap-3 mb-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] px-3.5 sm:px-4 py-2.5">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-wrap">
+            <BackButton
+              fallbackHref={`/film/${id}`}
+              label="Film Details"
+              className="mb-0"
+              iconOnlyOnPhone
+            />
+            <span className="text-[var(--border-hover)] hidden sm:inline">
+              |
+            </span>
+            <div className="min-w-0 flex items-center gap-2 flex-wrap">
+              <Link
+                href={`/film/${id}`}
+                className="no-underline hover:underline text-white"
+              >
+                <h1 className="font-display tracking-[1.2px] text-[16px] sm:text-[20px] text-white leading-none m-0 truncate">
+                  {name}
+                </h1>
+              </Link>
+              {year && (
+                <span className="hidden sm:inline text-[11px] text-[var(--text-muted)]">
+                  ({year})
+                </span>
+              )}
+              {film.filmLength && (
+                <span className="text-[11px] text-[var(--text-muted)] hidden sm:inline">
+                  · {Math.floor(film.filmLength / 60)}h {film.filmLength % 60}m
+                </span>
+              )}
+              {rating && (
+                <span className="inline-flex items-center gap-1 text-[11px] sm:text-[12px] text-[#f5c518] font-display">
+                  <Star size={11} fill="#f5c518" stroke="#f5c518" />
+                  {rating.toFixed(1)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Action controls */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {videosEnabled && (
+              <button
+                type="button"
+                onClick={() => setTrailerModalOpen(true)}
+                className="btn btn-ghost py-1.5 px-3 text-[12px]"
+              >
+                <FilmIcon size={14} />
+                <span className="hidden sm:inline">Trailer</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleFav}
+              aria-label="Toggle Favorite"
+              className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
+                isFav ? "border-[rgba(229,9,20,0.5)] text-[var(--accent)]" : ""
+              }`}
             >
-              <h1 className="font-display tracking-[1.2px] text-[16px] sm:text-[22px] text-white leading-none m-0 truncate">
-                {name}
-              </h1>
-            </Link>
-            {year && (
-              <span className="hidden sm:inline text-[10px] text-[var(--text-muted)]">
-                ({year})
-              </span>
-            )}
-            {film.filmLength && (
-              <span className="text-[10px] text-[var(--text-muted)] hidden sm:inline">
-                · {Math.floor(film.filmLength / 60)}h {film.filmLength % 60}m
-              </span>
-            )}
-            {rating && (
-              <span className="inline-flex items-center gap-1 text-[10px] sm:text-[12px] text-[#f5c518] font-display">
-                <Star size={11} fill="#f5c518" stroke="#f5c518" />
-                {rating.toFixed(1)}
-              </span>
-            )}
+              <Heart
+                size={14}
+                fill={isFav ? "var(--accent)" : "none"}
+                stroke={isFav ? "var(--accent)" : "currentColor"}
+              />
+            </button>
+
+            <button
+              type="button"
+              onClick={handleWL}
+              aria-label="Toggle Watch Later"
+              className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
+                isWL ? "border-[rgba(96,165,250,0.5)] text-[#60a5fa]" : ""
+              }`}
+            >
+              <Clock size={14} stroke={isWL ? "#60a5fa" : "currentColor"} />
+            </button>
           </div>
         </div>
 
-        {/* Action controls */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {videosEnabled && (
-            <button
-              type="button"
-              onClick={() => setTrailerModalOpen(true)}
-              className="btn btn-ghost py-2 px-3 text-[12px]"
-            >
-              <FilmIcon size={14} />
-              <span className="hidden sm:inline">Trailer</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={handleFav}
-            aria-label="Toggle Favorite"
-            className={`btn btn-ghost py-2 px-3 text-[12px] ${
-              isFav ? "border-[rgba(229,9,20,0.5)] text-[var(--accent)]" : ""
-            }`}
-          >
-            <Heart
-              size={14}
-              fill={isFav ? "var(--accent)" : "none"}
-              stroke={isFav ? "var(--accent)" : "currentColor"}
-            />
-          </button>
-
-          <button
-            type="button"
-            onClick={handleWL}
-            aria-label="Toggle Watch Later"
-            className={`btn btn-ghost py-2 px-3 text-[12px] ${
-              isWL ? "border-[rgba(96,165,250,0.5)] text-[#60a5fa]" : ""
-            }`}
-          >
-            <Clock size={14} stroke={isWL ? "#60a5fa" : "currentColor"} />
-          </button>
+        {/* Theater Video Stage — Centered cinema width */}
+        <div className="w-full rounded-[16px] overflow-hidden ">
+          <iframe
+            key={id}
+            src={playerUrl}
+            width="100%"
+            height="510"
+            frameBorder="0"
+            scrolling="no"
+            allowFullScreen
+            loading="lazy"
+            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            title={name}
+            className="w-full h-[340px] sm:h-[440px] md:h-[510px] border-none block bg-[#1e1918] overflow-hidden"
+          />
         </div>
-      </div>
 
-      {/* Theater Video Stage */}
-      <div className="w-full bg-black  overflow-hidden border border-[var(--border)] shadow-[0_20px_70px_rgba(0,0,0,0.85)]">
-        <iframe
-          key={id}
-          src={playerUrl}
-          width="100%"
-          height="600"
-          allowFullScreen
-          loading="lazy"
-          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-          title={name}
-          className="w-full overflow-hidden h-[600px] border-none  bg-black"
-        />
-      </div>
-
-      {/* Synopsis + Genres below player */}
-      <div className="hidden sm:block mt-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-4 sm:p-6">
-        <div className="flex flex-wrap gap-2 mb-3">
-          {film.genres?.map((g) => (
-            <Link
-              key={g.genre}
-              href={`/explore?genres=${encodeURIComponent(g.genre)}`}
-              className="no-underline"
-            >
-              <span className="tag tag-accent capitalize cursor-pointer">
-                {translateGenre(g.genre, autoTranslate)}
-              </span>
-            </Link>
-          ))}
-          {film.countries?.map((c) => (
-            <Link
-              key={c.country}
-              href={`/explore?countries=${encodeURIComponent(c.country)}`}
-              className="no-underline"
-            >
-              <span className="tag tag-dim cursor-pointer">
-                {translateCountry(c.country, autoTranslate)}
-              </span>
-            </Link>
-          ))}
-        </div>
-        {description && (
-          <p className="text-[13px] sm:text-[14px] text-[var(--text-dim)] leading-[1.7] m-0">
-            {description}
-          </p>
-        )}
-      </div>
-
-      {/* Seasons & Episodes (for TV Series) */}
-      {seasons.length > 0 && (
-        <div className="mt-8 hidden sm:block">
-          <SectionHeader title="SEASONS & EPISODES" count={seasons.length} />
-          <TabBar className="mb-4">
-            {seasons.map((s, i) => (
-              <TabPill
-                key={s.number ?? i}
-                active={activeSeason === i}
-                onClick={() => setActiveSeason(i)}
+        {/* Synopsis + Genres below player */}
+        <div className="mt-5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-4 sm:p-6">
+          <div className="flex flex-wrap gap-2 mb-3">
+            {film.genres?.map((g) => (
+              <Link
+                key={g.genre}
+                href={`/explore?genres=${encodeURIComponent(g.genre)}`}
+                className="no-underline"
               >
-                Season {s.number} ({s.episodes.length})
-              </TabPill>
+                <span className="tag tag-accent capitalize cursor-pointer">
+                  {translateGenre(g.genre, autoTranslate)}
+                </span>
+              </Link>
             ))}
-          </TabBar>
-          {seasons[activeSeason] && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {seasons[activeSeason].episodes.map((ep, i) => (
-                <EpisodeRow
-                  key={`${ep.seasonNumber}-${ep.episodeNumber}-${i}`}
-                  epNumber={ep.episodeNumber}
-                  nameRu={ep.nameRu}
-                  nameEn={ep.nameEn}
-                  releaseDate={ep.releaseDate}
-                  synopsis={ep.synopsis}
+            {film.countries?.map((c) => (
+              <Link
+                key={c.country}
+                href={`/explore?countries=${encodeURIComponent(c.country)}`}
+                className="no-underline"
+              >
+                <span className="tag tag-dim cursor-pointer">
+                  {translateCountry(c.country, autoTranslate)}
+                </span>
+              </Link>
+            ))}
+          </div>
+          {description && (
+            <p className="text-[13px] sm:text-[14px] text-[var(--text-dim)] leading-[1.7] m-0">
+              {description}
+            </p>
+          )}
+        </div>
+
+        {/* Seasons & Episodes (for TV Series) */}
+        {seasons.length > 0 && (
+          <div className="mt-8">
+            <SectionHeader title="SEASONS & EPISODES" count={seasons.length} />
+            <TabBar className="mb-4">
+              {seasons.map((s, i) => (
+                <TabPill
+                  key={s.number ?? i}
+                  active={activeSeason === i}
+                  onClick={() => setActiveSeason(i)}
+                >
+                  Season {s.number} ({s.episodes.length})
+                </TabPill>
+              ))}
+            </TabBar>
+            {seasons[activeSeason] && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {seasons[activeSeason].episodes.map((ep, i) => (
+                  <EpisodeRow
+                    key={`${ep.seasonNumber}-${ep.episodeNumber}-${i}`}
+                    epNumber={ep.episodeNumber}
+                    nameRu={ep.nameRu}
+                    nameEn={ep.nameEn}
+                    releaseDate={ep.releaseDate}
+                    synopsis={ep.synopsis}
+                    autoTranslate={autoTranslate}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Similar Films */}
+        {similars.length > 0 && (
+          <div className="mt-8">
+            <SectionHeader title="SIMILAR FILMS" count={similars.length} />
+            <div className="flex gap-3 overflow-x-auto pb-3 scrollbar-none">
+              {similars.slice(0, 12).map((sf) => (
+                <SimilarCard
+                  key={sf.filmId}
+                  item={sf}
                   autoTranslate={autoTranslate}
                 />
               ))}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Similar Films */}
-      {similars.length > 0 && (
-        <div className="mt-8 hidden sm:block">
-          <SectionHeader title="SIMILAR FILMS" count={similars.length} />
-          <div className="flex gap-3 overflow-x-auto pb-3 scrollbar-none">
-            {similars.slice(0, 12).map((sf) => (
-              <SimilarCard
-                key={sf.filmId}
-                item={sf}
-                autoTranslate={autoTranslate}
-              />
-            ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {trailerModalOpen && (
         <TrailerModal
