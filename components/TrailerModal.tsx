@@ -1,22 +1,28 @@
 "use client";
+// components/TrailerModal.tsx
 import { useState, useEffect } from "react";
-import { Film, ExternalLink, Play } from "lucide-react";
-import { getFilmVideos } from "@/lib/kinopoisk";
-import { VideoItem } from "@/types/kinopoisk";
+import { Film, Play } from "lucide-react";
+import { getFilm, getFilmVideos } from "@/lib/kinopoisk";
 import { useTranslate } from "@/hooks/useTranslate";
 import ModalShell from "@/components/ui/ModalShell";
 import TabBar from "@/components/ui/TabBar";
 import TabPill from "@/components/ui/TabPill";
 import EmptyState from "@/components/ui/EmptyState";
 
-function extractYouTubeId(url: string): string | null {
+interface EmbedTrailer {
+  videoId: string;
+  name: string;
+}
+
+function extractYouTubeId(url?: string | null): string | null {
   if (!url) return null;
+  const trimmed = url.trim();
   const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([A-Za-z0-9_-]{11})/,
+    /(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i,
     /^([A-Za-z0-9_-]{11})$/,
   ];
   for (const re of patterns) {
-    const m = url.match(re);
+    const m = trimmed.match(re);
     if (m && m[1]) return m[1];
   }
   return null;
@@ -40,7 +46,7 @@ export default function TrailerModal({
   filmTitle,
   onClose,
 }: TrailerModalProps) {
-  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [trailers, setTrailers] = useState<EmbedTrailer[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -48,32 +54,72 @@ export default function TrailerModal({
     if (!open || !filmId) return;
     let mounted = true;
     setLoading(true);
-    getFilmVideos(filmId)
-      .then((res) => {
-        if (!mounted) return;
-        const items = res.items ?? [];
-        const sorted = [...items].sort((a, b) => {
-          const aYt = extractYouTubeId(a.url) || a.site?.toUpperCase() === "YOUTUBE" ? 1 : 0;
-          const bYt = extractYouTubeId(b.url) || b.site?.toUpperCase() === "YOUTUBE" ? 1 : 0;
-          return bYt - aYt;
+    setActiveIndex(0);
+
+    (async () => {
+      try {
+        const [filmData, kpVideos] = await Promise.all([
+          getFilm(filmId).catch(() => null),
+          getFilmVideos(filmId).catch(() => ({ items: [], total: 0 })),
+        ]);
+
+        // Extract only genuine YouTube video IDs from Kinopoisk API (discarding widgets.kinopoisk.ru)
+        const kpYoutubeItems: EmbedTrailer[] = [];
+        const seenKp = new Set<string>();
+        for (const v of kpVideos.items ?? []) {
+          const ytId = extractYouTubeId(v.url);
+          if (ytId && !seenKp.has(ytId)) {
+            seenKp.add(ytId);
+            kpYoutubeItems.push({
+              videoId: ytId,
+              name: v.name || "Official Trailer",
+            });
+          }
+        }
+
+        const params = new URLSearchParams({
+          title: filmData?.nameEn || filmTitle || "",
+          original: filmData?.nameOriginal || "",
+          ru: filmData?.nameRu || "",
+          year: String(filmData?.year ?? filmData?.startYear ?? ""),
+          type: filmData?.type || "",
+          ids: kpYoutubeItems.map((k) => k.videoId).join(","),
         });
-        setVideos(sorted);
-        setActiveIndex(0);
-      })
-      .catch(() => {
-        if (mounted) setVideos([]);
-      })
-      .finally(() => {
+
+        const apiRes = await fetch(`/api/trailers?${params.toString()}`).catch(
+          () => null,
+        );
+
+        let finalItems: EmbedTrailer[] = [];
+        if (apiRes && apiRes.ok) {
+          const data = (await apiRes.json()) as { items?: EmbedTrailer[] };
+          if (Array.isArray(data.items) && data.items.length > 0) {
+            finalItems = data.items;
+          }
+        }
+
+        // Fallback to any direct YouTube items from Kinopoisk if the server route wasn't reached
+        if (finalItems.length === 0 && kpYoutubeItems.length > 0) {
+          finalItems = kpYoutubeItems;
+        }
+
+        if (mounted) {
+          setTrailers(finalItems);
+          setActiveIndex(0);
+        }
+      } catch {
+        if (mounted) setTrailers([]);
+      } finally {
         if (mounted) setLoading(false);
-      });
+      }
+    })();
 
     return () => {
       mounted = false;
     };
-  }, [open, filmId]);
+  }, [open, filmId, filmTitle]);
 
-  const currentVideo = videos[activeIndex];
-  const ytId = currentVideo ? extractYouTubeId(currentVideo.url) : null;
+  const currentTrailer = trailers[activeIndex];
 
   return (
     <ModalShell
@@ -86,20 +132,20 @@ export default function TrailerModal({
     >
       {loading ? (
         <div className="w-full aspect-video rounded-[var(--radius-lg)] skeleton" />
-      ) : videos.length === 0 ? (
+      ) : trailers.length === 0 ? (
         <EmptyState
           icon={<Film size={32} />}
-          title="No Trailers Available"
-          description="No official trailers or video clips were found for this title."
+          title="No Embeddable Trailers Found"
+          description="No official YouTube trailers were found for this title."
           className="py-12"
         />
       ) : (
         <div className="flex flex-col gap-4">
-          {videos.length > 1 && (
+          {trailers.length > 1 && (
             <TabBar>
-              {videos.slice(0, 12).map((v, i) => (
+              {trailers.slice(0, 8).map((v, i) => (
                 <TabPill
-                  key={`${v.url}-${i}`}
+                  key={`${v.videoId}-${i}`}
                   active={activeIndex === i}
                   onClick={() => setActiveIndex(i)}
                 >
@@ -110,39 +156,18 @@ export default function TrailerModal({
             </TabBar>
           )}
 
-          {ytId ? (
+          {currentTrailer && (
             <div className="w-full aspect-video bg-black rounded-[var(--radius-lg)] overflow-hidden border border-[var(--border)] relative">
               <iframe
-                key={ytId}
-                src={`https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0`}
-                title={currentVideo?.name || filmTitle}
+                key={currentTrailer.videoId}
+                src={`https://www.youtube-nocookie.com/embed/${currentTrailer.videoId}?autoplay=1&rel=0&modestbranding=1`}
+                title={currentTrailer.name || filmTitle}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
                 allowFullScreen
-                className="w-full h-full border-none block"
+                className="w-full h-full border-none block bg-black"
               />
             </div>
-          ) : currentVideo ? (
-            <div className="w-full aspect-video bg-[var(--bg-elevated)] rounded-[var(--radius-lg)] border border-[var(--border)] flex flex-col items-center justify-center p-6 text-center gap-4">
-              <Film size={40} stroke="var(--accent)" />
-              <div>
-                <p className="text-[15px] font-semibold text-[var(--text)] mb-1">
-                  {currentVideo.name || "External Video"}
-                </p>
-                <p className="text-[12px] text-[var(--text-muted)]">
-                  Hosted on {currentVideo.site || "External Provider"}
-                </p>
-              </div>
-              <a
-                href={currentVideo.url}
-                target="_blank"
-                rel="noreferrer"
-                className="btn btn-primary no-underline text-[13px]"
-              >
-                <ExternalLink size={14} />
-                Open Video in New Tab
-              </a>
-            </div>
-          ) : null}
+          )}
         </div>
       )}
     </ModalShell>

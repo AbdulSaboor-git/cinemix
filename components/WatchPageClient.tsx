@@ -26,7 +26,6 @@ import {
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useToast } from "@/lib/toast";
 import BackButton from "@/components/BackButton";
-import TrailerModal from "@/components/TrailerModal";
 import PageContainer from "@/components/ui/PageContainer";
 import SectionHeader from "@/components/ui/SectionHeader";
 import TabBar from "@/components/ui/TabBar";
@@ -125,7 +124,6 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   const [similars, setSimilars] = useState<SimilarFilm[]>([]);
   const [loading, setLoading] = useState(!isNaN(id));
   const [error, setError] = useState(isNaN(id));
-  const [trailerModalOpen, setTrailerModalOpen] = useState(false);
 
   const [isFav, setIsFav] = useState(false);
   const [isWL, setIsWL] = useState(false);
@@ -278,12 +276,12 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     <PageContainer className="pt-3 sm:pt-5">
       <div className="max-w-[960px] mx-auto">
         {/* Top Cinema Control Bar */}
-        <div className="flex flex-row items-center flex-wrap justify-between gap-2 sm:gap-3 mb-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] px-3.5 sm:px-4 py-2.5">
+        <div className="w-full flex flex-row items-center flex-wrap justify-between gap-2 sm:gap-3 mb-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] px-3.5 sm:px-4 py-2.5">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-wrap">
             <BackButton
               fallbackHref={`/film/${id}`}
               label="Film Details"
-              className="mb-0"
+              className="mb-0.5"
               iconOnlyOnPhone
             />
             <span className="text-[var(--border-hover)] hidden sm:inline">
@@ -298,19 +296,26 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                   {name}
                 </h1>
               </Link>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
               {year && (
-                <span className="hidden sm:inline text-[11px] text-[var(--text-muted)]">
+                <span className=" text-[11px] text-[var(--text-muted)]">
                   ({year})
                 </span>
               )}
               {film.filmLength && (
-                <span className="text-[11px] text-[var(--text-muted)] hidden sm:inline">
+                <span className="text-[11px] text-[var(--text-muted)] ">
                   · {Math.floor(film.filmLength / 60)}h {film.filmLength % 60}m
                 </span>
               )}
               {rating && (
                 <span className="inline-flex items-center gap-1 text-[11px] sm:text-[12px] text-[#f5c518] font-display">
-                  <Star size={11} fill="#f5c518" stroke="#f5c518" />
+                  <Star
+                    className="mb-0.5 sm:mb-1"
+                    size={11}
+                    fill="#f5c518"
+                    stroke="#f5c518"
+                  />
                   {rating.toFixed(1)}
                 </span>
               )}
@@ -319,17 +324,6 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
           {/* Action controls */}
           <div className="flex items-center gap-2 flex-wrap">
-            {videosEnabled && (
-              <button
-                type="button"
-                onClick={() => setTrailerModalOpen(true)}
-                className="btn btn-ghost py-1.5 px-3 text-[12px]"
-              >
-                <FilmIcon size={14} />
-                <span className="hidden sm:inline">Trailer</span>
-              </button>
-            )}
-
             <button
               type="button"
               onClick={handleFav}
@@ -457,15 +451,6 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           </div>
         )}
       </div>
-
-      {trailerModalOpen && (
-        <TrailerModal
-          open={trailerModalOpen}
-          filmId={id}
-          filmTitle={name}
-          onClose={() => setTrailerModalOpen(false)}
-        />
-      )}
     </PageContainer>
   );
 }
