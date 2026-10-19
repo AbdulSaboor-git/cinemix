@@ -64,7 +64,6 @@ import { lockScroll, unlockScroll } from "@/lib/scrollLock";
 import ActorCard from "@/components/ActorCard";
 import FilmCard from "@/components/FilmCard";
 import BackButton from "@/components/BackButton";
-import TrailerModal from "@/components/TrailerModal";
 import PageContainer from "@/components/ui/PageContainer";
 import SectionHeader from "@/components/ui/SectionHeader";
 import TabBar from "@/components/ui/TabBar";
@@ -341,7 +340,6 @@ function FilmDetail({
   const [activeTab, setActiveTab] = useState<"facts" | "bloopers">("facts");
   const [isFav, setIsFav] = useState(false);
   const [isWL, setIsWL] = useState(false);
-  const [trailerModalOpen, setTrailerModalOpen] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -423,8 +421,6 @@ function FilmDetail({
     votes?: number;
     color: "accent" | "gold" | "blue";
   }[];
-
-  const videosEnabled = getPreferences().filmSections.videos;
 
   return (
     <PageContainer>
@@ -561,7 +557,7 @@ function FilmDetail({
             ))}
           </div>
 
-          {/* ── Primary Action Row (Watch Now, Trailer, Favorite, Watch Later) ── */}
+          {/* ── Primary Action Row (Watch Now, Favorite, Watch Later) ── */}
           <div className="flex flex-wrap items-center gap-2.5 mb-6">
             <Link href={`/watch/${filmId}`} className="no-underline">
               <button
@@ -572,17 +568,6 @@ function FilmDetail({
                 Watch Now
               </button>
             </Link>
-
-            {videosEnabled && (
-              <button
-                type="button"
-                onClick={() => setTrailerModalOpen(true)}
-                className="btn btn-ghost px-4 py-[9px] text-[12px] sm:text-[13px]"
-              >
-                <FilmIcon size={14} />
-                Trailer
-              </button>
-            )}
 
             <button
               type="button"
@@ -828,15 +813,6 @@ function FilmDetail({
             ))}
           </div>
         </div>
-      )}
-
-      {trailerModalOpen && (
-        <TrailerModal
-          open={trailerModalOpen}
-          filmId={filmId}
-          filmTitle={name}
-          onClose={() => setTrailerModalOpen(false)}
-        />
       )}
     </PageContainer>
   );

@@ -717,11 +717,6 @@ export default function PreferencesClient() {
           {(
             [
               ["cast", "Cast & Crew", "Actors, directors, writers — 1 call"],
-              [
-                "videos",
-                "Trailers & Videos",
-                "Official trailers and teasers modal — on-demand call",
-              ],
               ["awards", "Awards", "Oscar wins, nominations — 1 call"],
               ["gallery", "Gallery", "Film stills and images — 1 call"],
               ["facts", "Trivia & Spoilers", "Facts and bloopers — 1 call"],
