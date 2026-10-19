@@ -7,6 +7,7 @@ import {
   Clock,
   Star,
   CircleAlert,
+  ShieldAlert,
 } from "lucide-react";
 import { getFilm, getFilmSeasons, getSimilarFilms } from "@/lib/kinopoisk";
 import { Film, Season, SimilarFilm } from "@/types/kinopoisk";
@@ -33,6 +34,7 @@ import TabPill from "@/components/ui/TabPill";
 import PosterImage from "@/components/ui/PosterImage";
 import EmptyState from "@/components/ui/EmptyState";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
+import ParentalGuideModal from "@/components/ParentalGuideModal";
 
 const HISTORY_THRESHOLD_S = 10;
 const PLAYER_BASE_URL = "https://kinodivbox.github.io/iframe";
@@ -127,6 +129,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
   const [isFav, setIsFav] = useState(false);
   const [isWL, setIsWL] = useState(false);
+  const [parentalOpen, setParentalOpen] = useState(false);
 
   const name = useFilmTitle(film, autoTranslate);
   const description = useTranslate(film?.description || film?.shortDescription);
@@ -319,11 +322,44 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                   {rating.toFixed(1)}
                 </span>
               )}
+              {film.ratingAgeLimits && (
+                <button
+                  type="button"
+                  onClick={() => setParentalOpen(true)}
+                  title="View Parental Guide"
+                  className="tag tag-accent text-[10px] sm:text-[11px] cursor-pointer hover:border-[rgba(229,9,20,0.5)] inline-flex items-center gap-1"
+                >
+                  <ShieldAlert size={11} />
+                  {film.ratingAgeLimits.replace("age", "")}+
+                </button>
+              )}
+              {film.ratingMpaa && (
+                <button
+                  type="button"
+                  onClick={() => setParentalOpen(true)}
+                  title="View Parental Guide"
+                  className="tag tag-dim text-[10px] sm:text-[11px] cursor-pointer hover:border-[var(--border-hover)] inline-flex items-center gap-1"
+                >
+                  <ShieldAlert size={11} />
+                  {film.ratingMpaa.toUpperCase()}
+                </button>
+              )}
             </div>
           </div>
 
           {/* Action controls */}
           <div className="flex items-center gap-2 flex-wrap">
+            {!film.ratingAgeLimits && !film.ratingMpaa && (
+              <button
+                type="button"
+                onClick={() => setParentalOpen(true)}
+                aria-label="View Parental Guide"
+                title="View Parental Guide"
+                className="btn btn-ghost py-1.5 px-2.5 text-[12px]"
+              >
+                <ShieldAlert size={14} />
+              </button>
+            )}
             <button
               type="button"
               onClick={handleFav}
@@ -451,6 +487,12 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           </div>
         )}
       </div>
+
+      <ParentalGuideModal
+        open={parentalOpen}
+        onClose={() => setParentalOpen(false)}
+        film={film}
+      />
     </PageContainer>
   );
 }

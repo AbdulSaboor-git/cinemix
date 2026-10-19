@@ -20,6 +20,7 @@ import {
   ThumbsDown,
   Trophy,
   Award as AwardIcon,
+  ShieldAlert,
 } from "lucide-react";
 import {
   getFilm,
@@ -71,6 +72,7 @@ import TabPill from "@/components/ui/TabPill";
 import PosterImage from "@/components/ui/PosterImage";
 import EmptyState from "@/components/ui/EmptyState";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
+import ParentalGuideModal from "@/components/ParentalGuideModal";
 import { toggleFavorite, toggleWatchLater, isInList } from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
 
@@ -340,6 +342,7 @@ function FilmDetail({
   const [activeTab, setActiveTab] = useState<"facts" | "bloopers">("facts");
   const [isFav, setIsFav] = useState(false);
   const [isWL, setIsWL] = useState(false);
+  const [parentalOpen, setParentalOpen] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -506,12 +509,35 @@ function FilmDetail({
               </MetaTag>
             )}
             {film.ratingAgeLimits && (
-              <MetaTag accent>
+              <MetaTag
+                accent
+                clickable
+                onClick={() => setParentalOpen(true)}
+                title="View Parental Guide"
+              >
+                <ShieldAlert size={11} className="mr-1 opacity-85" />
                 {film.ratingAgeLimits.replace("age", "")}+
               </MetaTag>
             )}
             {film.ratingMpaa && (
-              <MetaTag>{film.ratingMpaa.toUpperCase()}</MetaTag>
+              <MetaTag
+                clickable
+                onClick={() => setParentalOpen(true)}
+                title="View Parental Guide"
+              >
+                <ShieldAlert size={11} className="mr-1 opacity-75" />
+                {film.ratingMpaa.toUpperCase()}
+              </MetaTag>
+            )}
+            {!film.ratingAgeLimits && !film.ratingMpaa && (
+              <MetaTag
+                clickable
+                onClick={() => setParentalOpen(true)}
+                title="View Parental Guide"
+              >
+                <ShieldAlert size={11} className="mr-1 opacity-75" />
+                Parents Guide
+              </MetaTag>
             )}
             {film.countries?.slice(0, 3).map((c) => (
               <Link
@@ -814,6 +840,12 @@ function FilmDetail({
           </div>
         </div>
       )}
+
+      <ParentalGuideModal
+        open={parentalOpen}
+        onClose={() => setParentalOpen(false)}
+        film={film}
+      />
     </PageContainer>
   );
 }
@@ -1464,14 +1496,32 @@ function MetaTag({
   children,
   accent,
   clickable,
+  onClick,
+  title,
 }: {
   children: React.ReactNode;
   accent?: boolean;
   clickable?: boolean;
+  onClick?: () => void;
+  title?: string;
 }) {
   return (
     <span
-      className={`${accent ? "tag tag-accent" : "tag tag-dim"} text-[11px] sm:text-[12px] ${clickable ? "cursor-pointer hover:border-[var(--border-hover)]" : ""}`}
+      onClick={onClick}
+      title={title}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+      className={`${accent ? "tag tag-accent" : "tag tag-dim"} text-[11px] sm:text-[12px] ${clickable || onClick ? "cursor-pointer hover:border-[var(--border-hover)]" : ""}`}
     >
       {children}
     </span>
