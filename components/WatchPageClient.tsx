@@ -1,11 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
-  Server,
-  Crop,
-  Maximize2,
   Film as FilmIcon,
   Heart,
   Clock,
@@ -14,7 +10,6 @@ import {
 } from "lucide-react";
 import { getFilm, getFilmSeasons, getSimilarFilms } from "@/lib/kinopoisk";
 import { Film, Season, SimilarFilm } from "@/types/kinopoisk";
-import { getPlayerById, PlayerProvider } from "@/lib/players";
 import { getPreferences, hasApiKeys } from "@/lib/preferences";
 import {
   addToHistory,
@@ -31,7 +26,6 @@ import {
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useToast } from "@/lib/toast";
 import BackButton from "@/components/BackButton";
-import PlayerSelectModal from "@/components/PlayerSelectModal";
 import TrailerModal from "@/components/TrailerModal";
 import PageContainer from "@/components/ui/PageContainer";
 import SectionHeader from "@/components/ui/SectionHeader";
@@ -42,6 +36,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
 
 const HISTORY_THRESHOLD_S = 10;
+const PLAYER_BASE_URL = "https://kinodivbox.github.io/iframe";
 
 function EpisodeRow({
   epNumber,
@@ -118,15 +113,8 @@ function SimilarCard({
   );
 }
 
-export default function WatchPageClient({
-  filmId,
-  initialPlayerId,
-}: {
-  filmId: string;
-  initialPlayerId?: string;
-}) {
+export default function WatchPageClient({ filmId }: { filmId: string }) {
   const id = parseInt(filmId, 10);
-  const router = useRouter();
   const { toast } = useToast();
   const autoTranslate = useAutoTranslate();
 
@@ -137,14 +125,6 @@ export default function WatchPageClient({
   const [similars, setSimilars] = useState<SimilarFilm[]>([]);
   const [loading, setLoading] = useState(!isNaN(id));
   const [error, setError] = useState(isNaN(id));
-
-  const [activeProvider, setActiveProvider] = useState<PlayerProvider>(() =>
-    getPlayerById(initialPlayerId),
-  );
-  const [cropHeader, setCropHeader] = useState<boolean>(
-    Boolean(activeProvider.cropTopHeader),
-  );
-  const [serverModalOpen, setServerModalOpen] = useState(false);
   const [trailerModalOpen, setTrailerModalOpen] = useState(false);
 
   const [isFav, setIsFav] = useState(false);
@@ -156,13 +136,6 @@ export default function WatchPageClient({
 
   const secondsRef = useRef(0);
   const addedRef = useRef(false);
-
-  useEffect(() => {
-    const prefs = getPreferences();
-    const chosen = getPlayerById(initialPlayerId || prefs.preferredPlayerId);
-    setActiveProvider(chosen);
-    setCropHeader(Boolean(chosen.cropTopHeader));
-  }, [initialPlayerId]);
 
   useEffect(() => {
     if (!hasApiKeys()) {
@@ -255,7 +228,7 @@ export default function WatchPageClient({
     return (
       <PageContainer>
         <div className="skeleton h-10 w-64 rounded-[8px] mb-4" />
-        <div className="skeleton w-full aspect-video max-h-[80vh] rounded-[var(--radius-lg)]" />
+        <div className="skeleton w-full h-[600px] rounded-[var(--radius-lg)]" />
       </PageContainer>
     );
   }
@@ -276,7 +249,7 @@ export default function WatchPageClient({
 
   const rating = film.ratingKinopoisk ?? film.ratingImdb;
   const year = film.year || film.startYear;
-  const playerUrl = activeProvider.buildUrl(id);
+  const playerUrl = `${PLAYER_BASE_URL}?id=${id}`;
   const videosEnabled = getPreferences().filmSections.videos;
 
   const filmEntry = {
@@ -299,17 +272,8 @@ export default function WatchPageClient({
     toast.info(added ? "Saved to Watch Later" : "Removed from Watch Later");
   };
 
-  const handleSelectProvider = (provider: PlayerProvider) => {
-    setActiveProvider(provider);
-    setCropHeader(Boolean(provider.cropTopHeader));
-    router.replace(`/watch/${id}?player=${encodeURIComponent(provider.id)}`, {
-      scroll: false,
-    });
-    toast.info(`Switched to ${provider.name}`);
-  };
-
   return (
-    <PageContainer className="pt-4  sm:pt-6">
+    <PageContainer className="pt-4 sm:pt-6">
       {/* Top Cinema Control Bar */}
       <div className="hidden sm:flex flex-row items-center flex-wrap justify-between gap-2 sm:gap-3 mb-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] px-4 py-3">
         <div className="flex items-center gap-3 min-w-0 flex-wrap">
@@ -317,7 +281,6 @@ export default function WatchPageClient({
             fallbackHref={`/film/${id}`}
             label="Film Details"
             className="mb-0"
-            iconOnlyOnPhone
           />
           <span className="text-[var(--border-hover)] hidden sm:inline">|</span>
           <div className="min-w-0 flex items-center gap-2.5 flex-wrap">
@@ -350,43 +313,16 @@ export default function WatchPageClient({
 
         {/* Action controls */}
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setServerModalOpen(true)}
-            className="btn btn-primary py-2 px-3 sm:py-2.5 sm:px-3.5 text-[12px] sm:text-[13px]"
-          >
-            <Server size={14} />
-            <div className="hidden sm:inline">{activeProvider.name}</div>
-          </button>
-
-          {/* <button
-            type="button"
-            onClick={() => setCropHeader((v) => !v)}
-            title={
-              cropHeader
-                ? "Disable top header crop"
-                : "Crop provider top header"
-            }
-            className={`btn btn-ghost py-1.5 px-2 sm:py-2.5 sm:px-3 text-[12px] sm:text-[13px] ${
-              cropHeader ? "border-[rgba(229,9,20,0.4)] text-[var(--accent)]" : ""
-            }`}
-          >
-            {cropHeader ? <Crop size={14} /> : <Maximize2 size={14} />}
-            <span className="hidden sm:inline">
-              {cropHeader ? "Cropped Fit" : "Full Fit"}
-            </span>
-          </button> */}
-
-          {/* {videosEnabled && (
+          {videosEnabled && (
             <button
               type="button"
               onClick={() => setTrailerModalOpen(true)}
-              className="btn btn-ghost py-1.5 px-2 sm:py-2.5 sm:px-3 text-[12px] sm:text-[13px]"
+              className="btn btn-ghost py-2 px-3 text-[12px]"
             >
               <FilmIcon size={14} />
               <span className="hidden sm:inline">Trailer</span>
             </button>
-          )} */}
+          )}
 
           <button
             type="button"
@@ -417,18 +353,17 @@ export default function WatchPageClient({
       </div>
 
       {/* Theater Video Stage */}
-      <div className="w-full z-100 fixed inset-0 top-15 sm:top-0 left-0 sm:relative max-h-[100vh] sm:aspect-video sm:max-h-[80vh] bg-black rounded-[var(--radius-lg)] sm:overflow-hidden  border border-[var(--border)] shadow-[0_20px_70px_rgba(0,0,0,0.85)]">
+      <div className="w-full bg-black  overflow-hidden border border-[var(--border)] shadow-[0_20px_70px_rgba(0,0,0,0.85)]">
         <iframe
-          key={`${activeProvider.id}-${id}`}
+          key={id}
           src={playerUrl}
+          width="100%"
+          height="600"
           allowFullScreen
-          className={
-            cropHeader
-              ? "absolute w-full border-none block bg-black top-0 lg:-top-[60%] h-full sm:h-[150%] lg:h-[160%] xl:h-[167%] xl:-top-[64%] "
-              : "absolute inset-0 w-full h-full border-none block bg-black"
-          }
+          loading="lazy"
           allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
           title={name}
+          className="w-full overflow-hidden h-[600px] border-none  bg-black"
         />
       </div>
 
@@ -512,18 +447,6 @@ export default function WatchPageClient({
             ))}
           </div>
         </div>
-      )}
-
-      {serverModalOpen && (
-        <PlayerSelectModal
-          open={serverModalOpen}
-          filmId={id}
-          filmTitle={name}
-          filmYear={year}
-          selectedPlayerId={activeProvider.id}
-          onClose={() => setServerModalOpen(false)}
-          onSelectProvider={handleSelectProvider}
-        />
       )}
 
       {trailerModalOpen && (

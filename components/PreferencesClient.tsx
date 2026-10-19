@@ -13,8 +13,6 @@ import {
   Monitor,
   Home,
   Film,
-  Server,
-  Trash2,
 } from "lucide-react";
 import {
   Preferences,
@@ -22,9 +20,8 @@ import {
   getPreferences,
   savePreferences,
 } from "@/lib/preferences";
-import { saveApiKeys, CustomPlayerServer } from "@/lib/session";
+import { saveApiKeys } from "@/lib/session";
 import { getApiKeyInfo, clearApiCache } from "@/lib/kinopoisk";
-import { DEFAULT_PLAYER_PROVIDERS } from "@/lib/players";
 import { clearHistory } from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
@@ -221,12 +218,6 @@ export default function PreferencesClient() {
   const [unsaved, setUnsaved] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
 
-  // New custom player form state
-  const [newServerName, setNewServerName] = useState("");
-  const [newServerUrl, setNewServerUrl] = useState("");
-  const [newServerQuality, setNewServerQuality] = useState("1080p HD");
-  const [newServerCrop, setNewServerCrop] = useState(false);
-
   const { toast } = useToast();
 
   useEffect(() => {
@@ -300,41 +291,6 @@ export default function PreferencesClient() {
     setUnsaved(true);
   };
 
-  const handleAddCustomServer = () => {
-    const url = newServerUrl.trim();
-    const name = newServerName.trim() || `Custom Server ${(prefs.customPlayers?.length ?? 0) + 1}`;
-    if (!url) {
-      toast.error("Please enter a player base URL.");
-      return;
-    }
-    const newServer: CustomPlayerServer = {
-      id: `custom-${Date.now()}`,
-      name,
-      label: `${name}`,
-      quality: newServerQuality.trim() || "HD",
-      baseUrl: url,
-      cropTopHeader: newServerCrop,
-    };
-    updatePref((p) => ({
-      ...p,
-      customPlayers: [...(p.customPlayers ?? []), newServer],
-    }));
-    setNewServerName("");
-    setNewServerUrl("");
-    setNewServerQuality("1080p HD");
-    setNewServerCrop(false);
-    toast.info("Custom server added — click Save to persist.");
-  };
-
-  const handleRemoveCustomServer = (id: string) => {
-    updatePref((p) => ({
-      ...p,
-      preferredPlayerId:
-        p.preferredPlayerId === id ? "flcksbr" : p.preferredPlayerId,
-      customPlayers: (p.customPlayers ?? []).filter((c) => c.id !== id),
-    }));
-  };
-
   if (!loaded) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -342,11 +298,6 @@ export default function PreferencesClient() {
       </div>
     );
   }
-
-  const allServerOptions = [
-    ...DEFAULT_PLAYER_PROVIDERS.map((p) => ({ id: p.id, name: p.name })),
-    ...(prefs.customPlayers ?? []).map((c) => ({ id: c.id, name: c.name })),
-  ];
 
   const card =
     "bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden mb-4 sm:mb-5";
@@ -503,142 +454,6 @@ export default function PreferencesClient() {
         </div>
       </div>
 
-      {/* Video Players */}
-      <div className={card}>
-        <div className={cardHdr}>
-          <SectionIcon>
-            <Server size={15} strokeWidth={2} />
-          </SectionIcon>
-          <div>
-            <SectionTitle>Video Players & Streaming Servers</SectionTitle>
-            <p className={`${hint} !mt-0`}>
-              Configure how the video player launches and add custom streaming
-              embed mirrors.
-            </p>
-          </div>
-        </div>
-        <div className="py-2">
-          <div className={row}>
-            <div className="min-w-0 flex-1">
-              <p className={lbl}>Always ask which player server to use</p>
-              <p className={hint}>
-                Show the server selector modal when clicking Watch Now.
-              </p>
-            </div>
-            <Toggle
-              checked={prefs.alwaysAskPlayer ?? true}
-              onChange={(v) => updatePref((p) => ({ ...p, alwaysAskPlayer: v }))}
-            />
-          </div>
-
-          <div className={row}>
-            <div className="min-w-0 flex-1">
-              <p className={lbl}>Default player server</p>
-              <p className={hint}>
-                Used automatically when &ldquo;Always ask&rdquo; is turned off.
-              </p>
-            </div>
-            <div className="flex gap-1.5 flex-wrap">
-              {allServerOptions.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() =>
-                    updatePref((p) => ({ ...p, preferredPlayerId: s.id }))
-                  }
-                  className={optBtn(prefs.preferredPlayerId === s.id)}
-                >
-                  {s.name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Custom Servers List */}
-          {(prefs.customPlayers ?? []).length > 0 && (
-            <div className="px-4 sm:px-6 py-3 border-b border-[var(--border)] flex flex-col gap-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.8px] text-[var(--text-muted)]">
-                Custom Servers
-              </p>
-              {(prefs.customPlayers ?? []).map((srv) => (
-                <div
-                  key={srv.id}
-                  className="flex items-center justify-between gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[var(--radius)] px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-semibold text-[var(--text)] truncate">
-                      {srv.name}{" "}
-                      <span className="text-[10px] text-[var(--gold)] ml-1">
-                        ({srv.quality || "HD"})
-                      </span>
-                    </p>
-                    <p className="text-[11px] text-[var(--text-muted)] font-mono truncate">
-                      {srv.baseUrl}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveCustomServer(srv.id)}
-                    className="p-1.5 rounded-[6px] bg-transparent border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[rgba(229,9,20,0.4)] cursor-pointer"
-                    aria-label="Remove custom server"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Add Custom Server Form */}
-          <div className="px-4 sm:px-6 py-3 flex flex-col gap-2.5">
-            <p className={lbl}>Add custom embed server</p>
-            <p className={hint}>
-              Use <code className="text-[var(--text)]">{"{id}"}</code> as a
-              placeholder for the Kinopoisk Film ID, or enter a base URL (e.g.{" "}
-              <code className="text-[var(--text)]">
-                https://flcksbr.top/film
-              </code>
-              ).
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <input
-                type="text"
-                value={newServerName}
-                onChange={(e) => setNewServerName(e.target.value)}
-                placeholder="Server name (e.g. Mirror 2)"
-                className="input !py-2 !px-3 !text-[12px]"
-              />
-              <input
-                type="text"
-                value={newServerUrl}
-                onChange={(e) => setNewServerUrl(e.target.value)}
-                placeholder="https://example.top/film/{id}"
-                className="input !py-2 !px-3 !text-[12px] sm:col-span-2 font-mono"
-              />
-            </div>
-            <div className="flex items-center justify-between gap-3 flex-wrap mt-1">
-              <label className="flex items-center gap-2 text-[12px] text-[var(--text-dim)] cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={newServerCrop}
-                  onChange={(e) => setNewServerCrop(e.target.checked)}
-                  className="accent-[var(--accent)]"
-                />
-                Crop provider top header bar
-              </label>
-              <button
-                type="button"
-                onClick={handleAddCustomServer}
-                className="btn btn-ghost !py-1.5 !px-3 !text-[12px]"
-              >
-                <Plus size={12} />
-                Add Server
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Watch History */}
       <div className={card}>
         <div className={cardHdr}>
@@ -657,9 +472,7 @@ export default function PreferencesClient() {
             </div>
             <Toggle
               checked={prefs.historyEnabled ?? true}
-              onChange={(v) =>
-                updatePref((p) => ({ ...p, historyEnabled: v }))
-              }
+              onChange={(v) => updatePref((p) => ({ ...p, historyEnabled: v }))}
             />
           </div>
           <div className={rowLast}>
@@ -923,11 +736,7 @@ export default function PreferencesClient() {
                 "Sequels & Prequels",
                 "Related films in the series — 1 call",
               ],
-              [
-                "reviews",
-                "Audience Reviews",
-                "User-written reviews — 1 call",
-              ],
+              ["reviews", "Audience Reviews", "User-written reviews — 1 call"],
               [
                 "distributions",
                 "Release Dates",

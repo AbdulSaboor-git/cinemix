@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Play,
   Film as FilmIcon,
@@ -65,7 +64,6 @@ import { lockScroll, unlockScroll } from "@/lib/scrollLock";
 import ActorCard from "@/components/ActorCard";
 import FilmCard from "@/components/FilmCard";
 import BackButton from "@/components/BackButton";
-import PlayerSelectModal from "@/components/PlayerSelectModal";
 import TrailerModal from "@/components/TrailerModal";
 import PageContainer from "@/components/ui/PageContainer";
 import SectionHeader from "@/components/ui/SectionHeader";
@@ -324,7 +322,6 @@ function FilmDetail({
   images: ImageItem[];
   distributions: Distribution[];
 }) {
-  const router = useRouter();
   const autoTranslate = useAutoTranslate();
   const name = useFilmTitle(film, autoTranslate);
   const description = useTranslate(film.description);
@@ -344,7 +341,6 @@ function FilmDetail({
   const [activeTab, setActiveTab] = useState<"facts" | "bloopers">("facts");
   const [isFav, setIsFav] = useState(false);
   const [isWL, setIsWL] = useState(false);
-  const [playerModalOpen, setPlayerModalOpen] = useState(false);
   const [trailerModalOpen, setTrailerModalOpen] = useState(false);
   const { toast } = useToast();
 
@@ -371,17 +367,6 @@ function FilmDetail({
     const added = toggleWatchLater(filmEntry);
     setIsWL(added);
     toast.info(added ? "Saved to Watch Later" : "Removed from Watch Later");
-  };
-
-  const handleWatchNow = () => {
-    const prefs = getPreferences();
-    if (prefs.alwaysAskPlayer) {
-      setPlayerModalOpen(true);
-    } else {
-      router.push(
-        `/watch/${filmId}?player=${encodeURIComponent(prefs.preferredPlayerId || "flcksbr")}`,
-      );
-    }
   };
 
   const directors = staff
@@ -578,14 +563,15 @@ function FilmDetail({
 
           {/* ── Primary Action Row (Watch Now, Trailer, Favorite, Watch Later) ── */}
           <div className="flex flex-wrap items-center gap-2.5 mb-6">
-            <button
-              type="button"
-              onClick={handleWatchNow}
-              className="btn btn-primary px-5 sm:px-6 py-[10px] text-[13px] sm:text-[14px]"
-            >
-              <Play size={14} fill="white" stroke="white" />
-              Watch Now
-            </button>
+            <Link href={`/watch/${filmId}`} className="no-underline">
+              <button
+                type="button"
+                className="btn btn-primary px-5 sm:px-6 py-[10px] text-[13px] sm:text-[14px]"
+              >
+                <Play size={14} fill="white" stroke="white" />
+                Watch Now
+              </button>
+            </Link>
 
             {videosEnabled && (
               <button
@@ -712,7 +698,11 @@ function FilmDetail({
       {facts.length > 0 && (
         <div className="mt-10 md:mt-12">
           <div className="flex flex-col gap-3 mb-5">
-            <SectionHeader title="TRIVIA" count={activeFactItems.length} className="mb-0" />
+            <SectionHeader
+              title="TRIVIA"
+              count={activeFactItems.length}
+              className="mb-0"
+            />
             <TabBar>
               {factItems.length > 0 && (
                 <TabPill
@@ -838,16 +828,6 @@ function FilmDetail({
             ))}
           </div>
         </div>
-      )}
-
-      {playerModalOpen && (
-        <PlayerSelectModal
-          open={playerModalOpen}
-          filmId={filmId}
-          filmTitle={name}
-          filmYear={film.year}
-          onClose={() => setPlayerModalOpen(false)}
-        />
       )}
 
       {trailerModalOpen && (
@@ -1049,7 +1029,9 @@ function SeasonsSection({
             onClick={() => setActiveSeason(i)}
           >
             S{s.number}
-            <span className="opacity-70 text-[10px]">({s.episodes.length})</span>
+            <span className="opacity-70 text-[10px]">
+              ({s.episodes.length})
+            </span>
           </TabPill>
         ))}
       </TabBar>
@@ -1247,7 +1229,9 @@ function AwardRow({
 
   const rawPersons = award.persons
     ?.slice(0, 2)
-    .map((p) => (autoTranslate && p.nameEn ? p.nameEn : p.nameRu || p.nameEn || ""))
+    .map((p) =>
+      autoTranslate && p.nameEn ? p.nameEn : p.nameRu || p.nameEn || "",
+    )
     .filter(Boolean)
     .join(", ");
   const translatedPersons = useTranslate(rawPersons);
@@ -1552,7 +1536,9 @@ function ErrorState() {
   return (
     <PageContainer className="flex items-center justify-center">
       <EmptyState
-        icon={<CircleAlert size={48} stroke="var(--accent)" strokeWidth={1.5} />}
+        icon={
+          <CircleAlert size={48} stroke="var(--accent)" strokeWidth={1.5} />
+        }
         title="Film Not Found"
         description="The requested film could not be loaded."
         actionLabel="Back to Home"
