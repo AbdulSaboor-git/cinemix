@@ -285,7 +285,7 @@ body.scroll-locked {
     gap: 8px;
     border: none;
     border-radius: var(--radius);
-    padding: 10px 20px;
+    /* padding: 10px 20px; */
     font-family: var(--font-body);
     font-size: 14px;
     font-weight: 600;

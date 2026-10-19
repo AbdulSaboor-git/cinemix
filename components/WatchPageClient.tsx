@@ -12,11 +12,7 @@ import {
   Star,
   CircleAlert,
 } from "lucide-react";
-import {
-  getFilm,
-  getFilmSeasons,
-  getSimilarFilms,
-} from "@/lib/kinopoisk";
+import { getFilm, getFilmSeasons, getSimilarFilms } from "@/lib/kinopoisk";
 import { Film, Season, SimilarFilm } from "@/types/kinopoisk";
 import { getPlayerById, PlayerProvider } from "@/lib/players";
 import { getPreferences, hasApiKeys } from "@/lib/preferences";
@@ -224,7 +220,12 @@ export default function WatchPageClient({
         addedRef.current = true;
         addToHistory({
           film_id: id,
-          film_name: name || film.nameEn || film.nameOriginal || film.nameRu || "Unknown",
+          film_name:
+            name ||
+            film.nameEn ||
+            film.nameOriginal ||
+            film.nameRu ||
+            "Unknown",
           poster_url: film.posterUrlPreview || film.posterUrl || null,
           year: film.year ?? film.startYear ?? null,
           rating: film.ratingKinopoisk ?? film.ratingImdb ?? null,
@@ -308,14 +309,15 @@ export default function WatchPageClient({
   };
 
   return (
-    <PageContainer className="pt-4 sm:pt-6">
+    <PageContainer className="pt-4  sm:pt-6">
       {/* Top Cinema Control Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] px-4 py-3">
+      <div className="hidden sm:flex flex-row items-center flex-wrap justify-between gap-2 sm:gap-3 mb-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] px-4 py-3">
         <div className="flex items-center gap-3 min-w-0 flex-wrap">
           <BackButton
             fallbackHref={`/film/${id}`}
             label="Film Details"
             className="mb-0"
+            iconOnlyOnPhone
           />
           <span className="text-[var(--border-hover)] hidden sm:inline">|</span>
           <div className="min-w-0 flex items-center gap-2.5 flex-wrap">
@@ -323,22 +325,22 @@ export default function WatchPageClient({
               href={`/film/${id}`}
               className="no-underline hover:underline text-white"
             >
-              <h1 className="font-display tracking-[1.2px] text-[18px] sm:text-[22px] text-white leading-none m-0 truncate">
+              <h1 className="font-display tracking-[1.2px] text-[16px] sm:text-[22px] text-white leading-none m-0 truncate">
                 {name}
               </h1>
             </Link>
             {year && (
-              <span className="text-[12px] text-[var(--text-muted)]">
+              <span className="hidden sm:inline text-[10px] text-[var(--text-muted)]">
                 ({year})
               </span>
             )}
             {film.filmLength && (
-              <span className="text-[12px] text-[var(--text-muted)] hidden sm:inline">
+              <span className="text-[10px] text-[var(--text-muted)] hidden sm:inline">
                 · {Math.floor(film.filmLength / 60)}h {film.filmLength % 60}m
               </span>
             )}
             {rating && (
-              <span className="inline-flex items-center gap-1 text-[12px] text-[#f5c518] font-display">
+              <span className="inline-flex items-center gap-1 text-[10px] sm:text-[12px] text-[#f5c518] font-display">
                 <Star size={11} fill="#f5c518" stroke="#f5c518" />
                 {rating.toFixed(1)}
               </span>
@@ -351,13 +353,13 @@ export default function WatchPageClient({
           <button
             type="button"
             onClick={() => setServerModalOpen(true)}
-            className="btn btn-primary py-2 px-3.5 text-[12px] sm:text-[13px]"
+            className="btn btn-primary py-2 px-3 sm:py-2.5 sm:px-3.5 text-[12px] sm:text-[13px]"
           >
             <Server size={14} />
-            {activeProvider.name}
+            <div className="hidden sm:inline">{activeProvider.name}</div>
           </button>
 
-          <button
+          {/* <button
             type="button"
             onClick={() => setCropHeader((v) => !v)}
             title={
@@ -365,7 +367,7 @@ export default function WatchPageClient({
                 ? "Disable top header crop"
                 : "Crop provider top header"
             }
-            className={`btn btn-ghost py-2 px-3 text-[12px] ${
+            className={`btn btn-ghost py-1.5 px-2 sm:py-2.5 sm:px-3 text-[12px] sm:text-[13px] ${
               cropHeader ? "border-[rgba(229,9,20,0.4)] text-[var(--accent)]" : ""
             }`}
           >
@@ -373,18 +375,18 @@ export default function WatchPageClient({
             <span className="hidden sm:inline">
               {cropHeader ? "Cropped Fit" : "Full Fit"}
             </span>
-          </button>
+          </button> */}
 
-          {videosEnabled && (
+          {/* {videosEnabled && (
             <button
               type="button"
               onClick={() => setTrailerModalOpen(true)}
-              className="btn btn-ghost py-2 px-3 text-[12px]"
+              className="btn btn-ghost py-1.5 px-2 sm:py-2.5 sm:px-3 text-[12px] sm:text-[13px]"
             >
               <FilmIcon size={14} />
               <span className="hidden sm:inline">Trailer</span>
             </button>
-          )}
+          )} */}
 
           <button
             type="button"
@@ -409,23 +411,20 @@ export default function WatchPageClient({
               isWL ? "border-[rgba(96,165,250,0.5)] text-[#60a5fa]" : ""
             }`}
           >
-            <Clock
-              size={14}
-              stroke={isWL ? "#60a5fa" : "currentColor"}
-            />
+            <Clock size={14} stroke={isWL ? "#60a5fa" : "currentColor"} />
           </button>
         </div>
       </div>
 
       {/* Theater Video Stage */}
-      <div className="w-full aspect-video max-h-[80vh] bg-black rounded-[var(--radius-lg)] overflow-hidden relative border border-[var(--border)] shadow-[0_20px_70px_rgba(0,0,0,0.85)]">
+      <div className="w-full z-100 fixed inset-0 top-15 sm:top-0 left-0 sm:relative max-h-[100vh] sm:aspect-video sm:max-h-[80vh] bg-black rounded-[var(--radius-lg)] sm:overflow-hidden  border border-[var(--border)] shadow-[0_20px_70px_rgba(0,0,0,0.85)]">
         <iframe
           key={`${activeProvider.id}-${id}`}
           src={playerUrl}
           allowFullScreen
           className={
             cropHeader
-              ? "absolute w-full border-none block bg-black top-0 md:-top-[81%] h-full md:h-[180%]"
+              ? "absolute w-full border-none block bg-black top-0 lg:-top-[60%] h-full sm:h-[150%] lg:h-[160%] xl:h-[167%] xl:-top-[64%] "
               : "absolute inset-0 w-full h-full border-none block bg-black"
           }
           allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
@@ -434,7 +433,7 @@ export default function WatchPageClient({
       </div>
 
       {/* Synopsis + Genres below player */}
-      <div className="mt-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-4 sm:p-6">
+      <div className="hidden sm:block mt-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-4 sm:p-6">
         <div className="flex flex-wrap gap-2 mb-3">
           {film.genres?.map((g) => (
             <Link
@@ -468,7 +467,7 @@ export default function WatchPageClient({
 
       {/* Seasons & Episodes (for TV Series) */}
       {seasons.length > 0 && (
-        <div className="mt-8">
+        <div className="mt-8 hidden sm:block">
           <SectionHeader title="SEASONS & EPISODES" count={seasons.length} />
           <TabBar className="mb-4">
             {seasons.map((s, i) => (
@@ -501,7 +500,7 @@ export default function WatchPageClient({
 
       {/* Similar Films */}
       {similars.length > 0 && (
-        <div className="mt-8">
+        <div className="mt-8 hidden sm:block">
           <SectionHeader title="SIMILAR FILMS" count={similars.length} />
           <div className="flex gap-3 overflow-x-auto pb-3 scrollbar-none">
             {similars.slice(0, 12).map((sf) => (

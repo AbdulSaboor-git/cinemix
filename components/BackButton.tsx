@@ -8,6 +8,7 @@ interface BackButtonProps {
   fallbackHref?: string;
   label?: string;
   className?: string;
+  iconOnlyOnPhone?: boolean; // New prop to control icon-only display on phone
 }
 
 export default function BackButton({
@@ -15,6 +16,7 @@ export default function BackButton({
   fallbackHref = "/",
   label = "Back",
   className = "mb-5",
+  iconOnlyOnPhone = false, // Default to false
 }: BackButtonProps) {
   const router = useRouter();
 
@@ -35,7 +37,9 @@ export default function BackButton({
       } ${className}`.trim()}
     >
       <ChevronLeft size={14} strokeWidth={2.5} />
-      {label}
+      <div className={iconOnlyOnPhone ? "hidden sm:inline" : "inline"}>
+        {label}
+      </div>
     </button>
   );
 }
