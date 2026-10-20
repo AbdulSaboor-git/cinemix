@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Heart, Clock, Star, Play, X } from "lucide-react";
+import { Heart, Clock, Star, Play } from "lucide-react";
 import { translateCountry, translateGenre } from "@/lib/translate";
 import { useAutoTranslate, useFilmTitle } from "@/hooks/useTranslate";
 import { Film } from "@/types/kinopoisk";
@@ -94,11 +94,21 @@ export default function FilmCard({
 
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const historyPushedRef = useRef(false);
   const didLongPress = useRef(false);
   const touchMoved = useRef(false);
   const touchStartPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const cardRef = useRef<HTMLDivElement>(null);
   const posterRef = useRef<HTMLDivElement>(null);
+
+  const animateCloseMobileMenu = useCallback(() => {
+    setMenuEntered(false);
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => {
+      setMobileMenuOpen(false);
+      closeTimer.current = null;
+    }, EXIT_ANIMATION_MS);
+  }, []);
 
   const openMobileMenu = useCallback(() => {
     if (closeTimer.current) {
@@ -122,22 +132,50 @@ export default function FilmCard({
       });
     }
 
+    if (typeof window !== "undefined" && !historyPushedRef.current) {
+      const currentState =
+        typeof window.history.state === "object" &&
+        window.history.state !== null
+          ? window.history.state
+          : {};
+      window.history.pushState(
+        { ...currentState, filmCardPopup: true, filmId: id },
+        "",
+        window.location.href,
+      );
+      historyPushedRef.current = true;
+    }
+
     setMobileMenuOpen(true);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         setMenuEntered(true);
       });
     });
-  }, []);
+  }, [id]);
 
   const closeMobileMenu = useCallback(() => {
-    setMenuEntered(false);
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => {
-      setMobileMenuOpen(false);
-      closeTimer.current = null;
-    }, EXIT_ANIMATION_MS);
-  }, []);
+    animateCloseMobileMenu();
+    if (typeof window !== "undefined" && historyPushedRef.current) {
+      historyPushedRef.current = false;
+      window.history.back();
+    }
+  }, [animateCloseMobileMenu]);
+
+  // Intercept mobile hardware/browser back button to close the popup instead of leaving the page
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+
+    const handlePopState = () => {
+      historyPushedRef.current = false;
+      animateCloseMobileMenu();
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [mobileMenuOpen, animateCloseMobileMenu]);
 
   useEffect(() => {
     return () => {
@@ -481,28 +519,6 @@ export default function FilmCard({
               className="relative z-10 flex flex-col items-center"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Floating Top-Right Close Button */}
-              <button
-                type="button"
-                aria-label="Close preview"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  closeMobileMenu();
-                }}
-                style={{
-                  transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
-                  transitionDelay: menuEntered ? "120ms" : "0ms",
-                }}
-                className={`absolute -top-4 -right-4 z-30 w-9 h-9 rounded-full bg-[rgba(18,18,22,0.88)] backdrop-blur-md border border-white/20 text-white/85 flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.65)] active:scale-90 transition-all duration-300 ${
-                  menuEntered
-                    ? "opacity-100 scale-100 translate-y-0"
-                    : "opacity-0 scale-50 translate-y-3"
-                }`}
-              >
-                <X size={16} strokeWidth={2.5} />
-              </button>
-
               {/* Expanded Center Popup Card (animates from original card coordinates) */}
               <div
                 style={{
@@ -650,7 +666,12 @@ export default function FilmCard({
                 {/* Bottom Full-Width Primary Action: Open / Watch Film */}
                 <Link
                   href={`/film/${id}`}
-                  onClick={() => setMobileMenuOpen(false)}
+                  replace
+                  onClick={() => {
+                    historyPushedRef.current = false;
+                    setMenuEntered(false);
+                    setMobileMenuOpen(false);
+                  }}
                   style={{
                     transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
                     transitionDelay: menuEntered ? "190ms" : "0ms",
@@ -662,7 +683,7 @@ export default function FilmCard({
                   }`}
                 >
                   <Play size={15} fill="white" stroke="white" />
-                  <span>Open Details</span>
+                  <span>Details</span>
                 </Link>
               </div>
             </div>
