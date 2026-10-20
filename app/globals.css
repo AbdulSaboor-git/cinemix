@@ -328,7 +328,7 @@ body.scroll-locked {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: 10px 16px;
+    /* padding: 10px 16px; */
     color: var(--text);
     font-family: var(--font-body);
     font-size: 14px;

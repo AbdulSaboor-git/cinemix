@@ -126,7 +126,7 @@ export default function Navbar() {
         <div className="flex-1 md:hidden" />
 
         {/* Desktop search */}
-        <div className="hidden md:block relative">
+        <div className="hidden lg:block relative">
           <form onSubmit={handleSubmit}>
             <div className="relative">
               <input
@@ -136,7 +136,7 @@ export default function Navbar() {
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onFocus={() => search.trim().length >= 2 && setSugVisible(true)}
                 onBlur={() => setTimeout(() => setSugVisible(false), 200)}
-                placeholder="Search films, actors…"
+                placeholder="Search films, series…"
                 className="bg-[rgba(255,255,255,0.07)] border border-[var(--border)] rounded-[20px] py-[7px] pl-9 pr-8 text-[var(--text)] text-[13px] outline-none placeholder:text-[var(--text-muted)] transition-[width,border-color,background] duration-300 w-[190px] focus:w-[260px] focus:border-[rgba(229,9,20,0.5)] focus:bg-[rgba(255,255,255,0.1)]"
               />
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 w-[13px] h-[13px]" />
@@ -194,7 +194,7 @@ export default function Navbar() {
         </div>
 
         {/* Mobile top-right: search + preferences */}
-        <div className="flex md:hidden items-center gap-[2px]">
+        <div className="flex lg:hidden items-center gap-[2px]">
           <NavIconBtn
             onClick={() => setSearchOpen((v) => !v)}
             active={searchOpen}
@@ -203,7 +203,7 @@ export default function Navbar() {
             <Search width={20} />
           </NavIconBtn>
 
-          <Link href="/preferences" className="no-underline">
+          <Link href="/preferences" className="md:hidden no-underline">
             <NavIconBtn
               active={pathname === "/preferences"}
               aria-label="Preferences"
@@ -217,7 +217,7 @@ export default function Navbar() {
       {/* ── Mobile search bar ── */}
       {searchOpen && (
         <div
-          className="md:hidden fixed left-0 right-0 z-[190] bg-[rgba(8,8,8,0.98)] backdrop-blur-[20px] shadow-[0_1px_0_var(--border)] px-4 py-3 slide-down"
+          className="lg:hidden fixed left-0 right-0 z-[190] bg-[rgba(8,8,8,0.98)] backdrop-blur-[20px] shadow-[0_1px_0_var(--border)] px-4 py-3 slide-down"
           style={{ top: "var(--nav-height)" }}
         >
           <form onSubmit={handleSubmit}>
@@ -229,7 +229,7 @@ export default function Navbar() {
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onBlur={() => setTimeout(() => setSugVisible(false), 200)}
                 placeholder="Search films, series, actors…"
-                className="input pl-10 pr-9 text-[15px] py-3"
+                className="pl-10 pr-9 text-[15px] py-3 input"
               />
               <Search className="absolute left-[14px] top-1/2 -translate-y-1/2 opacity-40 pointer-events-none w-4 h-4" />
               {search && (
