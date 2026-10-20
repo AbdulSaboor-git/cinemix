@@ -337,7 +337,7 @@ export async function getFilmsByFilter(params: {
   keyword?: string;
   page?: number;
 }): Promise<FilmsResponse> {
-  const cap = new Date().getFullYear() + 1;
+  const cap = new Date().getFullYear();
   const yearTo =
     params.yearTo !== undefined ? Math.min(params.yearTo, cap) : cap;
 

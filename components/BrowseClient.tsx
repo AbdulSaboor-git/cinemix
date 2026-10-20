@@ -31,7 +31,7 @@ const ORDERS = [
   { value: "YEAR", label: "Newest First" },
 ];
 const CURRENT_YEAR = new Date().getFullYear();
-const YEAR_OPTIONS = Array.from({ length: 80 }, (_, i) => CURRENT_YEAR + 1 - i);
+const YEAR_OPTIONS = Array.from({ length: 80 }, (_, i) => CURRENT_YEAR + -i);
 const RATING_OPTIONS = [9, 8, 7, 6, 5, 4];
 
 type FilmType = "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
@@ -436,7 +436,10 @@ export default function BrowseClient({
       clearKey: "ratingFrom",
     });
   if (ratingTo)
-    activeFilterTags.push({ label: `<= ${ratingTo} Rating`, clearKey: "ratingTo" });
+    activeFilterTags.push({
+      label: `<= ${ratingTo} Rating`,
+      clearKey: "ratingTo",
+    });
   if (yearFrom)
     activeFilterTags.push({ label: `From ${yearFrom}`, clearKey: "yearFrom" });
   if (yearTo)
