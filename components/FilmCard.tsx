@@ -17,19 +17,17 @@ interface FilmCardProps {
   index?: number;
 }
 
-interface OriginOffset {
-  x: number;
-  y: number;
-  scale: number;
-}
-
 const SCROLL_SIZE_CLASSES = {
   sm: "w-[110px] h-[165px] sm:w-[140px] sm:h-[210px]",
   md: "w-[130px] h-[195px] sm:w-[175px] sm:h-[263px]",
   lg: "w-[160px] h-[240px] sm:w-[220px] sm:h-[330px]",
 };
 
-const POPUP_WIDTH = 230;
+const POPUP_WIDTH = 256;
+const POPUP_HEIGHT = 384;
+const LONG_PRESS_MS = 450;
+const MOVE_THRESHOLD_PX = 10;
+const EXIT_ANIMATION_MS = 240;
 
 function resolveRating(film: Film): number | string | null {
   const candidates = [
@@ -78,137 +76,131 @@ export default function FilmCard({
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
     if (!id) return;
     setIsFav(isInList("favorites", id));
     setIsWL(isInList("watchlater", id));
+    setMounted(true);
   }, [id]);
 
   const { toast } = useToast();
 
-  // ── Mobile Peek & Pop State ──
-  const [mobileMenuMounted, setMobileMenuMounted] = useState(false);
-  const [mobileMenuActive, setMobileMenuActive] = useState(false);
-  const [isPressing, setIsPressing] = useState(false);
-  const [originOffset, setOriginOffset] = useState<OriginOffset>({
-    x: 0,
-    y: 0,
-    scale: 0.75,
-  });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [menuEntered, setMenuEntered] = useState(false);
+  const [originDelta, setOriginDelta] = useState<{
+    x: number;
+    y: number;
+    scale: number;
+  }>({ x: 0, y: 0, scale: 0.65 });
 
-  const posterRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pressFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didLongPress = useRef(false);
   const touchMoved = useRef(false);
   const touchStartPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-
-  const clearTimers = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-    if (pressFeedbackTimer.current) {
-      clearTimeout(pressFeedbackTimer.current);
-      pressFeedbackTimer.current = null;
-    }
-  }, []);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const posterRef = useRef<HTMLDivElement>(null);
 
   const openMobileMenu = useCallback(() => {
-    if (posterRef.current && typeof window !== "undefined") {
-      const rect = posterRef.current.getBoundingClientRect();
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+
+    const targetEl = posterRef.current ?? cardRef.current;
+    if (targetEl && typeof window !== "undefined") {
+      const rect = targetEl.getBoundingClientRect();
       const cardCenterX = rect.left + rect.width / 2;
       const cardCenterY = rect.top + rect.height / 2;
       const viewportCenterX = window.innerWidth / 2;
-      // Target sits slightly above true vertical center to leave room for bottom action buttons
-      const viewportCenterY = window.innerHeight / 2 - 44;
+      // Slightly above vertical center to leave room for the bottom action dock
+      const viewportCenterY = window.innerHeight * 0.43;
 
-      setOriginOffset({
+      setOriginDelta({
         x: cardCenterX - viewportCenterX,
         y: cardCenterY - viewportCenterY,
-        scale: Math.max(0.4, rect.width / POPUP_WIDTH),
+        scale: Math.max(0.45, Math.min(0.85, rect.width / POPUP_WIDTH)),
       });
     }
 
-    setIsPressing(false);
-    setMobileMenuMounted(true);
-    if (navigator.vibrate) navigator.vibrate(35);
-
+    setMobileMenuOpen(true);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        setMobileMenuActive(true);
+        setMenuEntered(true);
       });
     });
   }, []);
 
   const closeMobileMenu = useCallback(() => {
-    setMobileMenuActive(false);
+    setMenuEntered(false);
     if (closeTimer.current) clearTimeout(closeTimer.current);
     closeTimer.current = setTimeout(() => {
-      setMobileMenuMounted(false);
-    }, 280);
+      setMobileMenuOpen(false);
+      closeTimer.current = null;
+    }, EXIT_ANIMATION_MS);
   }, []);
 
   useEffect(() => {
-    if (!mobileMenuMounted) return;
+    return () => {
+      if (longPressTimer.current) clearTimeout(longPressTimer.current);
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    };
+  }, []);
+
+  // Lock page scroll while mobile popup is active
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, [mobileMenuMounted]);
-
-  useEffect(() => {
-    return () => {
-      clearTimers();
-      if (closeTimer.current) clearTimeout(closeTimer.current);
-    };
-  }, [clearTimers]);
+  }, [mobileMenuOpen]);
 
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
-      if (window.innerWidth >= 640) return; // Desktop uses hover
+      if (mobileMenuOpen) return;
       didLongPress.current = false;
       touchMoved.current = false;
       const touch = e.touches[0];
-      touchStartPos.current = { x: touch.clientX, y: touch.clientY };
-
-      // Subtle tactile squeeze right before long-press fires
-      pressFeedbackTimer.current = setTimeout(() => {
-        if (!touchMoved.current) setIsPressing(true);
-      }, 110);
+      if (touch) {
+        touchStartPos.current = { x: touch.clientX, y: touch.clientY };
+      }
 
       longPressTimer.current = setTimeout(() => {
         if (touchMoved.current) return;
         didLongPress.current = true;
+        if (typeof navigator !== "undefined" && navigator.vibrate) {
+          navigator.vibrate(35);
+        }
         openMobileMenu();
-      }, 440);
+      }, LONG_PRESS_MS);
     },
-    [openMobileMenu],
+    [mobileMenuOpen, openMobileMenu],
   );
 
-  const handleTouchMove = useCallback(
-    (e: React.TouchEvent) => {
-      const touch = e.touches[0];
-      const dx = Math.abs(touch.clientX - touchStartPos.current.x);
-      const dy = Math.abs(touch.clientY - touchStartPos.current.y);
-      if (dx > 8 || dy > 8) {
-        touchMoved.current = true;
-        setIsPressing(false);
-        clearTimers();
-      }
-    },
-    [clearTimers],
-  );
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    if (touch) {
+      const dx = touch.clientX - touchStartPos.current.x;
+      const dy = touch.clientY - touchStartPos.current.y;
+      if (Math.hypot(dx, dy) < MOVE_THRESHOLD_PX) return;
+    }
+    touchMoved.current = true;
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
 
   const handleTouchEnd = useCallback(() => {
-    setIsPressing(false);
-    clearTimers();
-  }, [clearTimers]);
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
 
   const posterUrl = film.posterUrlPreview || film.posterUrl || null;
-  const highResPosterUrl = film.posterUrl || film.posterUrlPreview || null;
+  const hiResPosterUrl = film.posterUrl || film.posterUrlPreview || undefined;
   const entryYear = film.year ?? film.startYear ?? null;
   const entryRating = film.ratingKinopoisk ?? film.ratingImdb ?? null;
 
@@ -224,9 +216,13 @@ export default function FilmCard({
         rating: entryRating,
       });
       setIsFav(added);
-      if (navigator.vibrate) navigator.vibrate(20);
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(20);
+      }
       toast.success(added ? "Added to Favorites" : "Removed from Favorites");
-      if (mobileMenuMounted) closeMobileMenu();
+      // if (mobileMenuOpen) {
+      //   closeMobileMenu();
+      // }
     },
     [
       id,
@@ -235,8 +231,8 @@ export default function FilmCard({
       entryYear,
       entryRating,
       toast,
-      mobileMenuMounted,
-      closeMobileMenu,
+      mobileMenuOpen,
+      // closeMobileMenu,
     ],
   );
 
@@ -252,9 +248,13 @@ export default function FilmCard({
         rating: entryRating,
       });
       setIsWL(added);
-      if (navigator.vibrate) navigator.vibrate(20);
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(20);
+      }
       toast.info(added ? "Saved to Watch Later" : "Removed from Watch Later");
-      if (mobileMenuMounted) closeMobileMenu();
+      // if (mobileMenuOpen) {
+      //   closeMobileMenu();
+      // }
     },
     [
       id,
@@ -263,24 +263,31 @@ export default function FilmCard({
       entryYear,
       entryRating,
       toast,
-      mobileMenuMounted,
-      closeMobileMenu,
+      mobileMenuOpen,
+      // closeMobileMenu,
     ],
   );
 
   const handleLinkClick = useCallback(
     (e: React.MouseEvent) => {
-      if (didLongPress.current || mobileMenuMounted) {
+      if (didLongPress.current || mobileMenuOpen) {
         e.preventDefault();
         didLongPress.current = false;
       }
     },
-    [mobileMenuMounted],
+    [mobileMenuOpen],
   );
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
   }, []);
+
+  const primaryGenre = film.genres?.[0]
+    ? translateGenre(film.genres[0].genre, autoTranslate)
+    : null;
+  const primaryCountry = film.countries?.[0]
+    ? translateCountry(film.countries[0].country, autoTranslate)
+    : null;
 
   return (
     <>
@@ -291,11 +298,10 @@ export default function FilmCard({
         onContextMenu={handleContextMenu}
       >
         <div
-          className={`film-card pb-1 cursor-pointer relative transition-transform duration-200 ease-out ${
+          ref={cardRef}
+          className={`film-card pb-1 cursor-pointer relative transition-all duration-300 ${
             isScroll ? `min-h-fit ${SCROLL_SIZE_CLASSES[size]}` : "w-full"
-          } ${isPressing ? "scale-[0.94]" : "scale-100"} ${
-            mobileMenuMounted ? "opacity-0" : "opacity-100"
-          }`}
+          } ${mobileMenuOpen ? "opacity-0 scale-95 pointer-events-none" : ""}`}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchEnd}
@@ -427,14 +433,14 @@ export default function FilmCard({
                   {year}
                 </span>
               )}
-              {film.genres?.[0] && (
+              {primaryGenre && (
                 <span className="tag tag-dim !text-[9px] sm:!text-[10px] !py-[1px] !px-[6px] sm:!px-[7px]">
-                  {translateGenre(film.genres[0].genre, autoTranslate)}
+                  {primaryGenre}
                 </span>
               )}
-              {film.countries?.[0] && (
+              {primaryCountry && (
                 <span className="hidden sm:inline tag tag-dim !text-[10px] !py-[1px] !px-[7px]">
-                  {translateCountry(film.countries[0].country, autoTranslate)}
+                  {primaryCountry}
                 </span>
               )}
             </div>
@@ -442,106 +448,161 @@ export default function FilmCard({
         </div>
       </Link>
 
-      {/* ── Mobile Full-Screen Peek & Pop Portal ── */}
+      {/* ── Mobile Long-Press Centered Peek & Action Portal ── */}
       {mounted &&
-        mobileMenuMounted &&
+        mobileMenuOpen &&
+        typeof document !== "undefined" &&
         createPortal(
           <div
-            className="fixed inset-0 z-[9999] flex flex-col items-center justify-center px-6 sm:hidden select-none"
+            className="fixed inset-0 z-[9999] sm:hidden flex flex-col items-center justify-center px-6 select-none"
             onClick={(e) => {
+              e.preventDefault();
               e.stopPropagation();
               closeMobileMenu();
             }}
             onContextMenu={handleContextMenu}
           >
-            {/* Blurred Backdrop */}
+            {/* Full-screen blurred glass backdrop */}
             <div
-              className={`absolute inset-0 bg-black/75 backdrop-blur-xl transition-opacity duration-300 ease-out ${
-                mobileMenuActive ? "opacity-100" : "opacity-0"
+              className={`absolute inset-0 transition-all duration-300 ease-out ${
+                menuEntered
+                  ? "bg-black/75 backdrop-blur-xl opacity-100"
+                  : "bg-black/0 backdrop-blur-none opacity-0"
               }`}
+              style={{
+                backgroundImage: menuEntered
+                  ? "radial-gradient(circle at 50% 42%, rgba(229, 9, 20, 0.16), transparent 62%)"
+                  : "none",
+              }}
             />
 
-            {/* Content Wrapper */}
+            {/* Centered wrapper for card + positioned controls */}
             <div
-              className="relative z-10 flex flex-col items-center w-full max-w-[270px]"
+              className="relative z-10 flex flex-col items-center"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Popped-Out Card (Animates from exact grid/scroll slot to center) */}
+              {/* Floating Top-Right Close Button */}
+              <button
+                type="button"
+                aria-label="Close preview"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  closeMobileMenu();
+                }}
+                style={{
+                  transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+                  transitionDelay: menuEntered ? "120ms" : "0ms",
+                }}
+                className={`absolute -top-4 -right-4 z-30 w-9 h-9 rounded-full bg-[rgba(18,18,22,0.88)] backdrop-blur-md border border-white/20 text-white/85 flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.65)] active:scale-90 transition-all duration-300 ${
+                  menuEntered
+                    ? "opacity-100 scale-100 translate-y-0"
+                    : "opacity-0 scale-50 translate-y-3"
+                }`}
+              >
+                <X size={16} strokeWidth={2.5} />
+              </button>
+
+              {/* Expanded Center Popup Card (animates from original card coordinates) */}
               <div
                 style={{
                   width: `${POPUP_WIDTH}px`,
-                  transform: mobileMenuActive
-                    ? "translate3d(0px, 0px, 0) scale(1)"
-                    : `translate3d(${originOffset.x}px, ${originOffset.y}px, 0) scale(${originOffset.scale})`,
+                  height: `${POPUP_HEIGHT}px`,
+                  transform: menuEntered
+                    ? "translate3d(0px, 0px, 0px) scale(1)"
+                    : `translate3d(${originDelta.x}px, ${originDelta.y}px, 0px) scale(${originDelta.scale})`,
                   transition:
-                    "transform 380ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 380ms ease",
+                    "transform 380ms cubic-bezier(0.22, 1, 0.36, 1), opacity 240ms ease-out, box-shadow 380ms ease-out",
+                  opacity: menuEntered ? 1 : 0.2,
                 }}
-                className="aspect-[2/3] rounded-[18px] overflow-hidden relative bg-[var(--bg-card)] border border-white/15 shadow-[0_28px_70px_rgba(0,0,0,0.9),0_0_40px_rgba(229,9,20,0.18)]"
+                className="relative rounded-[20px] overflow-hidden bg-[var(--bg-card)] border border-white/15 shadow-[0_28px_70px_rgba(0,0,0,0.85),0_0_0_1px_rgba(229,9,20,0.28)]"
               >
-                <PosterImage
-                  src={highResPosterUrl || undefined}
-                  alt={name}
-                  title={name}
-                />
+                <PosterImage src={hiResPosterUrl} alt={name} title={name} />
 
-                {/* Bottom vignette inside popped poster for metadata */}
-                <div className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/95 via-black/55 to-transparent pointer-events-none" />
+                {/* Multi-stop cinematic vignette */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/30 to-black/15 pointer-events-none" />
 
-                {/* Rating Badge on Popped Card */}
+                {/* Top-Left Active Status Pills */}
+                {(isFav || isWL) && (
+                  <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10">
+                    {isFav && (
+                      <div className="w-7 h-7 rounded-lg bg-[rgba(229,9,20,0.9)] backdrop-blur-md border border-white/20 flex items-center justify-center shadow-lg">
+                        <Heart size={13} fill="white" stroke="white" />
+                      </div>
+                    )}
+                    {isWL && (
+                      <div className="w-7 h-7 rounded-lg bg-[rgba(96,165,250,0.9)] backdrop-blur-md border border-white/20 flex items-center justify-center shadow-lg">
+                        <Clock size={13} stroke="white" strokeWidth={2.5} />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Top-Right Rating Badge */}
                 {rating !== null && (
-                  <div className="absolute top-3 right-3 bg-black/80 backdrop-blur-md border border-[#f5c518]/40 rounded-lg px-2.5 py-1 flex items-center gap-1 shadow-lg">
+                  <div className="absolute top-3 right-3 z-10 bg-black/80 backdrop-blur-md border border-[rgba(245,197,24,0.4)] rounded-lg px-2.5 py-1 flex items-center gap-1.5 shadow-lg">
                     <Star size={12} fill="#f5c518" stroke="#f5c518" />
-                    <span className="text-xs font-bold text-[#f5c518] font-display tracking-wide">
+                    <span className="text-[12px] font-semibold text-[#f5c518] font-display tracking-[0.5px]">
                       {formatRating(rating)}
                     </span>
                   </div>
                 )}
 
-                {/* Title & Metadata inside Popped Card bottom */}
+                {/* Bottom Metadata Inside Expanded Poster */}
                 <div
-                  className={`absolute bottom-3 inset-x-3.5 transition-all duration-300 delay-75 ${
-                    mobileMenuActive
+                  style={{
+                    transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+                    transitionDelay: menuEntered ? "90ms" : "0ms",
+                  }}
+                  className={`absolute bottom-0 inset-x-0 p-4 z-10 transition-all duration-300 ${
+                    menuEntered
                       ? "opacity-100 translate-y-0"
-                      : "opacity-0 translate-y-2"
+                      : "opacity-0 translate-y-3"
                   }`}
                 >
-                  <h3 className="text-[15px] font-bold text-white leading-snug line-clamp-2 drop-shadow-sm">
+                  <p className="text-[16px] font-bold text-white leading-[1.25] line-clamp-2 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
                     {name}
-                  </h3>
-                  <div className="flex items-center gap-2 mt-1 text-[11px] text-white/70 font-medium">
-                    {year && <span>{year}</span>}
-                    {year && film.genres?.[0] && <span>•</span>}
-                    {film.genres?.[0] && (
-                      <span className="text-white/90">
-                        {translateGenre(film.genres[0].genre, autoTranslate)}
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                    {year && (
+                      <span className="text-[11px] font-medium text-white/80 bg-white/10 backdrop-blur-sm px-2 py-0.5 rounded-md border border-white/10">
+                        {year}
+                      </span>
+                    )}
+                    {primaryGenre && (
+                      <span className="text-[11px] font-medium text-white/85 bg-white/10 backdrop-blur-sm px-2 py-0.5 rounded-md border border-white/10">
+                        {primaryGenre}
+                      </span>
+                    )}
+                    {primaryCountry && (
+                      <span className="text-[11px] font-medium text-white/70 bg-white/10 backdrop-blur-sm px-2 py-0.5 rounded-md border border-white/10">
+                        {primaryCountry}
                       </span>
                     )}
                   </div>
                 </div>
               </div>
 
-              {/* ── Floating Action Buttons Panel ── */}
-              <div
-                style={{
-                  transition:
-                    "opacity 260ms ease, transform 360ms cubic-bezier(0.32, 0.72, 0, 1)",
-                  transitionDelay: mobileMenuActive ? "60ms" : "0ms",
-                }}
-                className={`w-full mt-4 flex flex-col gap-2.5 ${
-                  mobileMenuActive
-                    ? "opacity-100 translate-y-0 scale-100"
-                    : "opacity-0 -translate-y-4 scale-90 pointer-events-none"
-                }`}
-              >
-                {/* Row 1: Favorite & Watch Later Pills */}
-                <div className="grid grid-cols-2 gap-2.5 w-full">
+              {/* ── Repositioned Floating Action Controls Below Popup Card ── */}
+              <div className="mt-4 w-[256px] flex flex-col gap-2.5">
+                {/* Left & Right Action Pills: Favorite (Left) & Watch Later (Right) */}
+                <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     onClick={handleFav}
-                    className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl backdrop-blur-xl border text-xs font-semibold transition-all active:scale-95 ${
+                    style={{
+                      transitionTimingFunction:
+                        "cubic-bezier(0.22, 1, 0.36, 1)",
+                      transitionDelay: menuEntered ? "110ms" : "0ms",
+                    }}
+                    className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl border backdrop-blur-xl font-semibold text-[12px] active:scale-95 transition-all duration-300 ${
+                      menuEntered
+                        ? "opacity-100 translate-y-0 scale-100"
+                        : "opacity-0 -translate-y-3 scale-90"
+                    } ${
                       isFav
-                        ? "bg-[rgba(229,9,20,0.28)] border-[rgba(229,9,20,0.65)] text-white shadow-[0_0_24px_rgba(229,9,20,0.3)]"
-                        : "bg-white/10 border-white/15 text-white/90"
+                        ? "bg-[rgba(229,9,20,0.28)] border-[rgba(229,9,20,0.75)] text-white shadow-[0_8px_24px_rgba(229,9,20,0.3)]"
+                        : "bg-[rgba(24,24,28,0.82)] border-white/15 text-white/90"
                     }`}
                   >
                     <Heart
@@ -549,47 +610,60 @@ export default function FilmCard({
                       fill={isFav ? "var(--accent)" : "none"}
                       stroke={isFav ? "var(--accent)" : "currentColor"}
                       strokeWidth={2.2}
+                      className="shrink-0"
                     />
-                    <span>{isFav ? "Favorited" : "Favorite"}</span>
+                    <span className="truncate">
+                      {isFav ? "Favorited" : "Favorite"}
+                    </span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleWL}
-                    className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl backdrop-blur-xl border text-xs font-semibold transition-all active:scale-95 ${
+                    style={{
+                      transitionTimingFunction:
+                        "cubic-bezier(0.22, 1, 0.36, 1)",
+                      transitionDelay: menuEntered ? "150ms" : "0ms",
+                    }}
+                    className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl border backdrop-blur-xl font-semibold text-[12px] active:scale-95 transition-all duration-300 ${
+                      menuEntered
+                        ? "opacity-100 translate-y-0 scale-100"
+                        : "opacity-0 -translate-y-3 scale-90"
+                    } ${
                       isWL
-                        ? "bg-[rgba(96,165,250,0.28)] border-[rgba(96,165,250,0.65)] text-[#93c5fd] shadow-[0_0_24px_rgba(96,165,250,0.25)]"
-                        : "bg-white/10 border-white/15 text-white/90"
+                        ? "bg-[rgba(96,165,250,0.28)] border-[rgba(96,165,250,0.75)] text-[#93c5fd] shadow-[0_8px_24px_rgba(96,165,250,0.28)]"
+                        : "bg-[rgba(24,24,28,0.82)] border-white/15 text-white/90"
                     }`}
                   >
                     <Clock
                       size={16}
                       stroke={isWL ? "#60a5fa" : "currentColor"}
                       strokeWidth={2.2}
+                      className="shrink-0"
                     />
-                    <span>{isWL ? "Saved" : "Watch Later"}</span>
+                    <span className="truncate">
+                      {isWL ? "In Watchlist" : "Watch Later"}
+                    </span>
                   </button>
                 </div>
 
-                {/* Row 2: Open Film Details / Watch CTA */}
+                {/* Bottom Full-Width Primary Action: Open / Watch Film */}
                 <Link
                   href={`/film/${id}`}
-                  onClick={() => closeMobileMenu()}
-                  className="w-full py-3 rounded-2xl bg-[var(--accent,#e50914)] text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-[0_8px_24px_rgba(229,9,20,0.4)] active:scale-95 transition-transform no-underline"
+                  onClick={() => setMobileMenuOpen(false)}
+                  style={{
+                    transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+                    transitionDelay: menuEntered ? "190ms" : "0ms",
+                  }}
+                  className={`flex items-center justify-center gap-2 w-full py-3 px-4 rounded-2xl bg-[var(--accent,#e50914)] text-white font-semibold text-[13px] no-underline shadow-[0_10px_28px_rgba(229,9,20,0.45)] border border-white/15 active:scale-95 transition-all duration-300 ${
+                    menuEntered
+                      ? "opacity-100 translate-y-0 scale-100"
+                      : "opacity-0 -translate-y-3 scale-90"
+                  }`}
                 >
-                  <Play size={14} fill="white" stroke="white" />
-                  <span>Watch Now</span>
+                  <Play size={15} fill="white" stroke="white" />
+                  <span>Open Details</span>
                 </Link>
-
-                {/* Row 3: Dismiss Button */}
-                <button
-                  type="button"
-                  onClick={closeMobileMenu}
-                  className="mx-auto mt-1 w-10 h-10 rounded-full bg-white/10 border border-white/15 backdrop-blur-xl flex items-center justify-center text-white/70 active:scale-90 transition-transform"
-                  aria-label="Close preview"
-                >
-                  <X size={16} strokeWidth={2.4} />
-                </button>
               </div>
             </div>
           </div>,
