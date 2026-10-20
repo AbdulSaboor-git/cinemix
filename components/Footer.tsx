@@ -46,7 +46,7 @@ export default function Footer() {
         {/* Bottom bar */}
         <div className="mt-8 sm:mt-10 pt-5 sm:pt-6 border-t border-[var(--border)] flex flex-col sm:flex-row justify-between items-center gap-1 sm:gap-2">
           <p className="text-[12px] text-[var(--text-muted)]">
-            © {year} CineMix. Data provided by Kinopoisk API.
+            © {year} CineMix
           </p>
           <p className="text-[11px] text-[var(--text-muted)]">
             For entertainment purposes only.
