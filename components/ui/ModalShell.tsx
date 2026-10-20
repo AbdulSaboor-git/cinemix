@@ -2,6 +2,7 @@
 import React, { useEffect } from "react";
 import { X } from "lucide-react";
 import { lockScroll, unlockScroll } from "@/lib/scrollLock";
+import { useModalBack } from "@/hooks/useModalBack";
 
 interface ModalShellProps {
   open: boolean;
@@ -39,6 +40,7 @@ export default function ModalShell({
     };
   }, [open, onClose]);
 
+  useModalBack(open, onClose);
   if (!open) return null;
 
   return (
