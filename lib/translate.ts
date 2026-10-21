@@ -386,6 +386,31 @@ export function translateCountry(ru: string, enabled = true): string {
   return COUNTRY_MAP[trimmed] ?? trimmed;
 }
 
+/**
+ * Safe date formatter that never outputs "Invalid Date".
+ */
+export function formatDateSafe(
+  rawDate?: string | null,
+  options: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  },
+): string | null {
+  if (!rawDate) return null;
+  const cleaned = rawDate.trim();
+  if (!cleaned || cleaned.endsWith("-00-00")) {
+    const yearMatch = cleaned.match(/^(\d{4})/);
+    return yearMatch ? yearMatch[1] : null;
+  }
+  const d = new Date(cleaned);
+  if (isNaN(d.getTime())) {
+    const yearMatch = cleaned.match(/^(\d{4})/);
+    return yearMatch ? yearMatch[1] : null;
+  }
+  return d.toLocaleDateString("en-US", options);
+}
+
 // ─── Strip HTML tags safely (no XSS risk) ─────────────────────────────────────
 
 export function stripHtml(html: string): string {
@@ -459,7 +484,8 @@ export async function translateText(
   const promise = (async () => {
     try {
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (!res.ok) return text;
       const json = await res.json();
       const translated = (json[0] as [string, string][])
         .map((chunk) => chunk[0])

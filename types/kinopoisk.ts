@@ -18,6 +18,42 @@ export type CollectionType =
   | "TOP_250_BEST_FILMS"
   | "TOP_AWAIT_FILMS";
 
+export type MediaTypeFilter =
+  | "ALL"
+  | "FILM"
+  | "TV_SERIES"
+  | "TV_SHOW"
+  | "MINI_SERIES";
+
+export type ExploreSortOrder =
+  | "NUM_VOTE"
+  | "RATING"
+  | "IMDB_RATING"
+  | "KP_RATING"
+  | "YEAR"
+  | "HIDDEN_GEMS"
+  | "CRITICS"
+  | "TITLE"
+  | "RANDOM";
+
+export type SortDirection = "DESC" | "ASC";
+
+export type RatingSource = "AUTO" | "IMDB" | "KP" | "AVERAGE" | "CRITICS";
+
+export type RuntimeBucket = "ANY" | "SHORT" | "MEDIUM" | "LONG" | "STANDARD" | "EPIC";
+
+export type AgeTierFilter = "FAMILY" | "TEEN" | "MATURE";
+
+export type SeriesStatusFilter = "ALL" | "COMPLETED" | "ONGOING";
+
+export interface SavedExplorePreset {
+  id: string;
+  name: string;
+  params: Record<string, string>;
+  queryString?: string;
+  createdAt: number | string;
+}
+
 export interface Film {
   filmId?: number;
   kinopoiskId: number;
@@ -74,6 +110,8 @@ export interface FilmsResponse {
   items: Film[];
 }
 
+export type StaffMember = Staff;
+
 export interface Staff {
   staffId: number;
   nameRu?: string;
@@ -96,6 +134,7 @@ export interface PersonDetail {
   death?: string;
   deathplace?: string;
   age?: number;
+  growth?: number | string;
   hasAwards?: number;
   profession?: string;
   facts?: string[];
@@ -212,6 +251,17 @@ export interface ImageItem {
   imageUrl: string;
   previewUrl: string;
 }
+
+export type GalleryImageType =
+  | "STILL"
+  | "SHOOTING"
+  | "POSTER"
+  | "WALLPAPER"
+  | "FAN_ART"
+  | "PROMO"
+  | "CONCEPT"
+  | "COVER"
+  | "SCREENSHOT";
 
 export interface ImagesResponse {
   total: number;

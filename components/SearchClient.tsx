@@ -1,17 +1,20 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Search, X } from "lucide-react";
-import { searchFilms } from "@/lib/kinopoisk";
+import Link from "next/link";
+import { Search, X, SlidersHorizontal, Compass } from "lucide-react";
+import { searchFilms, isRussianDomesticFilm } from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
 import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
-import { hasApiKeys } from "@/lib/preferences";
+import { hasApiKeys, getPreferences } from "@/lib/preferences";
 import FilmCard from "@/components/FilmCard";
 import Pagination from "@/components/Pagination";
 import SearchSuggestionDropdown from "@/components/SearchSuggestionDropdown";
 import PageContainer from "@/components/ui/PageContainer";
 import PageHeader from "@/components/ui/PageHeader";
+import TabBar from "@/components/ui/TabBar";
+import TabPill from "@/components/ui/TabPill";
 import EmptyState from "@/components/ui/EmptyState";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
 
@@ -30,8 +33,20 @@ export default function SearchClient({
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState(query);
+
+  // Post-Search Filter & Sort Controls
+  const [mediaFilter, setMediaFilter] = useState<"ALL" | "FILM" | "SERIES">(
+    "ALL",
+  );
+  const [excludeRu, setExcludeRu] = useState(false);
+  const [hideUnrated, setHideUnrated] = useState(false);
+  const [sortBy, setSortBy] = useState<"RELEVANCE" | "RATING" | "YEAR">(
+    "RELEVANCE",
+  );
+
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   useDocumentTitle(query ? `Search: ${query}` : "Search");
 
@@ -52,7 +67,26 @@ export default function SearchClient({
       return;
     }
     setSearch(query);
+    const prefs = getPreferences();
+    if (prefs.contentRegionMode === "GLOBAL_FIRST") {
+      setExcludeRu(false);
+    }
   }, [query]);
+
+  // Outside pointerdown listener replaces fragile 250ms onBlur timeout
+  useEffect(() => {
+    if (!sugVisible) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (
+        wrapperRef.current &&
+        !wrapperRef.current.contains(e.target as Node)
+      ) {
+        setSugVisible(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [sugVisible, setSugVisible]);
 
   useEffect(() => {
     if (!hasApiKeys() || !query) return;
@@ -67,6 +101,41 @@ export default function SearchClient({
       .catch(() => setFilms([]))
       .finally(() => setLoading(false));
   }, [query, page]);
+
+  const displayedFilms = useMemo(() => {
+    const filtered = films.filter((f) => {
+      if (mediaFilter === "FILM" && f.type && f.type !== "FILM") return false;
+      if (
+        mediaFilter === "SERIES" &&
+        f.type !== "TV_SERIES" &&
+        f.type !== "MINI_SERIES" &&
+        f.type !== "TV_SHOW" &&
+        !f.serial
+      ) {
+        return false;
+      }
+      if (excludeRu && isRussianDomesticFilm(f)) return false;
+      if (hideUnrated) {
+        const r = f.ratingImdb ?? f.ratingKinopoisk ?? f.rating;
+        if (!r || Number(r) <= 0) return false;
+      }
+      return true;
+    });
+
+    if (sortBy === "RATING") {
+      return [...filtered].sort((a, b) => {
+        const rA = a.ratingImdb ?? a.ratingKinopoisk ?? Number(a.rating || 0);
+        const rB = b.ratingImdb ?? b.ratingKinopoisk ?? Number(b.rating || 0);
+        return rB - rA;
+      });
+    }
+    if (sortBy === "YEAR") {
+      return [...filtered].sort(
+        (a, b) => Number(b.year || 0) - Number(a.year || 0),
+      );
+    }
+    return filtered;
+  }, [films, mediaFilter, excludeRu, hideUnrated, sortBy]);
 
   if (noKey) return <NoKeyBanner />;
 
@@ -91,14 +160,13 @@ export default function SearchClient({
     <PageContainer>
       {/* Search box */}
       <form onSubmit={handleSubmit} className="mb-6 sm:mb-8">
-        <div className="relative w-full max-w-[600px]">
+        <div ref={wrapperRef} className="relative w-full max-w-[640px]">
           <input
             ref={inputRef}
             value={search}
             onChange={(e) => handleChange(e.target.value)}
             onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
             onFocus={() => suggestions.length > 0 && setSugVisible(true)}
-            onBlur={() => setTimeout(() => setSugVisible(false), 250)}
             placeholder="Search films, series, actors…"
             className="input text-[15px] sm:text-[16px] py-3 pl-10 pr-10 sm:py-3.5 rounded-xl sm:rounded-[14px] w-full"
             autoFocus={!query}
@@ -148,7 +216,85 @@ export default function SearchClient({
               ? `${total.toLocaleString()} result${total !== 1 ? "s" : ""} found`
               : undefined
           }
+          rightSlot={
+            <Link
+              href={`/explore?keyword=${encodeURIComponent(query)}`}
+              className="no-underline"
+            >
+              <span className="btn btn-ghost py-2 px-3.5 text-[12px]">
+                <Compass size={13} />
+                Open in Advanced Explore
+              </span>
+            </Link>
+          }
         />
+      )}
+
+      {/* Post-Search Filter & Sort Bar */}
+      {query && !loading && films.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <TabBar>
+              <TabPill
+                active={mediaFilter === "ALL"}
+                onClick={() => setMediaFilter("ALL")}
+              >
+                All ({films.length})
+              </TabPill>
+              <TabPill
+                active={mediaFilter === "FILM"}
+                onClick={() => setMediaFilter("FILM")}
+              >
+                Movies
+              </TabPill>
+              <TabPill
+                active={mediaFilter === "SERIES"}
+                onClick={() => setMediaFilter("SERIES")}
+              >
+                Series
+              </TabPill>
+            </TabBar>
+
+            <button
+              type="button"
+              onClick={() => setExcludeRu((v) => !v)}
+              className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border cursor-pointer ${
+                excludeRu
+                  ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
+                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
+              }`}
+            >
+              Exclude Russian
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setHideUnrated((v) => !v)}
+              className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border cursor-pointer ${
+                hideUnrated
+                  ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
+                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
+              }`}
+            >
+              Rated Only
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal size={13} className="text-[var(--text-muted)]" />
+            <select
+              value={sortBy}
+              onChange={(e) =>
+                setSortBy(e.target.value as "RELEVANCE" | "RATING" | "YEAR")
+              }
+              className="select text-[12px] py-1.5 px-3 rounded-[8px]"
+            >
+              <option value="RELEVANCE">Sort: Best Match</option>
+              <option value="RATING">Sort: Highest Rating</option>
+              <option value="YEAR">Sort: Newest Year</option>
+            </select>
+          </div>
+        </div>
       )}
 
       {/* Results */}
@@ -164,17 +310,17 @@ export default function SearchClient({
             <div key={i} className="skeleton aspect-[2/3] rounded-[12px]" />
           ))}
         </div>
-      ) : films.length === 0 ? (
+      ) : displayedFilms.length === 0 ? (
         <EmptyState
           icon={<Search size={40} />}
           title={`No Results for “${query}”`}
-          description="Try a different search term or explore by genre."
+          description="Try clearing your post-search filters or explore by genre."
           actionLabel="Explore All"
           actionHref="/explore"
         />
       ) : (
         <div className="film-grid">
-          {films.map((film, i) => {
+          {displayedFilms.map((film, i) => {
             const id = film.kinopoiskId ?? film.filmId ?? i;
             return <FilmCard key={id} film={film} />;
           })}

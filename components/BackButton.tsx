@@ -3,12 +3,14 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 
+export const NAV_DEPTH_KEY = "cinemix_internal_nav_depth";
+
 interface BackButtonProps {
   desktopOnly?: boolean;
   fallbackHref?: string;
   label?: string;
   className?: string;
-  iconOnlyOnPhone?: boolean; // New prop to control icon-only display on phone
+  iconOnlyOnPhone?: boolean;
 }
 
 export default function BackButton({
@@ -16,16 +18,20 @@ export default function BackButton({
   fallbackHref = "/",
   label = "Back",
   className = "mb-5",
-  iconOnlyOnPhone = false, // Default to false
+  iconOnlyOnPhone = false,
 }: BackButtonProps) {
   const router = useRouter();
 
   const handleBack = () => {
-    if (typeof window !== "undefined" && window.history.length > 1) {
-      router.back();
-    } else {
-      router.push(fallbackHref);
+    if (typeof window !== "undefined") {
+      const depth = parseInt(sessionStorage.getItem(NAV_DEPTH_KEY) || "0", 10);
+      if (depth > 1 && window.history.length > 1) {
+        sessionStorage.setItem(NAV_DEPTH_KEY, String(Math.max(1, depth - 1)));
+        router.back();
+        return;
+      }
     }
+    router.push(fallbackHref);
   };
 
   return (

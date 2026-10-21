@@ -12,6 +12,7 @@ import {
   Search,
   Settings,
   X,
+  Shuffle,
 } from "lucide-react";
 import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import SearchSuggestionDropdown from "@/components/SearchSuggestionDropdown";
@@ -39,6 +40,9 @@ export default function Navbar() {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const mobileInputRef = useRef<HTMLInputElement>(null);
+  const desktopSearchRef = useRef<HTMLDivElement>(null);
+  const mobileSearchRef = useRef<HTMLDivElement>(null);
+
   const router = useRouter();
   const pathname = usePathname();
 
@@ -70,6 +74,47 @@ export default function Navbar() {
       return () => clearTimeout(t);
     }
   }, [searchOpen]);
+
+  // Outside pointerdown listener replaces fragile 200ms onBlur timeout so mobile taps never get swallowed
+  useEffect(() => {
+    if (!sugVisible) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      const inDesktop = desktopSearchRef.current?.contains(target);
+      const inMobile = mobileSearchRef.current?.contains(target);
+      if (!inDesktop && !inMobile) {
+        setSugVisible(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [sugVisible, setSugVisible]);
+
+  // Global keyboard shortcut: "/" or Ctrl+K / Cmd+K focuses search
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isEditing =
+        tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (window.innerWidth >= 1024) {
+          inputRef.current?.focus();
+        } else {
+          setSearchOpen(true);
+        }
+      } else if (e.key === "/" && !isEditing) {
+        e.preventDefault();
+        if (window.innerWidth >= 1024) {
+          inputRef.current?.focus();
+        } else {
+          setSearchOpen(true);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const handleSearchChange = (val: string) => {
     setSearch(val);
@@ -126,7 +171,7 @@ export default function Navbar() {
         <div className="flex-1 md:hidden" />
 
         {/* Desktop search */}
-        <div className="hidden lg:block relative">
+        <div ref={desktopSearchRef} className="hidden lg:block relative">
           <form onSubmit={handleSubmit}>
             <div className="relative">
               <input
@@ -135,9 +180,8 @@ export default function Navbar() {
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onFocus={() => search.trim().length >= 2 && setSugVisible(true)}
-                onBlur={() => setTimeout(() => setSugVisible(false), 200)}
-                placeholder="Search films, series…"
-                className="bg-[rgba(255,255,255,0.07)] border border-[var(--border)] rounded-[20px] py-[7px] pl-9 pr-8 text-[var(--text)] text-[13px] outline-none placeholder:text-[var(--text-muted)] transition-[width,border-color,background] duration-300 w-[190px] focus:w-[260px] focus:border-[rgba(229,9,20,0.5)] focus:bg-[rgba(255,255,255,0.1)]"
+                placeholder="Search films, series… (/)"
+                className="bg-[rgba(255,255,255,0.07)] border border-[var(--border)] rounded-[20px] py-[7px] pl-9 pr-8 text-[var(--text)] text-[13px] outline-none placeholder:text-[var(--text-muted)] transition-[width,border-color,background] duration-300 w-[200px] focus:w-[270px] focus:border-[rgba(229,9,20,0.5)] focus:bg-[rgba(255,255,255,0.1)]"
               />
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 w-[13px] h-[13px]" />
               {search && (
@@ -169,8 +213,20 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* Desktop profile + preferences */}
+        {/* Desktop Random Roulette + Profile + Preferences */}
         <div className="hidden md:flex items-center gap-1 ml-1">
+          <Link
+            href="/explore?order=RANDOM"
+            className="no-underline"
+            title="Random Film Roulette"
+          >
+            <NavIconBtn
+              active={false}
+              aria-label="Random Film Roulette"
+            >
+              <Shuffle width={18} />
+            </NavIconBtn>
+          </Link>
           <Link
             href="/preferences"
             className="no-underline"
@@ -217,6 +273,7 @@ export default function Navbar() {
       {/* ── Mobile search bar ── */}
       {searchOpen && (
         <div
+          ref={mobileSearchRef}
           className="lg:hidden fixed left-0 right-0 z-[190] bg-[rgba(8,8,8,0.98)] backdrop-blur-[20px] shadow-[0_1px_0_var(--border)] px-4 py-3 slide-down"
           style={{ top: "var(--nav-height)" }}
         >
@@ -227,7 +284,6 @@ export default function Navbar() {
                 value={search}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
-                onBlur={() => setTimeout(() => setSugVisible(false), 200)}
                 placeholder="Search films, series, actors…"
                 className="pl-10 pr-9 text-[15px] py-3 input"
               />

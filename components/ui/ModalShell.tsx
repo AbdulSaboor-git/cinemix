@@ -27,6 +27,8 @@ export default function ModalShell({
   maxWidthClass = "sm:max-w-[520px]",
   children,
 }: ModalShellProps) {
+  useModalBack(open, onClose);
+
   useEffect(() => {
     if (!open) return;
     lockScroll();
@@ -40,7 +42,6 @@ export default function ModalShell({
     };
   }, [open, onClose]);
 
-  useModalBack(open, onClose);
   if (!open) return null;
 
   return (

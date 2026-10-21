@@ -1,13 +1,23 @@
 "use client";
 // components/HomeClient.tsx
 import { useEffect, useState } from "react";
-import { getTopFilms, getFilmsByFilter, getPremieres } from "@/lib/kinopoisk";
+import {
+  getTopFilms,
+  getPremieres,
+  getCuratedHomeSection,
+  getSimilarFilms,
+  isRussianDomesticFilm,
+  deduplicateFilms,
+  getCachedFilmMeta,
+} from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
 import HeroBanner from "@/components/HeroBanner";
 import FilmRow from "@/components/FilmRow";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
 import { getPreferences, hasApiKeys, Preferences } from "@/lib/preferences";
+import { getList } from "@/lib/userLists";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { SESSION_KEY } from "@/lib/session";
 
 const CURRENT_MONTH = new Date()
   .toLocaleString("en-US", { month: "long" })
@@ -28,12 +38,73 @@ export default function HomeClient() {
   const [horrorFilms, setHorrorFilms] = useState<Film[]>([]);
   const [premiereFilms, setPremiereFilms] = useState<Film[]>([]);
 
+  // Personalized rows
+  const [recentHistoryFilms, setRecentHistoryFilms] = useState<Film[]>([]);
+  const [watchLaterFilms, setWatchLaterFilms] = useState<Film[]>([]);
+  const [becauseYouWatched, setBecauseYouWatched] = useState<{
+    seedTitle: string;
+    items: Film[];
+  } | null>(null);
+
   const [loaded, setLoaded] = useState(false);
   const [secondaryLoaded, setSecondaryLoaded] = useState(false);
   const [noKey, setNoKey] = useState(false);
   const [sections, setSections] = useState<Preferences["homeSections"] | null>(
     null,
   );
+
+  // Sync personal lists (Continue Watching & Watch Later) reactively
+  useEffect(() => {
+    const syncLists = () => {
+      const hist = getList("history").slice(0, 15);
+      const wl = getList("watchlater").slice(0, 15);
+
+      setRecentHistoryFilms(
+        hist.map((e) => {
+          const cached = getCachedFilmMeta(e.film_id);
+          return {
+            ...cached,
+            kinopoiskId: e.film_id,
+            filmId: e.film_id,
+            nameEn: e.film_name || cached?.nameEn,
+            nameRu: e.film_name || cached?.nameRu,
+            posterUrl: e.poster_url || cached?.posterUrl || "",
+            posterUrlPreview: e.poster_url || cached?.posterUrlPreview || "",
+            year: e.year ?? cached?.year,
+            ratingKinopoisk: e.rating ?? cached?.ratingKinopoisk,
+          };
+        }),
+      );
+
+      setWatchLaterFilms(
+        wl.map((e) => {
+          const cached = getCachedFilmMeta(e.film_id);
+          return {
+            ...cached,
+            kinopoiskId: e.film_id,
+            filmId: e.film_id,
+            nameEn: e.film_name || cached?.nameEn,
+            nameRu: e.film_name || cached?.nameRu,
+            posterUrl: e.poster_url || cached?.posterUrl || "",
+            posterUrlPreview: e.poster_url || cached?.posterUrlPreview || "",
+            year: e.year ?? cached?.year,
+            ratingKinopoisk: e.rating ?? cached?.ratingKinopoisk,
+          };
+        }),
+      );
+    };
+
+    syncLists();
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key || e.key === SESSION_KEY) syncLists();
+    };
+    window.addEventListener("cinemix-session-change", syncLists);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("cinemix-session-change", syncLists);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasApiKeys()) {
@@ -44,49 +115,105 @@ export default function HomeClient() {
     let mounted = true;
     const prefs = getPreferences();
     const s = prefs.homeSections;
+    const regionMode = prefs.contentRegionMode ?? "GLOBAL_FIRST";
     setSections(s);
 
-    // Stage 1: Load Hero + Trending + Top 250 first so the page renders immediately
+    // Stage 1: Load Hollywood/Global Trending + Top 250 first so the page renders immediately
     Promise.allSettled([
-      s.popular ? getTopFilms("TOP_POPULAR_ALL") : Promise.resolve(null),
+      s.popular
+        ? getCuratedHomeSection({
+            collection: "TOP_POPULAR_MOVIES",
+            type: "FILM",
+            ratingFrom: 6.8,
+          })
+        : Promise.resolve(null),
       s.top250 ? getTopFilms("TOP_250_MOVIES") : Promise.resolve(null),
     ]).then(([popular, top250]) => {
       if (!mounted) return;
       if (popular.status === "fulfilled" && popular.value) {
-        setPopularFilms(popular.value.items);
+        setPopularFilms(popular.value);
       }
       if (top250.status === "fulfilled" && top250.value) {
-        setTop250Films(top250.value.items);
+        const rawTop = top250.value.items;
+        setTop250Films(
+          regionMode === "GLOBAL_FIRST"
+            ? rawTop.filter((f) => !isRussianDomesticFilm(f))
+            : rawTop,
+        );
       }
       setLoaded(true);
 
-      // Stage 2: Load remaining rows progressively in the background
+      // Personalized "Because You Watched / Loved" row
+      const seedEntry = getList("history")[0] ?? getList("favorites")[0];
+      if (seedEntry) {
+        getSimilarFilms(seedEntry.film_id)
+          .then((sim) => {
+            if (!mounted || !sim.items?.length) return;
+            const mapped: Film[] = sim.items.slice(0, 16).map((sf) => {
+              const cached = getCachedFilmMeta(sf.filmId);
+              return {
+                ...cached,
+                kinopoiskId: sf.filmId,
+                filmId: sf.filmId,
+                nameRu: sf.nameRu ?? cached?.nameRu,
+                nameEn: sf.nameEn ?? cached?.nameEn,
+                nameOriginal: sf.nameOriginal ?? cached?.nameOriginal,
+                posterUrl: sf.posterUrl || cached?.posterUrl || "",
+                posterUrlPreview:
+                  sf.posterUrlPreview || cached?.posterUrlPreview || "",
+              };
+            });
+            setBecauseYouWatched({
+              seedTitle: seedEntry.film_name,
+              items: mapped,
+            });
+          })
+          .catch(() => {});
+      }
+
+      // Stage 2: Load remaining Hollywood/Global-curated rows progressively
       Promise.allSettled([
         s.premieres
           ? getPremieres(CURRENT_YEAR, CURRENT_MONTH)
           : Promise.resolve(null),
         s.series
-          ? getFilmsByFilter({
-              type: "TV_SERIES",
-              order: "RATING",
-              ratingFrom: 7,
-            })
+          ? getCuratedHomeSection({ type: "TV_SERIES", ratingFrom: 7.2 })
           : Promise.resolve(null),
         s.action
-          ? getFilmsByFilter({ genres: 11, order: "RATING", ratingFrom: 7 })
+          ? getCuratedHomeSection({
+              type: "FILM",
+              genreId: 11,
+              ratingFrom: 6.8,
+            })
           : Promise.resolve(null),
         s.drama
-          ? getFilmsByFilter({ genres: 2, order: "RATING", ratingFrom: 7 })
+          ? getCuratedHomeSection({
+              type: "FILM",
+              genreId: 2,
+              ratingFrom: 7.0,
+            })
           : Promise.resolve(null),
         s.scifi
-          ? getFilmsByFilter({ genres: 6, order: "RATING", ratingFrom: 7 })
+          ? getCuratedHomeSection({
+              type: "FILM",
+              genreId: 6,
+              ratingFrom: 6.8,
+            })
           : Promise.resolve(null),
         s.upcoming ? getTopFilms("CLOSES_RELEASES") : Promise.resolve(null),
         s.comedy
-          ? getFilmsByFilter({ genres: 13, order: "RATING", ratingFrom: 6 })
+          ? getCuratedHomeSection({
+              type: "FILM",
+              genreId: 13,
+              ratingFrom: 6.5,
+            })
           : Promise.resolve(null),
         s.horror
-          ? getFilmsByFilter({ genres: 17, order: "RATING", ratingFrom: 6 })
+          ? getCuratedHomeSection({
+              type: "FILM",
+              genreId: 17,
+              ratingFrom: 6.2,
+            })
           : Promise.resolve(null),
       ]).then(
         ([
@@ -101,28 +228,38 @@ export default function HomeClient() {
         ]) => {
           if (!mounted) return;
           if (premieres.status === "fulfilled" && premieres.value) {
-            setPremiereFilms(premieres.value.items);
+            const pItems = premieres.value.items;
+            const filteredP =
+              regionMode === "GLOBAL_FIRST"
+                ? pItems.filter((f) => !isRussianDomesticFilm(f))
+                : pItems;
+            setPremiereFilms(filteredP.length >= 6 ? filteredP : pItems);
           }
           if (series.status === "fulfilled" && series.value) {
-            setSeriesFilms(series.value.items);
+            setSeriesFilms(series.value);
           }
           if (action.status === "fulfilled" && action.value) {
-            setActionFilms(action.value.items);
+            setActionFilms(action.value);
           }
           if (drama.status === "fulfilled" && drama.value) {
-            setDramaFilms(drama.value.items);
+            setDramaFilms(drama.value);
           }
           if (scifi.status === "fulfilled" && scifi.value) {
-            setScifiFilms(scifi.value.items);
+            setScifiFilms(scifi.value);
           }
           if (upcoming.status === "fulfilled" && upcoming.value) {
-            setAwaitFilms(upcoming.value.items);
+            const uItems = upcoming.value.items;
+            const filteredU =
+              regionMode === "GLOBAL_FIRST"
+                ? uItems.filter((f) => !isRussianDomesticFilm(f))
+                : uItems;
+            setAwaitFilms(filteredU.length >= 6 ? filteredU : uItems);
           }
           if (comedy.status === "fulfilled" && comedy.value) {
-            setComedyFilms(comedy.value.items);
+            setComedyFilms(comedy.value);
           }
           if (horror.status === "fulfilled" && horror.value) {
-            setHorrorFilms(horror.value.items);
+            setHorrorFilms(horror.value);
           }
           setSecondaryLoaded(true);
         },
@@ -139,28 +276,62 @@ export default function HomeClient() {
 
   const s = sections!;
 
-  const heroFilm =
-    popularFilms.find((f) => f.coverUrl) ??
-    popularFilms[0] ??
-    top250Films.find((f) => f.coverUrl) ??
-    top250Films[0] ??
-    null;
+  // Curate 5 high-impact global spotlight slides for the top Hero Carousel
+  const heroPool = deduplicateFilms([...popularFilms, ...top250Films]).filter(
+    (f) => !isRussianDomesticFilm(f),
+  );
+  const heroWithCovers = heroPool.filter((f) => f.coverUrl);
+  const heroSlides =
+    heroWithCovers.length >= 3
+      ? heroWithCovers.slice(0, 5)
+      : heroPool.slice(0, 5);
+
   const secondHero =
-    top250Films.find((f) => f.coverUrl && f !== heroFilm) ??
-    top250Films[1] ??
+    top250Films.find(
+      (f) =>
+        f.coverUrl && !heroSlides.some((h) => h.kinopoiskId === f.kinopoiskId),
+    ) ??
+    top250Films[5] ??
     null;
-  const thirdHero = awaitFilms.find((f) => f.coverUrl) ?? null;
+  const thirdHero =
+    awaitFilms.find((f) => f.coverUrl && !isRussianDomesticFilm(f)) ??
+    scifiFilms.find((f) => f.coverUrl) ??
+    null;
 
   return (
     <div className="fade-in">
-      {heroFilm && <HeroBanner film={heroFilm} />}
+      {heroSlides.length > 0 && <HeroBanner films={heroSlides} />}
 
       <div className="relative z-[2] pt-6 sm:pt-8">
+        {recentHistoryFilms.length > 0 && (
+          <FilmRow
+            title="Recently Watched"
+            films={recentHistoryFilms}
+            href="/profile/history"
+          />
+        )}
+
+        {watchLaterFilms.length > 0 && (
+          <FilmRow
+            title="From Your Watch Later"
+            films={watchLaterFilms}
+            href="/profile/watchlater"
+          />
+        )}
+
+        {becauseYouWatched && becauseYouWatched.items.length > 0 && (
+          <FilmRow
+            title={`Because You Watched “${becauseYouWatched.seedTitle}”`}
+            films={becauseYouWatched.items}
+            href="/explore?lens=FOR_YOU"
+          />
+        )}
+
         {s.popular && popularFilms.length > 0 && (
           <FilmRow
-            title="Trending Now"
+            title="Trending Blockbusters"
             films={popularFilms.slice(0, 20)}
-            href="/explore?type=FILM"
+            href="/explore?type=FILM&order=NUM_VOTE"
           />
         )}
         {s.top250 && top250Films.length > 0 && (
@@ -180,16 +351,16 @@ export default function HomeClient() {
         )}
         {s.series && seriesFilms.length > 0 && (
           <FilmRow
-            title="Top Series"
+            title="Popular Global Series"
             films={seriesFilms.slice(0, 20)}
-            href="/explore?type=TV_SERIES"
+            href="/explore?type=TV_SERIES&order=NUM_VOTE"
           />
         )}
         {s.action && actionFilms.length > 0 && (
           <FilmRow
             title="Action & Adventure"
             films={actionFilms.slice(0, 20)}
-            href="/explore?type=FILM&genres=11"
+            href="/explore?type=FILM&genres=11&order=NUM_VOTE"
           />
         )}
 
@@ -201,23 +372,23 @@ export default function HomeClient() {
 
         {s.drama && dramaFilms.length > 0 && (
           <FilmRow
-            title="Drama"
+            title="Acclaimed Drama"
             films={dramaFilms.slice(0, 20)}
-            href="/explore?type=FILM&genres=2"
+            href="/explore?type=FILM&genres=2&order=NUM_VOTE"
           />
         )}
         {s.scifi && scifiFilms.length > 0 && (
           <FilmRow
             title="Sci-Fi & Fantasy"
             films={scifiFilms.slice(0, 20)}
-            href="/explore?type=FILM&genres=6"
+            href="/explore?type=FILM&genres=6&order=NUM_VOTE"
           />
         )}
         {s.comedy && comedyFilms.length > 0 && (
           <FilmRow
-            title="Comedy"
+            title="Hit Comedies"
             films={comedyFilms.slice(0, 20)}
-            href="/explore?type=FILM&genres=13"
+            href="/explore?type=FILM&genres=13&order=NUM_VOTE"
           />
         )}
 
@@ -229,9 +400,9 @@ export default function HomeClient() {
 
         {s.horror && horrorFilms.length > 0 && (
           <FilmRow
-            title="Horror"
+            title="Horror & Suspense"
             films={horrorFilms.slice(0, 20)}
-            href="/explore?type=FILM&genres=17"
+            href="/explore?type=FILM&genres=17&order=NUM_VOTE"
           />
         )}
         {s.upcoming && awaitFilms.length > 0 && (

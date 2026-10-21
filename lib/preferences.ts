@@ -4,13 +4,16 @@
 
 import {
   SessionPreferences,
-  CustomPlayerServer,
+  ContentRegionMode,
   DEFAULT_PREFERENCES as SESSION_DEFAULTS,
   getApiKeys as sessionGetApiKeys,
   hasApiKeys as sessionHasApiKeys,
   getSession,
   saveSession,
 } from "./session";
+import { SavedExplorePreset } from "@/types/kinopoisk";
+
+export type { ContentRegionMode };
 
 export type Preferences = {
   apiKeys: string[];
@@ -19,6 +22,8 @@ export type Preferences = {
   suggestionLimit: number;
   autoTranslateEnabled: boolean;
   historyEnabled: boolean;
+  safeModeEnabled: boolean;
+  contentRegionMode: ContentRegionMode;
   homeSections: {
     popular: boolean;
     top250: boolean;
@@ -41,13 +46,11 @@ export type Preferences = {
     sequels: boolean;
     reviews: boolean;
     distributions: boolean;
-    videos: boolean;
+    parentalGuide: boolean;
   };
   defaultExploreType: "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
   defaultExploreOrder: "RATING" | "NUM_VOTE" | "YEAR";
-  preferredPlayerId: string;
-  alwaysAskPlayer: boolean;
-  customPlayers: CustomPlayerServer[];
+  savedExplorePresets: SavedExplorePreset[];
 };
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -57,13 +60,15 @@ export const DEFAULT_PREFERENCES: Preferences = {
   suggestionLimit: SESSION_DEFAULTS.suggestionLimit,
   autoTranslateEnabled: SESSION_DEFAULTS.autoTranslateEnabled,
   historyEnabled: SESSION_DEFAULTS.historyEnabled,
+  safeModeEnabled: SESSION_DEFAULTS.safeModeEnabled,
+  contentRegionMode: SESSION_DEFAULTS.contentRegionMode,
   homeSections: SESSION_DEFAULTS.homeSections as Preferences["homeSections"],
   filmSections: SESSION_DEFAULTS.filmSections as Preferences["filmSections"],
-  defaultExploreType: SESSION_DEFAULTS.defaultExploreType as Preferences["defaultExploreType"],
-  defaultExploreOrder: SESSION_DEFAULTS.defaultExploreOrder as Preferences["defaultExploreOrder"],
-  preferredPlayerId: SESSION_DEFAULTS.preferredPlayerId,
-  alwaysAskPlayer: SESSION_DEFAULTS.alwaysAskPlayer,
-  customPlayers: SESSION_DEFAULTS.customPlayers,
+  defaultExploreType:
+    SESSION_DEFAULTS.defaultExploreType as Preferences["defaultExploreType"],
+  defaultExploreOrder:
+    SESSION_DEFAULTS.defaultExploreOrder as Preferences["defaultExploreOrder"],
+  savedExplorePresets: SESSION_DEFAULTS.savedExplorePresets,
 };
 
 export function getPreferences(): Preferences {
@@ -76,13 +81,29 @@ export function getPreferences(): Preferences {
     suggestionLimit: prefs.suggestionLimit,
     autoTranslateEnabled: prefs.autoTranslateEnabled,
     historyEnabled: prefs.historyEnabled ?? true,
+    safeModeEnabled: prefs.safeModeEnabled ?? true,
+    contentRegionMode: prefs.contentRegionMode ?? "GLOBAL_FIRST",
     homeSections: prefs.homeSections as Preferences["homeSections"],
-    filmSections: prefs.filmSections as Preferences["filmSections"],
-    defaultExploreType: prefs.defaultExploreType as Preferences["defaultExploreType"],
-    defaultExploreOrder: prefs.defaultExploreOrder as Preferences["defaultExploreOrder"],
-    preferredPlayerId: prefs.preferredPlayerId || "flcksbr",
-    alwaysAskPlayer: prefs.alwaysAskPlayer ?? true,
-    customPlayers: prefs.customPlayers ?? [],
+    filmSections: {
+      cast: prefs.filmSections?.cast ?? true,
+      awards: prefs.filmSections?.awards ?? true,
+      gallery: prefs.filmSections?.gallery ?? true,
+      facts: prefs.filmSections?.facts ?? true,
+      boxOffice: prefs.filmSections?.boxOffice ?? true,
+      similars: prefs.filmSections?.similars ?? true,
+      sequels: prefs.filmSections?.sequels ?? true,
+      reviews: prefs.filmSections?.reviews ?? true,
+      distributions: prefs.filmSections?.distributions ?? true,
+      parentalGuide: prefs.filmSections?.parentalGuide ?? true,
+    },
+    defaultExploreType:
+      (prefs.defaultExploreType as Preferences["defaultExploreType"]) || "ALL",
+    defaultExploreOrder:
+      (prefs.defaultExploreOrder as Preferences["defaultExploreOrder"]) ||
+      "NUM_VOTE",
+    savedExplorePresets: Array.isArray(prefs.savedExplorePresets)
+      ? prefs.savedExplorePresets
+      : [],
   };
 }
 
@@ -100,4 +121,29 @@ export function getApiKeys(): string[] {
 
 export function hasApiKeys(): boolean {
   return sessionHasApiKeys();
+}
+
+export function getSavedExplorePresets(): SavedExplorePreset[] {
+  return getPreferences().savedExplorePresets ?? [];
+}
+
+export function saveExplorePreset(
+  preset: SavedExplorePreset,
+): SavedExplorePreset[] {
+  const prefs = getPreferences();
+  const existing = prefs.savedExplorePresets ?? [];
+  const updated = [
+    preset,
+    ...existing.filter((p) => p.id !== preset.id && p.name !== preset.name),
+  ].slice(0, 15);
+  savePreferences({ ...prefs, savedExplorePresets: updated });
+  return updated;
+}
+
+export function deleteExplorePreset(id: string): SavedExplorePreset[] {
+  const prefs = getPreferences();
+  const existing = prefs.savedExplorePresets ?? [];
+  const updated = existing.filter((p) => p.id !== id);
+  savePreferences({ ...prefs, savedExplorePresets: updated });
+  return updated;
 }

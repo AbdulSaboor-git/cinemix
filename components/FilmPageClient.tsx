@@ -1,10 +1,8 @@
 "use client";
-import { useEffect, useState } from "react";
-import Image from "next/image";
+import React, { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import {
   Play,
-  Film as FilmIcon,
   Heart,
   Clock,
   ChevronLeft,
@@ -21,6 +19,7 @@ import {
   Trophy,
   Award as AwardIcon,
   ShieldAlert,
+  Lock,
 } from "lucide-react";
 import {
   getFilm,
@@ -34,6 +33,8 @@ import {
   getFilmAwards,
   getFilmImages,
   getFilmDistributions,
+  isAdultContentFilm,
+  isSafeModeActive,
 } from "@/lib/kinopoisk";
 import {
   Film,
@@ -46,12 +47,14 @@ import {
   Award,
   ImageItem,
   Distribution,
+  GalleryImageType,
 } from "@/types/kinopoisk";
 import {
   translateGenre,
   translateCountry,
   translateAwardName,
   isRussian,
+  formatDateSafe,
 } from "@/lib/translate";
 import { getPreferences, hasApiKeys } from "@/lib/preferences";
 import {
@@ -61,6 +64,7 @@ import {
   useFilmTitle,
 } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { useListStatus } from "@/hooks/useListStatus";
 import { lockScroll, unlockScroll } from "@/lib/scrollLock";
 import ActorCard from "@/components/ActorCard";
 import FilmCard from "@/components/FilmCard";
@@ -73,7 +77,7 @@ import PosterImage from "@/components/ui/PosterImage";
 import EmptyState from "@/components/ui/EmptyState";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
 import ParentalGuideModal from "@/components/ParentalGuideModal";
-import { toggleFavorite, toggleWatchLater, isInList } from "@/lib/userLists";
+import { toggleFavorite, toggleWatchLater } from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
 
 export default function FilmPageClient({ filmId }: { filmId: string }) {
@@ -115,12 +119,16 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
     setDistributions([]);
     window.scrollTo({ top: 0 });
 
-    // Await only getFilm(id) so the main detail view renders immediately
     getFilm(id)
       .then((f) => {
         if (!mounted) return;
         setFilm(f);
         setLoading(false);
+
+        // If Safe Mode blocks this film, skip auxiliary fetches
+        if (isSafeModeActive() && isAdultContentFilm(f)) {
+          return;
+        }
 
         const fs = getPreferences().filmSections;
 
@@ -191,6 +199,21 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
   if (loading) return <LoadingSkeleton />;
   if (error || !film) return <ErrorState />;
 
+  // App-Wide Safe Mode Direct URL Gate
+  if (isSafeModeActive() && isAdultContentFilm(film)) {
+    return (
+      <PageContainer className="flex items-center justify-center">
+        <EmptyState
+          icon={<Lock size={44} stroke="var(--accent)" strokeWidth={1.6} />}
+          title="Safe Mode Content Restricted"
+          description="This title is flagged as adult or erotic content and is hidden because Safe Mode is enabled in your preferences."
+          actionLabel="Back to Home"
+          actionHref="/"
+        />
+      </PageContainer>
+    );
+  }
+
   return (
     <FilmDetail
       film={film}
@@ -203,7 +226,7 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
       similars={similars}
       reviews={reviews}
       awards={awards}
-      images={images}
+      initialImages={images}
       distributions={distributions}
     />
   );
@@ -307,7 +330,7 @@ function FilmDetail({
   similars,
   reviews,
   awards,
-  images,
+  initialImages,
   distributions,
 }: {
   film: Film;
@@ -320,7 +343,7 @@ function FilmDetail({
   similars: SimilarFilm[];
   reviews: Review[];
   awards: Award[];
-  images: ImageItem[];
+  initialImages: ImageItem[];
   distributions: Distribution[];
 }) {
   const autoTranslate = useAutoTranslate();
@@ -336,19 +359,25 @@ function FilmDetail({
     name ? `${name}${displayYear ? ` (${displayYear})` : ""}` : "Film",
   );
 
+  // Cast & Crew department state
+  const [activeStaffDept, setActiveStaffDept] = useState<string>("ACTOR");
+  const [castExpanded, setCastExpanded] = useState(false);
+
+  // Trivia & Reviews state
   const [reviewsExpanded, setReviewsExpanded] = useState(false);
+  const [reviewFilter, setReviewFilter] = useState<
+    "ALL" | "POSITIVE" | "NEGATIVE" | "NEUTRAL"
+  >("ALL");
+  const [reviewSort, setReviewSort] = useState<"NEWEST" | "HELPFUL" | "CRITICAL">(
+    "NEWEST",
+  );
   const [factsExpanded, setFactsExpanded] = useState(false);
   const [showSpoilers, setShowSpoilers] = useState(false);
   const [activeTab, setActiveTab] = useState<"facts" | "bloopers">("facts");
-  const [isFav, setIsFav] = useState(false);
-  const [isWL, setIsWL] = useState(false);
+
+  const { isFav, isWL } = useListStatus(filmId);
   const [parentalOpen, setParentalOpen] = useState(false);
   const { toast } = useToast();
-
-  useEffect(() => {
-    setIsFav(isInList("favorites", filmId));
-    setIsWL(isInList("watchlater", filmId));
-  }, [filmId]);
 
   const filmEntry = {
     film_id: filmId,
@@ -360,20 +389,17 @@ function FilmDetail({
 
   const handleFav = () => {
     const added = toggleFavorite(filmEntry);
-    setIsFav(added);
     toast.success(added ? "Added to Favorites" : "Removed from Favorites");
   };
 
   const handleWL = () => {
     const added = toggleWatchLater(filmEntry);
-    setIsWL(added);
     toast.info(added ? "Saved to Watch Later" : "Removed from Watch Later");
   };
 
   const directors = staff
     .filter((s) => s.professionKey === "DIRECTOR")
     .slice(0, 3);
-  const actors = staff.filter((s) => s.professionKey === "ACTOR").slice(0, 20);
   const writers = staff.filter((s) => s.professionKey === "WRITER").slice(0, 3);
   const producers = staff
     .filter((s) => s.professionKey === "PRODUCER")
@@ -381,6 +407,19 @@ function FilmDetail({
   const composers = staff
     .filter((s) => s.professionKey === "COMPOSER")
     .slice(0, 2);
+
+  const staffByDept = useMemo(() => {
+    const map: Record<string, Staff[]> = {};
+    for (const s of staff) {
+      const k = s.professionKey || "OTHER";
+      if (!map[k]) map[k] = [];
+      map[k].push(s);
+    }
+    return map;
+  }, [staff]);
+
+  const deptList = staffByDept[activeStaffDept] || [];
+  const visibleDeptMembers = castExpanded ? deptList : deptList.slice(0, 20);
 
   const budget = boxOffice.find((b) => b.type === "BUDGET");
   const usaGross = boxOffice.find((b) => b.type === "USA");
@@ -390,14 +429,35 @@ function FilmDetail({
   const factItems = facts.filter((f) => f.type === "FACT");
   const blooperItems = facts.filter((f) => f.type === "BLOOPER");
   const activeFactItems = activeTab === "facts" ? factItems : blooperItems;
-  // Filter out spoilers BEFORE slicing so non-spoiler facts are never hidden behind leading spoilers
   const filteredFactItems = activeFactItems.filter(
     (f) => !f.spoiler || showSpoilers,
   );
   const visibleFacts = factsExpanded
     ? filteredFactItems
     : filteredFactItems.slice(0, 4);
-  const visibleReviews = reviewsExpanded ? reviews : reviews.slice(0, 2);
+
+  // Filter and sort audience reviews
+  const processedReviews = useMemo(() => {
+    const filtered = reviews.filter((r) => {
+      if (reviewFilter === "ALL") return true;
+      return r.type === reviewFilter;
+    });
+    return [...filtered].sort((a, b) => {
+      if (reviewSort === "HELPFUL") {
+        return b.positiveRating - a.positiveRating;
+      }
+      if (reviewSort === "CRITICAL") {
+        return b.negativeRating - a.negativeRating;
+      }
+      return (
+        (new Date(b.date).getTime() || 0) - (new Date(a.date).getTime() || 0)
+      );
+    });
+  }, [reviews, reviewFilter, reviewSort]);
+
+  const visibleReviews = reviewsExpanded
+    ? processedReviews
+    : processedReviews.slice(0, 3);
 
   const ratings = [
     film.ratingKinopoisk && {
@@ -424,6 +484,8 @@ function FilmDetail({
     votes?: number;
     color: "accent" | "gold" | "blue";
   }[];
+
+  const primaryYear = film.year || film.startYear;
 
   return (
     <PageContainer>
@@ -502,7 +564,17 @@ function FilmDetail({
           </h1>
 
           <div className="flex flex-wrap gap-[6px] sm:gap-2 mb-4">
-            {displayYear && <MetaTag>{displayYear}</MetaTag>}
+            {displayYear && primaryYear ? (
+              <Link
+                href={`/explore?yearFrom=${primaryYear}&yearTo=${primaryYear}`}
+                className="no-underline"
+                title={`Explore titles from ${primaryYear}`}
+              >
+                <MetaTag clickable>{displayYear}</MetaTag>
+              </Link>
+            ) : (
+              displayYear && <MetaTag>{displayYear}</MetaTag>
+            )}
             {film.filmLength && film.filmLength > 0 && (
               <MetaTag>
                 {Math.floor(film.filmLength / 60)}h {film.filmLength % 60}m
@@ -583,7 +655,7 @@ function FilmDetail({
             ))}
           </div>
 
-          {/* ── Primary Action Row (Watch Now, Favorite, Watch Later) ── */}
+          {/* ── Primary Action Row (Watch Now, In Favorites, Watch Later) ── */}
           <div className="flex flex-wrap items-center gap-2.5 mb-6">
             <Link href={`/watch/${filmId}`} className="no-underline">
               <button
@@ -610,7 +682,7 @@ function FilmDetail({
                 stroke="currentColor"
                 strokeWidth={2}
               />
-              {isFav ? "Favorited" : "Add to Favorites"}
+              {isFav ? "In Favorites" : "Add to Favorites"}
             </button>
 
             <button
@@ -693,15 +765,47 @@ function FilmDetail({
         <SeasonsSection seasons={seasons} autoTranslate={autoTranslate} />
       )}
 
-      {/* ── Cast ── */}
-      {actors.length > 0 && (
+      {/* ── Cast & Crew (with Department Tabs & Expand All) ── */}
+      {staff.length > 0 && (
         <div className="mt-10 md:mt-12">
-          <SectionHeader title="CAST" count={actors.length} />
+          <SectionHeader title="CAST & CREW" count={deptList.length} />
+          <TabBar className="mb-4">
+            {[
+              { key: "ACTOR", label: "Actors" },
+              { key: "DIRECTOR", label: "Directors" },
+              { key: "WRITER", label: "Writers" },
+              { key: "PRODUCER", label: "Producers" },
+              { key: "COMPOSER", label: "Composers" },
+              { key: "OPERATOR", label: "Cinematographers" },
+            ]
+              .filter((d) => (staffByDept[d.key]?.length ?? 0) > 0)
+              .map((d) => (
+                <TabPill
+                  key={d.key}
+                  active={activeStaffDept === d.key}
+                  onClick={() => {
+                    setActiveStaffDept(d.key);
+                    setCastExpanded(false);
+                  }}
+                >
+                  {d.label} ({staffByDept[d.key].length})
+                </TabPill>
+              ))}
+          </TabBar>
+
           <div className="grid gap-[8px] sm:gap-[10px] md:gap-3 grid-cols-[repeat(auto-fill,minmax(90px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(105px,1fr))]">
-            {actors.map((actor) => (
-              <ActorCard key={actor.staffId} actor={actor} />
+            {visibleDeptMembers.map((member, idx) => (
+              <ActorCard key={`${member.staffId}-${idx}`} actor={member} />
             ))}
           </div>
+
+          {deptList.length > 20 && (
+            <ExpandBtn onClick={() => setCastExpanded((v) => !v)}>
+              {castExpanded
+                ? "Show top 20"
+                : `Show all ${deptList.length} credits (+${deptList.length - 20} more)`}
+            </ExpandBtn>
+          )}
         </div>
       )}
 
@@ -769,27 +873,77 @@ function FilmDetail({
         </div>
       )}
 
-      {/* ── Reviews ── */}
+      {/* ── Audience Reviews (with Sentiment Filter & Sort Bar) ── */}
       {reviews.length > 0 && (
         <div className="mt-10 md:mt-12">
-          <SectionHeader title="AUDIENCE REVIEWS" count={reviews.length} />
+          <SectionHeader
+            title="AUDIENCE REVIEWS"
+            count={processedReviews.length}
+            rightSlot={
+              <select
+                value={reviewSort}
+                onChange={(e) =>
+                  setReviewSort(
+                    e.target.value as "NEWEST" | "HELPFUL" | "CRITICAL",
+                  )
+                }
+                className="select text-[12px] py-1.5 px-3 rounded-[8px]"
+                aria-label="Sort reviews"
+              >
+                <option value="NEWEST">Sort: Newest First</option>
+                <option value="HELPFUL">Sort: Most Helpful</option>
+                <option value="CRITICAL">Sort: Most Critical</option>
+              </select>
+            }
+          />
+
+          <TabBar className="mb-4">
+            {(
+              [
+                { id: "ALL", label: `All (${reviews.length})` },
+                {
+                  id: "POSITIVE",
+                  label: `Positive (${reviews.filter((r) => r.type === "POSITIVE").length})`,
+                },
+                {
+                  id: "NEGATIVE",
+                  label: `Negative (${reviews.filter((r) => r.type === "NEGATIVE").length})`,
+                },
+                {
+                  id: "NEUTRAL",
+                  label: `Neutral (${reviews.filter((r) => r.type === "NEUTRAL").length})`,
+                },
+              ] as const
+            ).map((tab) => (
+              <TabPill
+                key={tab.id}
+                active={reviewFilter === tab.id}
+                onClick={() => setReviewFilter(tab.id)}
+              >
+                {tab.label}
+              </TabPill>
+            ))}
+          </TabBar>
+
           <div className="flex flex-col gap-3">
             {visibleReviews.map((review, i) => (
               <ReviewCard key={review.kinopoiskId ?? i} review={review} />
             ))}
           </div>
-          {reviews.length > 2 && (
+          {processedReviews.length > 3 && (
             <ExpandBtn onClick={() => setReviewsExpanded((v) => !v)}>
               {reviewsExpanded
                 ? "Show less"
-                : `Show all ${reviews.length} reviews`}
+                : `Show all ${processedReviews.length} reviews`}
             </ExpandBtn>
           )}
         </div>
       )}
 
-      {/* ── Gallery ── */}
-      {images.length > 0 && <GallerySection images={images} />}
+      {/* ── Multi-Category Gallery ── */}
+      {initialImages.length > 0 && (
+        <GallerySection filmId={filmId} initialImages={initialImages} />
+      )}
 
       {/* ── Awards ── */}
       {awards.length > 0 && (
@@ -905,6 +1059,12 @@ function ReviewCard({ review }: { review: Review }) {
       ? "text-[var(--accent)] bg-[var(--accent-dim)]"
       : "text-[var(--text-muted)] bg-[var(--surface)]";
 
+  const formattedDate = formatDateSafe(review.date, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+
   return (
     <div
       className={`bg-[var(--bg-card)] border border-[var(--border)] border-l-[3px] rounded-[var(--radius)] p-3 sm:p-4 md:p-[18px_20px] ${borderCls}`}
@@ -957,13 +1117,11 @@ function ReviewCard({ review }: { review: Review }) {
           {expanded ? "Read less" : "Read more"}
         </button>
       )}
-      <p className="text-[11px] text-[var(--text-muted)] mt-2">
-        {new Date(review.date).toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        })}
-      </p>
+      {formattedDate && (
+        <p className="text-[11px] text-[var(--text-muted)] mt-2">
+          {formattedDate}
+        </p>
+      )}
     </div>
   );
 }
@@ -985,6 +1143,11 @@ function SeasonEpisodeRow({
 }) {
   const epName = useFilmTitle({ nameRu, nameEn }, autoTranslate);
   const translatedSynopsis = useTranslate(synopsis);
+  const safeDate = formatDateSafe(releaseDate, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 
   return (
     <div className="flex items-start gap-2 sm:gap-3 md:gap-4 border border-[var(--border)] bg-[var(--bg-card)] rounded-[8px] px-3 md:px-4 py-[10px] md:py-3">
@@ -996,13 +1159,9 @@ function SeasonEpisodeRow({
           <p className="font-semibold text-[var(--text)] overflow-hidden text-ellipsis whitespace-nowrap text-[12px] sm:text-[13px] md:text-[14px]">
             {epName !== "Unknown" ? epName : `Episode ${epNumber}`}
           </p>
-          {releaseDate && (
+          {safeDate && (
             <p className="text-[10px] sm:text-[11px] text-[var(--text-muted)]">
-              {new Date(releaseDate).toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-              })}
+              {safeDate}
             </p>
           )}
         </div>
@@ -1062,57 +1221,155 @@ function SeasonsSection({
   );
 }
 
-function GallerySection({ images }: { images: ImageItem[] }) {
-  const [lightbox, setLightbox] = useState<number | null>(null);
-  const visible = images.slice(0, 12);
+const GALLERY_CATEGORIES: { id: GalleryImageType; label: string }[] = [
+  { id: "STILL", label: "Stills" },
+  { id: "SHOOTING", label: "Behind the Scenes" },
+  { id: "POSTER", label: "Posters" },
+  { id: "WALLPAPER", label: "Wallpapers" },
+];
 
-  const prev = () =>
-    setLightbox((i) => (i !== null ? Math.max(0, i - 1) : null));
-  const next = () =>
-    setLightbox((i) =>
-      i !== null ? Math.min(visible.length - 1, i + 1) : null,
-    );
+function GallerySection({
+  filmId,
+  initialImages,
+}: {
+  filmId: number;
+  initialImages: ImageItem[];
+}) {
+  const [activeCategory, setActiveCategory] =
+    useState<GalleryImageType>("STILL");
+  const [categoryCache, setCategoryCache] = useState<
+    Record<string, ImageItem[]>
+  >({
+    STILL: initialImages,
+  });
+  const [loadingCat, setLoadingCat] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [lightbox, setLightbox] = useState<number | null>(null);
+
+  useEffect(() => {
+    setCategoryCache((prev) => ({ ...prev, STILL: initialImages }));
+  }, [initialImages]);
+
+  useEffect(() => {
+    if (categoryCache[activeCategory]) return;
+    let mounted = true;
+    setLoadingCat(true);
+    getFilmImages(filmId, activeCategory, 1)
+      .then((res) => {
+        if (!mounted) return;
+        setCategoryCache((prev) => ({
+          ...prev,
+          [activeCategory]: res.items || [],
+        }));
+      })
+      .catch(() => {
+        if (mounted) {
+          setCategoryCache((prev) => ({ ...prev, [activeCategory]: [] }));
+        }
+      })
+      .finally(() => {
+        if (mounted) setLoadingCat(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [filmId, activeCategory, categoryCache]);
+
+  const currentList = categoryCache[activeCategory] || [];
+  const visible = expanded ? currentList : currentList.slice(0, 12);
+
+  useEffect(() => {
+    if (lightbox !== null && lightbox >= visible.length) {
+      setLightbox(visible.length > 0 ? visible.length - 1 : null);
+    }
+  }, [visible.length, lightbox]);
 
   useEffect(() => {
     if (lightbox === null) return;
     lockScroll();
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") setLightbox(null);
-      if (e.key === "ArrowLeft") prev();
-      if (e.key === "ArrowRight") next();
+      if (e.key === "ArrowLeft") {
+        setLightbox((i) => (i !== null ? Math.max(0, i - 1) : null));
+      }
+      if (e.key === "ArrowRight") {
+        setLightbox((i) =>
+          i !== null ? Math.min(visible.length - 1, i + 1) : null,
+        );
+      }
     };
     document.addEventListener("keydown", handler);
     return () => {
       unlockScroll();
       document.removeEventListener("keydown", handler);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lightbox]);
+  }, [lightbox, visible.length]);
+
+  const safeLightboxItem =
+    lightbox !== null && visible[lightbox] ? visible[lightbox] : null;
 
   return (
     <div className="mt-10 md:mt-12">
-      <SectionHeader title="GALLERY" count={images.length} />
-      <div className="grid gap-[6px] sm:gap-2 grid-cols-3 sm:grid-cols-4 md:grid-cols-6">
-        {visible.map((img, i) => (
-          <button
-            key={i}
-            type="button"
-            onClick={() => setLightbox(i)}
-            className="aspect-video rounded-[6px] sm:rounded-[8px] overflow-hidden relative bg-[var(--surface)] cursor-pointer border-none p-0 hover:opacity-90 transition-opacity"
+      <SectionHeader title="GALLERY" count={currentList.length} />
+
+      <TabBar className="mb-4">
+        {GALLERY_CATEGORIES.map((cat) => (
+          <TabPill
+            key={cat.id}
+            active={activeCategory === cat.id}
+            onClick={() => {
+              setActiveCategory(cat.id);
+              setExpanded(false);
+              setLightbox(null);
+            }}
           >
-            <Image
-              src={img.previewUrl || img.imageUrl}
-              alt={`Still ${i + 1}`}
-              fill
-              className="object-cover"
-              sizes="(max-width: 640px) 33vw, (max-width: 768px) 25vw, 16vw"
-            />
-          </button>
+            {cat.label}
+          </TabPill>
         ))}
-      </div>
+      </TabBar>
+
+      {loadingCat ? (
+        <div className="grid gap-[6px] sm:gap-2 grid-cols-3 sm:grid-cols-4 md:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="skeleton aspect-video rounded-[8px]" />
+          ))}
+        </div>
+      ) : visible.length === 0 ? (
+        <p className="text-[13px] text-[var(--text-muted)]">
+          No images in this category.
+        </p>
+      ) : (
+        <>
+          <div className="grid gap-[6px] sm:gap-2 grid-cols-3 sm:grid-cols-4 md:grid-cols-6">
+            {visible.map((img, i) => (
+              <button
+                key={`${img.imageUrl}-${i}`}
+                type="button"
+                onClick={() => setLightbox(i)}
+                className="aspect-video rounded-[6px] sm:rounded-[8px] overflow-hidden relative bg-[var(--surface)] cursor-pointer border-none p-0 hover:opacity-90 transition-opacity"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={img.previewUrl || img.imageUrl}
+                  alt={`Gallery ${i + 1}`}
+                  loading="lazy"
+                  className="w-full h-full object-cover block"
+                />
+              </button>
+            ))}
+          </div>
+          {currentList.length > 12 && (
+            <ExpandBtn onClick={() => setExpanded((v) => !v)}>
+              {expanded
+                ? "Show less"
+                : `Show all ${currentList.length} images`}
+            </ExpandBtn>
+          )}
+        </>
+      )}
 
       {/* Lightbox */}
-      {lightbox !== null && (
+      {safeLightboxItem && lightbox !== null && (
         <div
           className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/90 backdrop-blur-md"
           onClick={() => setLightbox(null)}
@@ -1122,7 +1379,7 @@ function GallerySection({ images }: { images: ImageItem[] }) {
             className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-[rgba(255,255,255,0.08)] border border-[rgba(255,255,255,0.15)] flex items-center justify-center cursor-pointer hover:bg-[rgba(255,255,255,0.15)] transition-colors z-10"
             onClick={(e) => {
               e.stopPropagation();
-              prev();
+              setLightbox((i) => (i !== null ? Math.max(0, i - 1) : null));
             }}
             aria-label="Previous image"
           >
@@ -1133,11 +1390,10 @@ function GallerySection({ images }: { images: ImageItem[] }) {
             className="relative max-w-[92vw] max-h-[88vh] w-full flex items-center justify-center"
             onClick={(e) => e.stopPropagation()}
           >
-            <Image
-              src={visible[lightbox].imageUrl}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={safeLightboxItem.imageUrl}
               alt={`Still ${lightbox + 1}`}
-              width={1280}
-              height={720}
               className="object-contain rounded-[8px] max-h-[80vh] w-auto"
               style={{ maxWidth: "92vw" }}
             />
@@ -1151,7 +1407,9 @@ function GallerySection({ images }: { images: ImageItem[] }) {
             className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-[rgba(255,255,255,0.08)] border border-[rgba(255,255,255,0.15)] flex items-center justify-center cursor-pointer hover:bg-[rgba(255,255,255,0.15)] transition-colors z-10"
             onClick={(e) => {
               e.stopPropagation();
-              next();
+              setLightbox((i) =>
+                i !== null ? Math.min(visible.length - 1, i + 1) : null,
+              );
             }}
             aria-label="Next image"
           >
@@ -1228,6 +1486,7 @@ function AwardRow({
   award: Award;
   autoTranslate: boolean;
 }) {
+  const [imgErr, setImgErr] = useState(false);
   const mappedAwardName = translateAwardName(award.name, autoTranslate);
   const translatedAwardName = useTranslate(mappedAwardName);
   const awardTitle = translatedAwardName || mappedAwardName;
@@ -1253,13 +1512,15 @@ function AwardRow({
       }`}
     >
       <div className="w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0 flex items-center justify-center">
-        {award.imageUrl ? (
-          <Image
+        {award.imageUrl && !imgErr ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
             src={award.imageUrl}
             alt={awardTitle}
             width={32}
             height={32}
-            className="object-contain rounded-[4px]"
+            onError={() => setImgErr(true)}
+            className="object-contain rounded-[4px] w-8 h-8"
           />
         ) : award.win ? (
           <Trophy size={18} stroke="#f5c518" />
@@ -1324,16 +1585,17 @@ function DistributionRow({
     : null;
   const rawCompanies = d.companies?.map((c) => c.name).join(", ") || "";
   const companies = useTranslate(rawCompanies);
+  const safeDate = formatDateSafe(d.date, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 
   return (
     <div className="flex items-center gap-3 sm:gap-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius)] px-3 sm:px-4 py-[9px] sm:py-[11px]">
       <div className="flex-shrink-0 w-[90px] sm:w-[105px]">
         <span className="font-display text-[13px] sm:text-[15px] text-[var(--accent)]">
-          {new Date(d.date!).toLocaleDateString("en-US", {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-          })}
+          {safeDate || d.date}
         </span>
       </div>
       <div className="flex-1 min-w-0">
@@ -1374,8 +1636,12 @@ function DistributionsSection({
 }) {
   const [expanded, setExpanded] = useState(false);
   const sorted = [...distributions]
-    .filter((d) => d.date)
-    .sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime());
+    .filter((d) => d.date && formatDateSafe(d.date))
+    .sort(
+      (a, b) =>
+        (new Date(a.date!).getTime() || 0) -
+        (new Date(b.date!).getTime() || 0),
+    );
   const visible = expanded ? sorted : sorted.slice(0, 6);
 
   if (sorted.length === 0) return null;

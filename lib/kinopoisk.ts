@@ -14,14 +14,24 @@ import {
   DistributionResponse,
   ApiKeyResponse,
   CollectionType,
+  ExploreSortOrder,
+  SortDirection,
+  RatingSource,
+  RuntimeBucket,
+  AgeTierFilter,
+  SeriesStatusFilter,
+  GalleryImageType,
 } from "@/types/kinopoisk";
-import { getApiKeys } from "@/lib/preferences";
+import { getApiKeys, getPreferences } from "@/lib/preferences";
+import { getList } from "@/lib/userLists";
+import { translateCountry, translateGenre, isRussian } from "@/lib/translate";
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://kinopoiskapiunofficial.tech/api";
 
 const CACHE_PREFIX = "cinemix_api_cache_v1:";
+const FILM_META_CACHE_KEY = "cinemix_film_meta_v1";
 const EXHAUSTED_KEYS_STORAGE = "cinemix_exhausted_keys";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -29,7 +39,189 @@ const memoryCache = new Map<string, { data: unknown; expiresAt: number }>();
 const inflightApi = new Map<string, Promise<unknown>>();
 const exhausted = new Map<string, number>();
 
-// Hydrate exhausted keys from localStorage
+// ─── Safe Mode & Region Classification Helpers ────────────────────────────────
+
+const ADULT_GENRE_NAMES = new Set([
+  "для взрослых",
+  "эротика",
+  "adult",
+  "erotic",
+]);
+
+const RUSSIAN_COUNTRIES = new Set([
+  "россия",
+  "ссср",
+  "российская империя",
+  "беларусь",
+  "белоруссия",
+  "russia",
+  "ussr",
+  "russian empire",
+  "belarus",
+]);
+
+const WESTERN_GLOBAL_COUNTRIES = new Set([
+  "сша",
+  "великобритания",
+  "канада",
+  "австралия",
+  "новая зеландия",
+  "франция",
+  "германия",
+  "италия",
+  "испания",
+  "южная корея",
+  "корея южная",
+  "япония",
+  "usa",
+  "uk",
+  "canada",
+  "australia",
+  "france",
+  "germany",
+  "south korea",
+  "japan",
+]);
+
+/**
+ * Checks whether a film object is tagged as Adult (id 28) or Erotic (id 25) or NC-17.
+ */
+export function isAdultContentFilm(
+  film?: Partial<Film> | { genres?: { genre: string }[]; ratingMpaa?: string } | null,
+): boolean {
+  if (!film) return false;
+  if (film.genres && Array.isArray(film.genres)) {
+    for (const g of film.genres) {
+      const name = (g?.genre || "").trim().toLowerCase();
+      if (ADULT_GENRE_NAMES.has(name)) return true;
+    }
+  }
+  const mpaa = (film.ratingMpaa || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (mpaa === "nc17") return true;
+  return false;
+}
+
+/**
+ * Checks whether a film is primarily a Russian/Soviet domestic production without
+ * a major Western/International co-production.
+ */
+export function isRussianDomesticFilm(film?: Partial<Film> | null): boolean {
+  if (!film) return false;
+  const countries = (film.countries ?? []).map((c) =>
+    (c.country || "").trim().toLowerCase(),
+  );
+  if (countries.length === 0) {
+    // If no country listed, check if it only has a Russian title and no English/Original Latin title
+    const hasLatinTitle =
+      (film.nameEn && !isRussian(film.nameEn)) ||
+      (film.nameOriginal && !isRussian(film.nameOriginal));
+    return !hasLatinTitle && Boolean(film.nameRu);
+  }
+  const hasRussian = countries.some((c) => RUSSIAN_COUNTRIES.has(c));
+  if (!hasRussian) return false;
+  const hasWesternCoProd = countries.some((c) => WESTERN_GLOBAL_COUNTRIES.has(c));
+  return !hasWesternCoProd;
+}
+
+export function isSafeModeActive(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return getPreferences().safeModeEnabled ?? true;
+  } catch {
+    return true;
+  }
+}
+
+export function sanitizeFilmsForSafeMode<T extends Partial<Film>>(items: T[]): T[] {
+  if (!isSafeModeActive()) return items;
+  return items.filter((item) => !isAdultContentFilm(item));
+}
+
+// ─── Persistent Compact Film Metadata Cache (for Actor Credits & Quick Peek) ──
+
+export interface CompactFilmMeta extends Partial<Film> {
+  votes?: number;
+}
+
+let memoryFilmMetaCache: Record<number, CompactFilmMeta> | null = null;
+
+function getFilmMetaStore(): Record<number, CompactFilmMeta> {
+  if (memoryFilmMetaCache) return memoryFilmMetaCache;
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(FILM_META_CACHE_KEY);
+    memoryFilmMetaCache = raw ? (JSON.parse(raw) as Record<number, CompactFilmMeta>) : {};
+  } catch {
+    memoryFilmMetaCache = {};
+  }
+  return memoryFilmMetaCache!;
+}
+
+export function getCachedFilmMeta(filmId: number): CompactFilmMeta | undefined {
+  return getFilmMetaStore()[filmId];
+}
+
+export function saveCompactFilmMeta(film: Film): void {
+  if (typeof window === "undefined") return;
+  const id = film.kinopoiskId ?? film.filmId;
+  if (!id) return;
+  const store = getFilmMetaStore();
+  const prev = store[id] ?? {};
+  store[id] = {
+    kinopoiskId: id,
+    filmId: id,
+    imdbId: film.imdbId ?? prev.imdbId,
+    nameRu: film.nameRu ?? prev.nameRu,
+    nameEn: film.nameEn ?? prev.nameEn,
+    nameOriginal: film.nameOriginal ?? prev.nameOriginal,
+    posterUrl: film.posterUrl || prev.posterUrl || "",
+    posterUrlPreview: film.posterUrlPreview || prev.posterUrlPreview || "",
+    year: film.year ?? prev.year,
+    startYear: film.startYear ?? prev.startYear,
+    endYear: film.endYear ?? prev.endYear,
+    serial: film.serial ?? prev.serial,
+    completed: film.completed ?? prev.completed,
+    type: film.type ?? prev.type,
+    ratingKinopoisk: film.ratingKinopoisk ?? prev.ratingKinopoisk,
+    ratingKinopoiskVoteCount:
+      film.ratingKinopoiskVoteCount ?? prev.ratingKinopoiskVoteCount,
+    ratingImdb: film.ratingImdb ?? prev.ratingImdb,
+    ratingImdbVoteCount: film.ratingImdbVoteCount ?? prev.ratingImdbVoteCount,
+    votes:
+      Math.max(
+        film.ratingImdbVoteCount ?? 0,
+        film.ratingKinopoiskVoteCount ?? 0,
+      ) || prev.votes,
+    ratingFilmCritics: film.ratingFilmCritics ?? prev.ratingFilmCritics,
+    ratingAgeLimits: film.ratingAgeLimits ?? prev.ratingAgeLimits,
+    ratingMpaa: film.ratingMpaa ?? prev.ratingMpaa,
+    filmLength: film.filmLength ?? prev.filmLength,
+    countries:
+      film.countries && film.countries.length > 0
+        ? film.countries.slice(0, 3)
+        : prev.countries,
+    genres:
+      film.genres && film.genres.length > 0
+        ? film.genres.slice(0, 4)
+        : prev.genres,
+  };
+
+  const keys = Object.keys(store);
+  if (keys.length > 800) {
+    for (let i = 0; i < 150; i++) {
+      delete store[Number(keys[i])];
+    }
+  }
+
+  try {
+    localStorage.setItem(FILM_META_CACHE_KEY, JSON.stringify(store));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+// ─── API Key Rotation & Exhaustion Tracking ───────────────────────────────────
+
 function syncExhaustedFromStorage() {
   if (typeof window === "undefined") return;
   try {
@@ -72,10 +264,11 @@ function getKey(): string {
     if (now - t > DAY_MS) exhausted.delete(k);
   }
   const keys = getApiKeys();
+  if (keys.length === 0) {
+    throw new Error("No API key configured.");
+  }
   const available = keys.filter((k) => !exhausted.has(k));
   if (!available.length) {
-    // If all keys were marked exhausted, fall back to the first key as a last resort
-    if (keys.length > 0) return keys[0];
     throw new Error("All API keys exhausted for today.");
   }
   return available[0];
@@ -131,6 +324,30 @@ function getCachedApi<T>(path: string): T | null {
   return null;
 }
 
+function evictOldestSessionCacheEntries(count = 25) {
+  if (typeof window === "undefined") return;
+  try {
+    const entries: { key: string; expiresAt: number }[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith(CACHE_PREFIX)) {
+        try {
+          const parsed = JSON.parse(sessionStorage.getItem(k) || "{}") as {
+            expiresAt?: number;
+          };
+          entries.push({ key: k, expiresAt: parsed.expiresAt ?? 0 });
+        } catch {
+          entries.push({ key: k, expiresAt: 0 });
+        }
+      }
+    }
+    entries.sort((a, b) => a.expiresAt - b.expiresAt);
+    entries.slice(0, count).forEach((e) => sessionStorage.removeItem(e.key));
+  } catch {
+    // ignore
+  }
+}
+
 function setCachedApi<T>(path: string, data: T, ttlSeconds: number) {
   const entry = { data, expiresAt: Date.now() + ttlSeconds * 1000 };
   memoryCache.set(path, entry);
@@ -138,9 +355,9 @@ function setCachedApi<T>(path: string, data: T, ttlSeconds: number) {
     try {
       sessionStorage.setItem(CACHE_PREFIX + path, JSON.stringify(entry));
     } catch {
-      // sessionStorage full — evict old cache entries
+      // Targeted LRU eviction of only CACHE_PREFIX keys (never sessionStorage.clear())
+      evictOldestSessionCacheEntries(35);
       try {
-        sessionStorage.clear();
         sessionStorage.setItem(CACHE_PREFIX + path, JSON.stringify(entry));
       } catch {
         // ignore
@@ -153,16 +370,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Lightweight rate-limit spacer: ensures at most 4 uncached requests fire per second (250ms spacing)
+// Lightweight rate-limit spacer: ensures at most 4.5 uncached requests fire per second (220ms spacing)
 let nextAvailableSlot = 0;
 async function waitRateLimitSlot(): Promise<void> {
   const now = Date.now();
   if (now < nextAvailableSlot) {
     const waitMs = nextAvailableSlot - now;
-    nextAvailableSlot += 250;
+    nextAvailableSlot += 220;
     await sleep(waitMs);
   } else {
-    nextAvailableSlot = now + 250;
+    nextAvailableSlot = now + 220;
   }
 }
 
@@ -179,8 +396,14 @@ async function apiFetch<T>(path: string, revalidate = 3600): Promise<T> {
     const maxAttempts = Math.max(keys.length * 2, 3);
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      let key: string;
+      try {
+        key = getKey();
+      } catch (err) {
+        throw err instanceof Error ? err : new Error("All API keys exhausted.");
+      }
+
       await waitRateLimitSlot();
-      const key = getKey();
       const res = await fetch(`${BASE_URL}${path}`, {
         headers: { "X-API-KEY": key, "Content-Type": "application/json" },
       });
@@ -196,7 +419,7 @@ async function apiFetch<T>(path: string, revalidate = 3600): Promise<T> {
 
       // 429 = Per-second rate limit exceeded -> backoff and retry WITHOUT blacklisting the key
       if (res.status === 429) {
-        await sleep(350 * (attempt + 1));
+        await sleep(320 * (attempt + 1));
         lastError = new Error("Rate limit reached, retrying…");
         continue;
       }
@@ -280,25 +503,29 @@ function normalizeFilmItem(f: Film & Record<string, unknown>): Film {
         ? (f as { premiere?: string }).premiere
         : undefined;
 
-  return {
+  const normalized: Film = {
     ...f,
     kinopoiskId: id,
     filmId: f.filmId ?? id,
     ratingKinopoisk,
     ratingAwait,
-    rating: ratingKinopoisk ?? f.ratingImdb,
+    rating: f.ratingImdb ?? ratingKinopoisk,
     filmLength,
     premiereRu,
   };
+
+  saveCompactFilmMeta(normalized);
+  return normalized;
 }
 
 function normalizeFilmsResponse(raw: Record<string, unknown>): FilmsResponse {
   const items = ((raw.items ?? raw.films ?? []) as (Film & Record<string, unknown>)[]);
   const normalized = items.map(normalizeFilmItem);
+  const safeItems = sanitizeFilmsForSafeMode(normalized);
 
   return {
-    items: normalized,
-    total: (raw.total as number) ?? normalized.length,
+    items: safeItems,
+    total: (raw.total as number) ?? safeItems.length,
     totalPages:
       (raw.totalPages as number) ??
       (raw.pagesCount as number) ??
@@ -335,22 +562,858 @@ export async function getFilmsByFilter(params: {
   yearFrom?: number;
   yearTo?: number;
   keyword?: string;
+  imdbId?: string;
   page?: number;
 }): Promise<FilmsResponse> {
-  const cap = new Date().getFullYear();
-  const yearTo =
-    params.yearTo !== undefined ? Math.min(params.yearTo, cap) : cap;
+  // Block Adult (28) and Erotic (25) genre queries when Safe Mode is enabled
+  if (
+    isSafeModeActive() &&
+    (params.genres === 28 || params.genres === 25)
+  ) {
+    return { items: [], total: 0, totalPages: 1 };
+  }
 
   const q = new URLSearchParams();
-  Object.entries({ ...params, yearTo }).forEach(
-    ([k, v]) => v !== undefined && q.set(k, String(v)),
-  );
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") {
+      q.set(k, String(v));
+    }
+  });
 
   const raw = await apiFetch<Record<string, unknown>>(
     `/v2.2/films?${q.toString()}`,
   );
   return normalizeFilmsResponse(raw);
 }
+
+/**
+ * Curates Hollywood & Global hits for the Home page so Russian domestic titles
+ * do not suppress top international movies and series.
+ */
+export async function getCuratedHomeSection(options: {
+  type?: "FILM" | "TV_SERIES";
+  genreId?: number;
+  collection?: CollectionType;
+  ratingFrom?: number;
+}): Promise<Film[]> {
+  const prefs =
+    typeof window !== "undefined"
+      ? getPreferences()
+      : { contentRegionMode: "GLOBAL_FIRST" as const };
+  const regionMode = prefs.contentRegionMode ?? "GLOBAL_FIRST";
+
+  if (options.collection) {
+    const [p1, p2] = await Promise.allSettled([
+      getTopFilms(options.collection, 1),
+      regionMode === "GLOBAL_FIRST"
+        ? getFilmsByFilter({
+            type: options.type ?? "FILM",
+            countries: 1, // USA
+            order: "NUM_VOTE",
+            ratingFrom: options.ratingFrom ?? 7,
+            page: 1,
+          })
+        : Promise.resolve(null),
+    ]);
+    const list1 = p1.status === "fulfilled" ? p1.value.items : [];
+    const list2 = p2.status === "fulfilled" && p2.value ? p2.value.items : [];
+
+    const combined = deduplicateFilms([...list2, ...list1]);
+    if (regionMode === "GLOBAL_FIRST") {
+      const globalOnly = combined.filter((f) => !isRussianDomesticFilm(f));
+      return globalOnly.length >= 8 ? globalOnly : combined;
+    }
+    if (regionMode === "BALANCED") {
+      const global = combined.filter((f) => !isRussianDomesticFilm(f));
+      const domestic = combined.filter((f) => isRussianDomesticFilm(f));
+      return [...global, ...domestic.slice(0, 3)];
+    }
+    return combined;
+  }
+
+  // Genre or Series row: fetch by NUM_VOTE (Global blockbusters) + USA (countries=1) in parallel
+  const [globalVotes, usaVotes] = await Promise.allSettled([
+    getFilmsByFilter({
+      type: options.type,
+      genres: options.genreId,
+      order: "NUM_VOTE",
+      ratingFrom: options.ratingFrom ?? 6.8,
+      page: 1,
+    }),
+    regionMode !== "ALL"
+      ? getFilmsByFilter({
+          type: options.type,
+          genres: options.genreId,
+          countries: 1, // USA / Hollywood
+          order: "NUM_VOTE",
+          ratingFrom: options.ratingFrom ?? 6.6,
+          page: 1,
+        })
+      : Promise.resolve(null),
+  ]);
+
+  const gItems = globalVotes.status === "fulfilled" ? globalVotes.value.items : [];
+  const uItems =
+    usaVotes.status === "fulfilled" && usaVotes.value ? usaVotes.value.items : [];
+
+  // Interleave USA blockbusters and Global high-vote hits
+  const merged = deduplicateFilms([...uItems, ...gItems]);
+  if (regionMode === "GLOBAL_FIRST") {
+    const filtered = merged.filter((f) => !isRussianDomesticFilm(f));
+    return filtered.length >= 6 ? filtered : merged;
+  }
+  if (regionMode === "BALANCED") {
+    const global = merged.filter((f) => !isRussianDomesticFilm(f));
+    const domestic = merged.filter((f) => isRussianDomesticFilm(f));
+    return [...global, ...domestic.slice(0, 3)];
+  }
+  return merged;
+}
+
+export function deduplicateFilms(films: Film[]): Film[] {
+  const seen = new Set<number>();
+  const out: Film[] = [];
+  for (const f of films) {
+    const id = f.kinopoiskId ?? f.filmId;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(f);
+  }
+  return out;
+}
+
+// ─── State-of-the-Art Explore Discovery Engine ────────────────────────────────
+
+export interface DiscoverFilmsOptions {
+  type?: "ALL" | "FILM" | "TV_SHOW" | "TV_SERIES" | "MINI_SERIES";
+  excludeTypes?: string[];
+  includeGenres?: number[];
+  genreMatchMode?: "AND" | "OR";
+  excludeGenres?: number[];
+  includeCountries?: number[];
+  excludeCountries?: number[];
+  excludeRussian?: boolean;
+  order?: ExploreSortOrder;
+  direction?: SortDirection;
+  ratingSource?: RatingSource;
+  ratingFrom?: number;
+  ratingTo?: number;
+  requireImdb?: boolean;
+  minVotes?: number;
+  yearFrom?: number;
+  yearTo?: number;
+  runtimeBucket?: RuntimeBucket;
+  includeAgeTiers?: AgeTierFilter[];
+  excludeAgeTiers?: AgeTierFilter[];
+  seriesStatus?: SeriesStatusFilter;
+  keyword?: string;
+  collectionPreset?: CollectionType;
+  lens?: string;
+  hideWatched?: boolean;
+  hideFavorites?: boolean;
+  hideWatchLater?: boolean;
+  page?: number;
+  randomSeed?: number;
+  allGenresList?: { id: number; genre: string }[];
+  allCountriesList?: { id: number; country: string }[];
+}
+
+function getEffectiveRating(film: Film, source: RatingSource = "AUTO"): number {
+  const imdb = typeof film.ratingImdb === "number" && film.ratingImdb > 0 ? film.ratingImdb : undefined;
+  const kp = typeof film.ratingKinopoisk === "number" && film.ratingKinopoisk > 0 ? film.ratingKinopoisk : undefined;
+  const critics = typeof film.ratingFilmCritics === "number" && film.ratingFilmCritics > 0 ? film.ratingFilmCritics : undefined;
+
+  if (source === "IMDB") return imdb ?? 0;
+  if (source === "KP") return kp ?? 0;
+  if (source === "CRITICS") return critics ?? imdb ?? kp ?? 0;
+  if (source === "AVERAGE") {
+    if (imdb && kp) return (imdb + kp) / 2;
+    return imdb ?? kp ?? 0;
+  }
+  return imdb ?? kp ?? (typeof film.rating === "number" ? film.rating : 0);
+}
+
+function getEffectiveVotes(film: Film): number {
+  const kpVotes = film.ratingKinopoiskVoteCount ?? 0;
+  const imdbVotes = film.ratingImdbVoteCount ?? 0;
+  return Math.max(kpVotes, imdbVotes);
+}
+
+function getFilmAgeTier(film: Film): AgeTierFilter | null {
+  const mpaa = (film.ratingMpaa || "").trim().toUpperCase();
+  const ageRaw = film.ratingAgeLimits
+    ? parseInt(film.ratingAgeLimits.replace(/[^0-9]/g, ""), 10)
+    : NaN;
+
+  if (mpaa === "R" || mpaa === "NC-17" || mpaa === "NC17" || ageRaw >= 18) {
+    return "MATURE";
+  }
+  if (mpaa === "PG-13" || mpaa === "PG13" || ageRaw === 12 || ageRaw === 16) {
+    return "TEEN";
+  }
+  if (mpaa === "G" || mpaa === "PG" || ageRaw === 0 || ageRaw === 6) {
+    return "FAMILY";
+  }
+  // Infer from family/kids genres if no explicit age limit in list payload
+  const genres = (film.genres ?? []).map((g) => g.genre.toLowerCase());
+  if (
+    genres.some((g) =>
+      ["детский", "семейный", "мультфильм", "family", "children", "animation"].includes(g),
+    )
+  ) {
+    return "FAMILY";
+  }
+  return null;
+}
+
+/**
+ * Partitioned & Multi-Constraint Discovery Engine that breaks past the 100-item
+ * single-query ceiling, supports 3+ simultaneous genres (AND/OR), negative filters,
+ * bidirectional ASC/DESC sorting, rating brackets, and personalized "For You" taste matching.
+ */
+export async function discoverFilms(
+  opts: DiscoverFilmsOptions,
+): Promise<FilmsResponse> {
+  const page = Math.max(1, opts.page ?? 1);
+  const direction: SortDirection = opts.direction ?? "DESC";
+  const order: ExploreSortOrder = opts.order ?? "NUM_VOTE";
+  const ratingSource: RatingSource = opts.ratingSource ?? "AUTO";
+
+  // 1. Handle Personalized "FOR_YOU" Taste-Match Lens
+  if (opts.lens === "FOR_YOU") {
+    return discoverTasteMatchedFilms(opts, page);
+  }
+
+  // 2. Handle Curated Theme Collection Presets
+  if (opts.collectionPreset) {
+    const pagesToFetch = [page, Math.min(25, page + 1)];
+    const responses = await Promise.allSettled(
+      pagesToFetch.map((p) => getTopFilms(opts.collectionPreset!, p)),
+    );
+    const rawPool: Film[] = [];
+    let reportedTotal = 250;
+    let reportedPages = 13;
+
+    for (const r of responses) {
+      if (r.status === "fulfilled") {
+        rawPool.push(...r.value.items);
+        reportedTotal = Math.max(reportedTotal, r.value.total || 250);
+        reportedPages = Math.max(reportedPages, r.value.totalPages || 13);
+      }
+    }
+
+    const filtered = applyClientDiscoveryFilters(
+      deduplicateFilms(rawPool),
+      opts,
+      ratingSource,
+    );
+    const sorted = sortDiscoveryPool(filtered, order, direction, ratingSource, opts.randomSeed);
+    return {
+      items: sorted.slice(0, 20),
+      total: reportedTotal,
+      totalPages: Math.max(reportedPages, page + (sorted.length >= 20 ? 1 : 0)),
+    };
+  }
+
+  // 3. Determine base API order & server-side window slicing to break the 100-item limit
+  const apiOrder: "RATING" | "NUM_VOTE" | "YEAR" =
+    order === "YEAR"
+      ? "YEAR"
+      : order === "RATING" ||
+          order === "KP_RATING" ||
+          order === "IMDB_RATING" ||
+          order === "CRITICS"
+        ? "RATING"
+        : "NUM_VOTE";
+
+  const minR = opts.ratingFrom !== undefined ? Math.max(0, opts.ratingFrom) : 0;
+  const maxR = opts.ratingTo !== undefined ? Math.min(10, opts.ratingTo) : 10;
+  const currentYear = new Date().getFullYear();
+  const minY = opts.yearFrom !== undefined ? opts.yearFrom : undefined;
+  const maxY = opts.yearTo !== undefined ? opts.yearTo : undefined;
+
+  // Compute server-side window slice when browsing deep pages (page > 5) OR when ASC direction is active!
+  let queryRatingFrom: number | undefined = opts.ratingFrom;
+  let queryRatingTo: number | undefined = opts.ratingTo;
+  let queryYearFrom: number | undefined = minY;
+  let queryYearTo: number | undefined = maxY;
+  let apiPage = ((page - 1) % 5) + 1;
+  const sliceIndex = Math.floor((page - 1) / 5); // 0 for pages 1..5, 1 for pages 6..10, 2 for pages 11..15, etc.
+
+  if (order === "RANDOM") {
+    const seed = (opts.randomSeed ?? 1) + page * 7;
+    apiPage = (seed % 5) + 1;
+    const randomBands: [number, number][] = [
+      [7.5, 10],
+      [6.8, 8.2],
+      [6.0, 7.5],
+      [7.0, 9.0],
+    ];
+    const band = randomBands[seed % randomBands.length];
+    if (queryRatingFrom === undefined) queryRatingFrom = band[0];
+    if (queryRatingTo === undefined) queryRatingTo = band[1];
+  } else if (direction === "ASC") {
+    // True Ascending Window Inversion: start from the bottom of the user's selected range!
+    if (
+      order === "RATING" ||
+      order === "IMDB_RATING" ||
+      order === "KP_RATING"
+    ) {
+      const baseFloor = minR > 0 ? minR : 1;
+      const span = Math.max(1.5, (maxR - baseFloor) / 4);
+      const bandLow = Math.min(maxR - 0.5, baseFloor + sliceIndex * span);
+      const bandHigh = Math.min(maxR, bandLow + span + 0.5);
+      queryRatingFrom = Math.round(bandLow * 10) / 10;
+      queryRatingTo = Math.round(bandHigh * 10) / 10;
+    } else if (order === "YEAR") {
+      const startFloor = minY ?? 1950;
+      const endCeil = maxY ?? currentYear;
+      const decadeSpan = Math.max(8, Math.ceil((endCeil - startFloor) / 5));
+      queryYearFrom = Math.min(endCeil, startFloor + sliceIndex * decadeSpan);
+      queryYearTo = Math.min(endCeil, queryYearFrom + decadeSpan);
+    }
+  } else if (sliceIndex > 0) {
+    // Deep Pagination Beyond Page 5 (Items 101 to 600+): shift rating or year window per 5-page bucket!
+    if (order === "YEAR") {
+      const topYear = maxY ?? currentYear;
+      const bottomYear = minY ?? 1950;
+      const step = 6;
+      queryYearTo = Math.max(bottomYear + 2, topYear - sliceIndex * step);
+      queryYearFrom = Math.max(bottomYear, queryYearTo - step * 2);
+    } else {
+      // Shift rating window downward smoothly across buckets so pages 6..30 return fresh movies
+      const topR = maxR;
+      const ratingBands: [number, number][] = [
+        [Math.max(minR, topR - 2.2), topR],
+        [Math.max(minR, topR - 3.0), Math.max(minR + 0.5, topR - 1.2)],
+        [Math.max(minR, topR - 3.8), Math.max(minR + 0.5, topR - 2.0)],
+        [Math.max(minR, topR - 4.6), Math.max(minR + 0.5, topR - 2.8)],
+        [Math.max(minR, topR - 5.5), Math.max(minR + 0.5, topR - 3.5)],
+        [minR, Math.max(minR + 1.0, topR - 4.2)],
+      ];
+      const band = ratingBands[Math.min(sliceIndex, ratingBands.length - 1)];
+      queryRatingFrom = Math.round(band[0] * 10) / 10;
+      queryRatingTo = Math.round(band[1] * 10) / 10;
+    }
+  }
+
+  if (order === "HIDDEN_GEMS") {
+    if (queryRatingFrom === undefined || queryRatingFrom < 7) {
+      queryRatingFrom = 7;
+    }
+  }
+
+  // 4. Fan out multi-genre / multi-country queries when needed
+  const incGenres = (opts.includeGenres ?? []).filter(
+    (id) => !isSafeModeActive() || (id !== 28 && id !== 25),
+  );
+  const incCountries = opts.includeCountries ?? [];
+
+  const needsExtraClientFiltering =
+    incGenres.length > 1 ||
+    (opts.excludeGenres && opts.excludeGenres.length > 0) ||
+    incCountries.length > 1 ||
+    (opts.excludeCountries && opts.excludeCountries.length > 0) ||
+    opts.excludeRussian ||
+    opts.hideWatched ||
+    opts.hideFavorites ||
+    opts.hideWatchLater ||
+    opts.requireImdb ||
+    Boolean(opts.minVotes) ||
+    (opts.runtimeBucket && opts.runtimeBucket !== "ANY") ||
+    (opts.includeAgeTiers && opts.includeAgeTiers.length > 0) ||
+    (opts.excludeAgeTiers && opts.excludeAgeTiers.length > 0) ||
+    (opts.seriesStatus && opts.seriesStatus !== "ALL") ||
+    order === "HIDDEN_GEMS";
+
+  const baseType =
+    opts.type === "ALL" || !opts.type
+      ? undefined
+      : (opts.type as "FILM" | "TV_SHOW" | "TV_SERIES" | "MINI_SERIES");
+
+  const queriesToRun: Parameters<typeof getFilmsByFilter>[0][] = [];
+
+  if (incGenres.length > 1 && opts.genreMatchMode === "OR") {
+    // OR mode: fan out one query per selected genre (up to 4)
+    for (const gId of incGenres.slice(0, 4)) {
+      queriesToRun.push({
+        type: baseType,
+        genres: gId,
+        countries: incCountries[0],
+        order: apiOrder,
+        ratingFrom: queryRatingFrom,
+        ratingTo: queryRatingTo,
+        yearFrom: queryYearFrom,
+        yearTo: queryYearTo,
+        keyword: opts.keyword,
+        page: apiPage,
+      });
+    }
+  } else if (incGenres.length > 1 && opts.genreMatchMode !== "OR") {
+    // AND mode: fetch 2 pages for the first 2 selected genres so intersection has a deep pool
+    for (const gId of incGenres.slice(0, 2)) {
+      queriesToRun.push({
+        type: baseType,
+        genres: gId,
+        countries: incCountries[0],
+        order: apiOrder,
+        ratingFrom: queryRatingFrom,
+        ratingTo: queryRatingTo,
+        yearFrom: queryYearFrom,
+        yearTo: queryYearTo,
+        keyword: opts.keyword,
+        page: apiPage,
+      });
+      if (apiPage < 5) {
+        queriesToRun.push({
+          type: baseType,
+          genres: gId,
+          countries: incCountries[0],
+          order: apiOrder,
+          ratingFrom: queryRatingFrom,
+          ratingTo: queryRatingTo,
+          yearFrom: queryYearFrom,
+          yearTo: queryYearTo,
+          keyword: opts.keyword,
+          page: apiPage + 1,
+        });
+      }
+    }
+  } else if (incCountries.length > 1) {
+    for (const cId of incCountries.slice(0, 3)) {
+      queriesToRun.push({
+        type: baseType,
+        genres: incGenres[0],
+        countries: cId,
+        order: apiOrder,
+        ratingFrom: queryRatingFrom,
+        ratingTo: queryRatingTo,
+        yearFrom: queryYearFrom,
+        yearTo: queryYearTo,
+        keyword: opts.keyword,
+        page: apiPage,
+      });
+    }
+  } else {
+    queriesToRun.push({
+      type: baseType,
+      genres: incGenres[0],
+      countries: incCountries[0],
+      order: apiOrder,
+      ratingFrom: queryRatingFrom,
+      ratingTo: queryRatingTo,
+      yearFrom: queryYearFrom,
+      yearTo: queryYearTo,
+      keyword: opts.keyword,
+      page: apiPage,
+    });
+    // If client-side filters are active, prefetch the adjacent page so we always fill a full 20-card grid
+    if (needsExtraClientFiltering && apiPage < 5) {
+      queriesToRun.push({
+        type: baseType,
+        genres: incGenres[0],
+        countries: incCountries[0],
+        order: apiOrder,
+        ratingFrom: queryRatingFrom,
+        ratingTo: queryRatingTo,
+        yearFrom: queryYearFrom,
+        yearTo: queryYearTo,
+        keyword: opts.keyword,
+        page: apiPage + 1,
+      });
+    }
+  }
+
+  const settled = await Promise.allSettled(
+    queriesToRun.map((q) => getFilmsByFilter(q)),
+  );
+
+  const pool: Film[] = [];
+  let maxApiTotal = 0;
+  let maxApiPages = 1;
+
+  for (const res of settled) {
+    if (res.status === "fulfilled") {
+      pool.push(...res.value.items);
+      maxApiTotal = Math.max(maxApiTotal, res.value.total ?? 0);
+      maxApiPages = Math.max(maxApiPages, res.value.totalPages ?? 1);
+    }
+  }
+
+  const uniquePool = deduplicateFilms(pool);
+  const filteredPool = applyClientDiscoveryFilters(
+    uniquePool,
+    opts,
+    ratingSource,
+  );
+  const sortedPool = sortDiscoveryPool(
+    filteredPool,
+    order,
+    direction,
+    ratingSource,
+    opts.randomSeed,
+  );
+
+  // Compute deep totalPages: if the API returned a full bucket (maxApiPages >= 5 or maxApiTotal >= 100),
+  // expose up to 25 virtual pages (500+ items) across our rating/decade slices!
+  const canPartitionDeep =
+    maxApiPages >= 5 || maxApiTotal >= 80 || page > 1;
+  const effectiveTotalPages = canPartitionDeep
+    ? Math.max(25, page + (sortedPool.length >= 12 ? 2 : 0))
+    : Math.max(1, maxApiPages);
+  const effectiveTotal = canPartitionDeep
+    ? Math.max(maxApiTotal, effectiveTotalPages * 20)
+    : filteredPool.length;
+
+  return {
+    items: sortedPool.slice(0, 24),
+    total: sortedPool.length === 0 && page === 1 ? 0 : effectiveTotal,
+    totalPages: sortedPool.length === 0 && page === 1 ? 1 : effectiveTotalPages,
+  };
+}
+
+async function discoverTasteMatchedFilms(
+  opts: DiscoverFilmsOptions,
+  page: number,
+): Promise<FilmsResponse> {
+  const favs = getList("favorites");
+  const history = getList("history");
+  const seedEntries = [...favs, ...history].slice(0, 4);
+
+  const pool: Film[] = [];
+
+  if (seedEntries.length > 0) {
+    const similarCalls = await Promise.allSettled(
+      seedEntries.slice(0, 3).map((e) => getSimilarFilms(e.film_id)),
+    );
+    for (const sc of similarCalls) {
+      if (sc.status === "fulfilled" && sc.value.items) {
+        for (const sf of sc.value.items) {
+          const cachedMeta = getCachedFilmMeta(sf.filmId);
+          pool.push({
+            ...cachedMeta,
+            kinopoiskId: sf.filmId,
+            filmId: sf.filmId,
+            nameRu: sf.nameRu ?? cachedMeta?.nameRu,
+            nameEn: sf.nameEn ?? cachedMeta?.nameEn,
+            nameOriginal: sf.nameOriginal ?? cachedMeta?.nameOriginal,
+            posterUrl: sf.posterUrl || cachedMeta?.posterUrl || "",
+            posterUrlPreview:
+              sf.posterUrlPreview || cachedMeta?.posterUrlPreview || "",
+          });
+        }
+      }
+    }
+  }
+
+  // Supplement with top global movies & series
+  const supplement = await getFilmsByFilter({
+    type: opts.type === "ALL" ? undefined : opts.type,
+    countries: 1,
+    order: "NUM_VOTE",
+    ratingFrom: 7.2,
+    page: ((page - 1) % 5) + 1,
+  }).catch(() => ({ items: [], total: 0, totalPages: 1 }));
+
+  pool.push(...supplement.items);
+
+  const filtered = applyClientDiscoveryFilters(
+    deduplicateFilms(pool),
+    { ...opts, hideWatched: true },
+    opts.ratingSource ?? "AUTO",
+  );
+
+  return {
+    items: filtered.slice(0, 24),
+    total: Math.max(filtered.length, 120),
+    totalPages: 6,
+  };
+}
+
+function applyClientDiscoveryFilters(
+  films: Film[],
+  opts: DiscoverFilmsOptions,
+  ratingSource: RatingSource,
+): Film[] {
+  const watchedSet = opts.hideWatched
+    ? new Set(getList("history").map((e) => e.film_id))
+    : null;
+  const favSet = opts.hideFavorites
+    ? new Set(getList("favorites").map((e) => e.film_id))
+    : null;
+  const wlSet = opts.hideWatchLater
+    ? new Set(getList("watchlater").map((e) => e.film_id))
+    : null;
+
+  // Map genre IDs to lowercase Russian & English names for accurate multi-genre matching
+  const genreIdToNames = new Map<number, string[]>();
+  for (const g of opts.allGenresList ?? []) {
+    const ru = g.genre.trim().toLowerCase();
+    const en = translateGenre(g.genre, true).trim().toLowerCase();
+    genreIdToNames.set(g.id, [ru, en]);
+  }
+
+  const countryIdToNames = new Map<number, string[]>();
+  for (const c of opts.allCountriesList ?? []) {
+    const ru = c.country.trim().toLowerCase();
+    const en = translateCountry(c.country, true).trim().toLowerCase();
+    countryIdToNames.set(c.id, [ru, en]);
+  }
+
+  return films.filter((film) => {
+    const id = film.kinopoiskId ?? film.filmId;
+
+    // 1. Safe Mode guard
+    if (isSafeModeActive() && isAdultContentFilm(film)) return false;
+
+    // 2. Personal Library exclusions
+    if (watchedSet && watchedSet.has(id)) return false;
+    if (favSet && favSet.has(id)) return false;
+    if (wlSet && wlSet.has(id)) return false;
+
+    // 3. Excluded Media Types
+    if (
+      opts.excludeTypes &&
+      opts.excludeTypes.length > 0 &&
+      film.type &&
+      opts.excludeTypes.includes(film.type)
+    ) {
+      return false;
+    }
+
+    // 4. Exclude Russian/USSR Domestic Content
+    if (opts.excludeRussian && isRussianDomesticFilm(film)) {
+      return false;
+    }
+
+    const filmGenreNames = (film.genres ?? []).map((g) =>
+      g.genre.trim().toLowerCase(),
+    );
+    const filmGenreEnNames = (film.genres ?? []).map((g) =>
+      translateGenre(g.genre, true).trim().toLowerCase(),
+    );
+    const allFilmGenres = new Set([...filmGenreNames, ...filmGenreEnNames]);
+
+    // 5. Multi-Genre Include (AND mode when >1 genre selected)
+    if (
+      opts.includeGenres &&
+      opts.includeGenres.length > 1 &&
+      opts.genreMatchMode !== "OR" &&
+      genreIdToNames.size > 0 &&
+      allFilmGenres.size > 0
+    ) {
+      const matchesAll = opts.includeGenres.every((gId) => {
+        const candidates = genreIdToNames.get(gId);
+        if (!candidates) return true;
+        return candidates.some((name) => allFilmGenres.has(name));
+      });
+      if (!matchesAll) return false;
+    }
+
+    // 6. Negative Genre Exclusions
+    if (
+      opts.excludeGenres &&
+      opts.excludeGenres.length > 0 &&
+      genreIdToNames.size > 0 &&
+      allFilmGenres.size > 0
+    ) {
+      const hasExcludedGenre = opts.excludeGenres.some((gId) => {
+        const candidates = genreIdToNames.get(gId);
+        if (!candidates) return false;
+        return candidates.some((name) => allFilmGenres.has(name));
+      });
+      if (hasExcludedGenre) return false;
+    }
+
+    // 7. Country Include / Exclude
+    const filmCountryNames = (film.countries ?? []).map((c) =>
+      c.country.trim().toLowerCase(),
+    );
+    const filmCountryEnNames = (film.countries ?? []).map((c) =>
+      translateCountry(c.country, true).trim().toLowerCase(),
+    );
+    const allFilmCountries = new Set([
+      ...filmCountryNames,
+      ...filmCountryEnNames,
+    ]);
+
+    if (
+      opts.excludeCountries &&
+      opts.excludeCountries.length > 0 &&
+      countryIdToNames.size > 0 &&
+      allFilmCountries.size > 0
+    ) {
+      const hasExcludedCountry = opts.excludeCountries.some((cId) => {
+        const candidates = countryIdToNames.get(cId);
+        if (!candidates) return false;
+        return candidates.some((name) => allFilmCountries.has(name));
+      });
+      if (hasExcludedCountry) return false;
+    }
+
+    // 8. Require IMDb Score
+    if (opts.requireImdb && (!film.ratingImdb || film.ratingImdb <= 0)) {
+      return false;
+    }
+
+    // 9. Exact Rating Band Check
+    const effRating = getEffectiveRating(film, ratingSource);
+    if (effRating > 0) {
+      if (opts.ratingFrom !== undefined && effRating < opts.ratingFrom - 0.1) {
+        return false;
+      }
+      if (opts.ratingTo !== undefined && effRating > opts.ratingTo + 0.1) {
+        return false;
+      }
+    }
+
+    // 10. Vote Confidence ("Anti-Fluke" / Cult Filter)
+    const votes = getEffectiveVotes(film);
+    if (opts.minVotes !== undefined && opts.minVotes !== 0 && votes > 0) {
+      if (opts.minVotes > 0 && votes < opts.minVotes) return false;
+      if (opts.minVotes < 0 && votes > Math.abs(opts.minVotes)) return false;
+    }
+
+    // 11. Year Range Check
+    const yr = film.year ?? film.startYear;
+    if (yr) {
+      if (opts.yearFrom !== undefined && yr < opts.yearFrom) return false;
+      if (opts.yearTo !== undefined && yr > opts.yearTo) return false;
+    }
+
+    // 12. Runtime Bucket Filter
+    if (
+      opts.runtimeBucket &&
+      opts.runtimeBucket !== "ANY" &&
+      film.filmLength &&
+      film.filmLength > 0
+    ) {
+      if (opts.runtimeBucket === "SHORT" && film.filmLength >= 95) return false;
+      if (
+        (opts.runtimeBucket === "MEDIUM" || opts.runtimeBucket === "STANDARD") &&
+        (film.filmLength < 95 || film.filmLength > 130)
+      ) {
+        return false;
+      }
+      if (
+        (opts.runtimeBucket === "LONG" || opts.runtimeBucket === "EPIC") &&
+        film.filmLength <= 130
+      ) {
+        return false;
+      }
+    }
+
+    // 13. Age Suitability Tiers (Include & Exclude)
+    const tier = getFilmAgeTier(film);
+    if (
+      opts.includeAgeTiers &&
+      opts.includeAgeTiers.length > 0 &&
+      tier !== null &&
+      !opts.includeAgeTiers.includes(tier)
+    ) {
+      return false;
+    }
+    if (
+      opts.excludeAgeTiers &&
+      opts.excludeAgeTiers.length > 0 &&
+      tier !== null &&
+      opts.excludeAgeTiers.includes(tier)
+    ) {
+      return false;
+    }
+
+    // 14. Series Completion Status
+    if (opts.seriesStatus && opts.seriesStatus !== "ALL") {
+      if (opts.seriesStatus === "COMPLETED" && film.completed === false) {
+        return false;
+      }
+      if (opts.seriesStatus === "ONGOING" && film.completed === true) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
+function sortDiscoveryPool(
+  films: Film[],
+  order: ExploreSortOrder,
+  direction: SortDirection,
+  ratingSource: RatingSource,
+  randomSeed = 1,
+): Film[] {
+  const copy = [...films];
+  const dirMult = direction === "ASC" ? 1 : -1;
+
+  if (order === "RANDOM") {
+    // Deterministic Fisher-Yates shuffle based on randomSeed
+    let s = randomSeed + 1337;
+    for (let i = copy.length - 1; i > 0; i--) {
+      s = (s * 16807) % 2147483647;
+      const j = s % (i + 1);
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  }
+
+  copy.sort((a, b) => {
+    if (order === "TITLE") {
+      const titleA = (a.nameEn || a.nameOriginal || a.nameRu || "").toLowerCase();
+      const titleB = (b.nameEn || b.nameOriginal || b.nameRu || "").toLowerCase();
+      return titleA.localeCompare(titleB) * (direction === "ASC" ? 1 : -1);
+    }
+
+    if (order === "YEAR") {
+      const yA = a.year ?? a.startYear ?? (direction === "ASC" ? 9999 : 0);
+      const yB = b.year ?? b.startYear ?? (direction === "ASC" ? 9999 : 0);
+      if (yA !== yB) return (yA - yB) * dirMult;
+    }
+
+    if (order === "IMDB_RATING") {
+      const rA = a.ratingImdb ?? a.ratingKinopoisk ?? 0;
+      const rB = b.ratingImdb ?? b.ratingKinopoisk ?? 0;
+      if (rA !== rB) return (rA - rB) * dirMult;
+    }
+
+    if (order === "KP_RATING") {
+      const rA = a.ratingKinopoisk ?? a.ratingImdb ?? 0;
+      const rB = b.ratingKinopoisk ?? b.ratingImdb ?? 0;
+      if (rA !== rB) return (rA - rB) * dirMult;
+    }
+
+    if (order === "CRITICS") {
+      const cA = a.ratingFilmCritics ?? a.ratingGoodReview ?? a.ratingImdb ?? a.ratingKinopoisk ?? 0;
+      const cB = b.ratingFilmCritics ?? b.ratingGoodReview ?? b.ratingImdb ?? b.ratingKinopoisk ?? 0;
+      if (cA !== cB) return (cA - cB) * dirMult;
+    }
+
+    if (order === "HIDDEN_GEMS") {
+      // High rating with moderate vote counts
+      const scoreGem = (f: Film) => {
+        const r = getEffectiveRating(f, ratingSource);
+        const v = getEffectiveVotes(f);
+        const voteSweetSpot = v > 0 && v < 45000 ? 1.15 : v >= 45000 ? 0.85 : 1.0;
+        return r * voteSweetSpot;
+      };
+      return (scoreGem(a) - scoreGem(b)) * dirMult;
+    }
+
+    if (order === "NUM_VOTE") {
+      const vA = getEffectiveVotes(a);
+      const vB = getEffectiveVotes(b);
+      if (vA !== vB && (vA > 0 || vB > 0)) return (vA - vB) * dirMult;
+    }
+
+    const effA = getEffectiveRating(a, ratingSource);
+    const effB = getEffectiveRating(b, ratingSource);
+    return (effA - effB) * dirMult;
+  });
+
+  return copy;
+}
+
+// ─── Single Film & Detail Endpoints ───────────────────────────────────────────
 
 export async function getFilm(id: number): Promise<Film> {
   const raw = await apiFetch<Film & Record<string, unknown>>(`/v2.2/films/${id}`);
@@ -360,6 +1423,8 @@ export async function getFilm(id: number): Promise<Film> {
 export async function getFilmStaff(filmId: number): Promise<Staff[]> {
   return apiFetch(`/v1/staff?filmId=${filmId}`);
 }
+
+export const getStaff = getFilmStaff;
 
 export async function getFilmVideos(filmId: number): Promise<VideosResponse> {
   return apiFetch(`/v2.2/films/${filmId}/videos`);
@@ -379,7 +1444,7 @@ export async function getRelatedFilms(filmId: number): Promise<Film[]> {
   const items = await apiFetch<(Film & Record<string, unknown>)[]>(
     `/v2.1/films/${filmId}/sequels_and_prequels`,
   );
-  return (items ?? []).map(normalizeFilmItem);
+  return sanitizeFilmsForSafeMode((items ?? []).map(normalizeFilmItem));
 }
 
 export async function getSimilarFilms(
@@ -393,7 +1458,19 @@ export async function getPerson(personId: number): Promise<PersonDetail> {
 }
 
 export async function getFilters(): Promise<FiltersResponse> {
-  return apiFetch(`/v2.2/films/filters`, 86400);
+  const res = await apiFetch<FiltersResponse>(`/v2.2/films/filters`, 86400);
+  if (isSafeModeActive()) {
+    return {
+      genres: (res.genres ?? []).filter(
+        (g) =>
+          g.id !== 28 &&
+          g.id !== 25 &&
+          !ADULT_GENRE_NAMES.has(g.genre.trim().toLowerCase()),
+      ),
+      countries: res.countries ?? [],
+    };
+  }
+  return res;
 }
 
 export async function getFilmFacts(filmId: number): Promise<FactsResponse> {
@@ -414,7 +1491,7 @@ export async function getFilmSeasons(
 
 export async function getFilmImages(
   filmId: number,
-  type = "STILL",
+  type: GalleryImageType = "STILL",
   page = 1,
 ): Promise<{
   total: number;

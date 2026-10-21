@@ -12,14 +12,11 @@ import { getPreferences } from "@/lib/preferences";
 import { SESSION_KEY } from "@/lib/session";
 
 /**
- * Returns the current autoTranslateEnabled preference, reactive to both
- * cross-tab storage events and same-tab "cinemix-session-change" events.
+ * Returns the current autoTranslateEnabled preference, SSR-safe to prevent
+ * React 19 hydration mismatches while staying reactive to storage/session changes.
  */
 export function useAutoTranslate(): boolean {
-  const [enabled, setEnabled] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    return getPreferences().autoTranslateEnabled;
-  });
+  const [enabled, setEnabled] = useState<boolean>(true);
 
   useEffect(() => {
     const sync = () => {
@@ -50,18 +47,13 @@ export function useAutoTranslate(): boolean {
   return enabled;
 }
 
-/** Translate plain text (description, slogan, names, etc.) without Cyrillic flash */
+/**
+ * Translate plain text (description, slogan, names, etc.) without blank-text flash
+ * or SSR hydration mismatch.
+ */
 export function useTranslate(text: string | undefined | null): string {
   const autoTranslate = useAutoTranslate();
-
-  const [translated, setTranslated] = useState<string>(() => {
-    if (!text) return "";
-    if (!isRussian(text)) return text;
-    if (typeof window !== "undefined" && !getPreferences().autoTranslateEnabled) {
-      return text;
-    }
-    return getCachedTranslation(text) ?? "";
-  });
+  const [translated, setTranslated] = useState<string>(text ?? "");
 
   useEffect(() => {
     if (!text) {
@@ -77,10 +69,14 @@ export function useTranslate(text: string | undefined | null): string {
       setTranslated(cached);
       return;
     }
+
+    // Show original text immediately so UI is never blank while translating
+    setTranslated(text);
+
     let active = true;
     translateText(text)
       .then((res) => {
-        if (active) setTranslated(res);
+        if (active && res) setTranslated(res);
       })
       .catch(() => {
         if (active) setTranslated(text);
@@ -90,25 +86,17 @@ export function useTranslate(text: string | undefined | null): string {
     };
   }, [text, autoTranslate]);
 
-  return translated;
+  return translated || text || "";
 }
 
 /**
  * Strips HTML tags from content, then translates Russian text.
- * Use this instead of dangerouslySetInnerHTML to avoid XSS.
+ * Never returns blank string while waiting on network.
  */
 export function useTranslateHtml(html: string | undefined | null): string {
   const autoTranslate = useAutoTranslate();
-
-  const [translated, setTranslated] = useState<string>(() => {
-    if (!html) return "";
-    const plain = stripHtml(html);
-    if (!isRussian(plain)) return plain;
-    if (typeof window !== "undefined" && !getPreferences().autoTranslateEnabled) {
-      return plain;
-    }
-    return getCachedTranslation(plain) ?? "";
-  });
+  const plainInitial = html ? stripHtml(html) : "";
+  const [translated, setTranslated] = useState<string>(plainInitial);
 
   useEffect(() => {
     if (!html) {
@@ -125,10 +113,13 @@ export function useTranslateHtml(html: string | undefined | null): string {
       setTranslated(cached);
       return;
     }
+
+    setTranslated(plain);
+
     let active = true;
     translateHtml(html)
       .then((res) => {
-        if (active) setTranslated(res);
+        if (active && res) setTranslated(res);
       })
       .catch(() => {
         if (active) setTranslated(plain);
@@ -138,7 +129,7 @@ export function useTranslateHtml(html: string | undefined | null): string {
     };
   }, [html, autoTranslate]);
 
-  return translated;
+  return translated || plainInitial;
 }
 
 /**
@@ -163,8 +154,6 @@ export function useFilmTitle(
         autoTranslate,
       )
     : "Unknown";
-  const translated = useTranslate(
-    autoTranslate && isRussian(baseName) ? baseName : baseName,
-  );
+  const translated = useTranslate(baseName);
   return translated || baseName;
 }

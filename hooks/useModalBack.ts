@@ -1,30 +1,48 @@
-// hooks/useModalBack.ts
-import { useEffect } from 'react';
+"use client";
+import { useEffect, useRef } from "react";
 
+/**
+ * Intercepts the browser/mobile hardware Back button while a modal is open
+ * so pressing Back closes the modal cleanly without leaving the page or
+ * double-popping history when closed via UI buttons.
+ */
 export function useModalBack(isOpen: boolean, onClose: () => void) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || typeof window === "undefined") return;
 
-    // 1. Push a dummy state to the browser history when modal opens
-    window.history.pushState({ isModalOpen: true }, '');
+    let poppedByBack = false;
+    const modalToken = `modal_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
-    // 2. Handle the back gesture/button
+    const currentState =
+      typeof window.history.state === "object" && window.history.state !== null
+        ? window.history.state
+        : {};
+
+    window.history.pushState(
+      { ...currentState, cinemixModalToken: modalToken },
+      "",
+      window.location.href,
+    );
+
     const handlePopState = () => {
-      // The browser already popped the state, so we just close the UI
-      onClose();
+      poppedByBack = true;
+      onCloseRef.current();
     };
 
-    window.addEventListener('popstate', handlePopState);
+    window.addEventListener("popstate", handlePopState);
 
-    // 3. Cleanup
     return () => {
-      window.removeEventListener('popstate', handlePopState);
-      
-      // If the modal was closed via a UI button (not the back gesture),
-      // the dummy state is still in history. We need to remove it.
-      if (window.history.state?.isModalOpen) {
+      window.removeEventListener("popstate", handlePopState);
+      if (
+        !poppedByBack &&
+        window.history.state &&
+        window.history.state.cinemixModalToken === modalToken
+      ) {
         window.history.back();
       }
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 }

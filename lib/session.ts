@@ -6,9 +6,13 @@
  * future DB sync trivial — just POST the session object and you're done.
  */
 
+import { SavedExplorePreset } from "@/types/kinopoisk";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type DeviceType = "mobile" | "tablet" | "desktop" | "unknown";
+
+export type ContentRegionMode = "GLOBAL_FIRST" | "BALANCED" | "ALL";
 
 export interface GeoInfo {
   ip: string | null;
@@ -54,15 +58,6 @@ export interface ApiKeyStore {
   saved_at: string | null;
 }
 
-export interface CustomPlayerServer {
-  id: string;
-  name: string;
-  label?: string;
-  quality?: string;
-  baseUrl: string;
-  cropTopHeader?: boolean;
-}
-
 /** Preferences blob (kept flat for easy SQL jsonb column) */
 export interface SessionPreferences {
   searchSuggestionsEnabled: boolean;
@@ -70,13 +65,13 @@ export interface SessionPreferences {
   suggestionLimit: number;
   autoTranslateEnabled: boolean;
   historyEnabled: boolean;
+  safeModeEnabled: boolean;
+  contentRegionMode: ContentRegionMode;
   homeSections: Record<string, boolean>;
   filmSections: Record<string, boolean>;
   defaultExploreType: string;
   defaultExploreOrder: string;
-  preferredPlayerId: string;
-  alwaysAskPlayer: boolean;
-  customPlayers: CustomPlayerServer[];
+  savedExplorePresets: SavedExplorePreset[];
 }
 
 /** The full local session object */
@@ -102,6 +97,8 @@ export const DEFAULT_PREFERENCES: SessionPreferences = {
   suggestionLimit: 6,
   autoTranslateEnabled: true,
   historyEnabled: true,
+  safeModeEnabled: true,
+  contentRegionMode: "GLOBAL_FIRST",
   homeSections: {
     popular: true,
     top250: true,
@@ -124,13 +121,11 @@ export const DEFAULT_PREFERENCES: SessionPreferences = {
     sequels: true,
     reviews: true,
     distributions: true,
-    videos: true,
+    parentalGuide: true,
   },
-  defaultExploreType: "FILM",
-  defaultExploreOrder: "RATING",
-  preferredPlayerId: "flcksbr",
-  alwaysAskPlayer: true,
-  customPlayers: [],
+  defaultExploreType: "ALL",
+  defaultExploreOrder: "NUM_VOTE",
+  savedExplorePresets: [],
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -179,7 +174,6 @@ export async function fetchGeo(): Promise<GeoInfo> {
       city: d.city ?? null,
     };
   } catch {
-    // silently fail — geo is best-effort
     return { ip: null, country: null, city: null };
   }
 }
@@ -198,25 +192,55 @@ if (typeof window !== "undefined") {
 
 function normalizeSession(parsed: Partial<CineMixSession>): CineMixSession {
   const fresh = createDefaultSession();
+  const rawFilmSections = {
+    ...DEFAULT_PREFERENCES.filmSections,
+    ...(parsed.preferences?.filmSections ?? {}),
+  };
+  delete (rawFilmSections as Record<string, unknown>).videos;
+
+  const rawRegion = parsed.preferences?.contentRegionMode;
+  const contentRegionMode: ContentRegionMode =
+    rawRegion === "GLOBAL_FIRST" || rawRegion === "BALANCED" || rawRegion === "ALL"
+      ? rawRegion
+      : DEFAULT_PREFERENCES.contentRegionMode;
+
   const mergedPrefs: SessionPreferences = {
-    ...DEFAULT_PREFERENCES,
-    ...(parsed.preferences ?? {}),
+    searchSuggestionsEnabled:
+      typeof parsed.preferences?.searchSuggestionsEnabled === "boolean"
+        ? parsed.preferences.searchSuggestionsEnabled
+        : DEFAULT_PREFERENCES.searchSuggestionsEnabled,
+    suggestionDebounceMs:
+      typeof parsed.preferences?.suggestionDebounceMs === "number"
+        ? parsed.preferences.suggestionDebounceMs
+        : DEFAULT_PREFERENCES.suggestionDebounceMs,
+    suggestionLimit:
+      typeof parsed.preferences?.suggestionLimit === "number"
+        ? parsed.preferences.suggestionLimit
+        : DEFAULT_PREFERENCES.suggestionLimit,
+    autoTranslateEnabled:
+      typeof parsed.preferences?.autoTranslateEnabled === "boolean"
+        ? parsed.preferences.autoTranslateEnabled
+        : DEFAULT_PREFERENCES.autoTranslateEnabled,
+    historyEnabled:
+      typeof parsed.preferences?.historyEnabled === "boolean"
+        ? parsed.preferences.historyEnabled
+        : DEFAULT_PREFERENCES.historyEnabled,
+    safeModeEnabled:
+      typeof parsed.preferences?.safeModeEnabled === "boolean"
+        ? parsed.preferences.safeModeEnabled
+        : DEFAULT_PREFERENCES.safeModeEnabled,
+    contentRegionMode,
     homeSections: {
       ...DEFAULT_PREFERENCES.homeSections,
       ...(parsed.preferences?.homeSections ?? {}),
     },
-    filmSections: {
-      ...DEFAULT_PREFERENCES.filmSections,
-      ...(parsed.preferences?.filmSections ?? {}),
-    },
-    preferredPlayerId:
-      parsed.preferences?.preferredPlayerId || DEFAULT_PREFERENCES.preferredPlayerId,
-    alwaysAskPlayer:
-      typeof parsed.preferences?.alwaysAskPlayer === "boolean"
-        ? parsed.preferences.alwaysAskPlayer
-        : DEFAULT_PREFERENCES.alwaysAskPlayer,
-    customPlayers: Array.isArray(parsed.preferences?.customPlayers)
-      ? parsed.preferences!.customPlayers
+    filmSections: rawFilmSections,
+    defaultExploreType:
+      parsed.preferences?.defaultExploreType || DEFAULT_PREFERENCES.defaultExploreType,
+    defaultExploreOrder:
+      parsed.preferences?.defaultExploreOrder || DEFAULT_PREFERENCES.defaultExploreOrder,
+    savedExplorePresets: Array.isArray(parsed.preferences?.savedExplorePresets)
+      ? parsed.preferences.savedExplorePresets
       : [],
   };
 
@@ -251,7 +275,6 @@ export function getSession(): CineMixSession {
       return _cache;
     }
   } catch {
-    // corrupt storage — nuke and start fresh
     localStorage.removeItem(SESSION_KEY);
   }
 
@@ -321,7 +344,7 @@ export function exportSessionBackup(): string {
   }
   return JSON.stringify(
     {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       session,
       translateCache,

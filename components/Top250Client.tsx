@@ -1,12 +1,24 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import { Star, Trophy, Film as FilmIcon, Tv } from "lucide-react";
+import {
+  Star,
+  Trophy,
+  Film as FilmIcon,
+  Tv,
+  Heart,
+  Clock,
+  CheckCircle2,
+  EyeOff,
+} from "lucide-react";
 import { getTopFilms } from "@/lib/kinopoisk";
 import { translateGenre, translateCountry } from "@/lib/translate";
 import { useAutoTranslate, useFilmTitle } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { useListStatus } from "@/hooks/useListStatus";
 import { hasApiKeys } from "@/lib/preferences";
+import { getList, toggleFavorite, toggleWatchLater } from "@/lib/userLists";
+import { useToast } from "@/lib/toast";
 import { Film } from "@/types/kinopoisk";
 import Pagination from "@/components/Pagination";
 import PageContainer from "@/components/ui/PageContainer";
@@ -30,12 +42,15 @@ function Top250Row({
   rank: number;
   autoTranslate: boolean;
 }) {
+  const { toast } = useToast();
   const name = useFilmTitle(film, autoTranslate);
+  const id = film.kinopoiskId ?? film.filmId ?? 0;
+  const { isFav, isWL, isWatched } = useListStatus(id);
+
   const rating =
     film.ratingKinopoisk?.toFixed(1) ??
     film.ratingImdb?.toFixed(1) ??
     (typeof film.rating === "number" ? film.rating.toFixed(1) : film.rating);
-  const id = film.kinopoiskId ?? film.filmId;
 
   const rankSize =
     rank <= 10
@@ -50,63 +65,129 @@ function Top250Row({
         ? "text-[rgba(245,197,24,0.65)]"
         : "text-[var(--text-muted)]";
 
-  return (
-    <Link href={`/film/${id}`} className="no-underline group">
-      <div className="flex items-center gap-2 sm:gap-4 md:gap-5 px-2 sm:px-4 py-[10px] sm:py-3 rounded-[10px] border border-white/5 transition-all duration-[180ms] cursor-pointer hover:bg-[var(--bg-card)] hover:border-[var(--border)] active:bg-[var(--bg-card)] sm:group-hover:translate-x-1">
-        {/* Rank */}
-        <div
-          className={`w-7 sm:w-10 text-right flex-shrink-0 font-display leading-none ${rankSize} ${rankColor}`}
-        >
-          {rank}
-        </div>
+  const filmEntry = {
+    film_id: id,
+    film_name: name,
+    poster_url: film.posterUrlPreview || film.posterUrl || null,
+    year: film.year ?? null,
+    rating: film.ratingKinopoisk ?? film.ratingImdb ?? null,
+  };
 
-        {/* Poster */}
+  return (
+    <div className="flex items-center gap-2 sm:gap-4 md:gap-5 px-2 sm:px-4 py-[10px] sm:py-3 rounded-[10px] border border-white/5 transition-all duration-[180ms] hover:bg-[var(--bg-card)] hover:border-[var(--border)] group">
+      {/* Rank */}
+      <div
+        className={`w-7 sm:w-10 text-right flex-shrink-0 font-display leading-none ${rankSize} ${rankColor}`}
+      >
+        {rank}
+      </div>
+
+      {/* Poster */}
+      <Link href={`/film/${id}`} className="no-underline flex-shrink-0">
         <PosterImage
           src={film.posterUrlPreview || film.posterUrl}
           alt={name}
           title={name}
           fallbackType="mini"
-          className="w-[36px] sm:w-[44px] h-[54px] sm:h-[66px] rounded-[6px] overflow-hidden flex-shrink-0 bg-[var(--surface)] relative"
+          className="w-[38px] sm:w-[46px] h-[57px] sm:h-[68px] rounded-[6px] overflow-hidden bg-[var(--surface)] relative"
         />
+      </Link>
 
-        {/* Info */}
-        <div className="flex-1 min-w-0">
-          <p className="text-[13px] sm:text-[14px] md:text-[15px] font-semibold text-[var(--text)] overflow-hidden text-ellipsis whitespace-nowrap mb-[2px] sm:mb-1 group-hover:text-white transition-colors">
-            {name}
-          </p>
-          <div className="flex gap-2 items-center flex-wrap">
-            {film.year && (
-              <span className="text-[11px] sm:text-[12px] text-[var(--text-muted)]">
-                {film.year}
-              </span>
-            )}
-            {film.countries?.[0] && (
-              <span className="hidden md:inline text-[11px] text-[var(--text-muted)]">
-                · {translateCountry(film.countries[0].country, autoTranslate)}
-              </span>
-            )}
-            {film.genres?.slice(0, 2).map((g) => (
-              <span
-                key={g.genre}
-                className="hidden sm:inline text-[11px] text-[var(--text-dim)] capitalize"
-              >
-                · {translateGenre(g.genre, autoTranslate)}
-              </span>
-            ))}
-          </div>
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link href={`/film/${id}`} className="no-underline">
+            <p className="text-[13px] sm:text-[14px] md:text-[15px] font-semibold text-[var(--text)] overflow-hidden text-ellipsis whitespace-nowrap mb-[2px] sm:mb-1 group-hover:text-white transition-colors">
+              {name}
+            </p>
+          </Link>
+          {isWatched && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#4ade80] bg-[rgba(34,197,94,0.12)] border border-[rgba(34,197,94,0.3)] rounded px-1.5 py-[1px]">
+              <CheckCircle2 size={10} />
+              Watched
+            </span>
+          )}
         </div>
+        <div className="flex gap-2 items-center flex-wrap">
+          {film.year && (
+            <span className="text-[11px] sm:text-[12px] text-[var(--text-muted)]">
+              {film.year}
+            </span>
+          )}
+          {film.countries?.[0] && (
+            <span className="hidden md:inline text-[11px] text-[var(--text-muted)]">
+              · {translateCountry(film.countries[0].country, autoTranslate)}
+            </span>
+          )}
+          {film.genres?.slice(0, 2).map((g) => (
+            <span
+              key={g.genre}
+              className="hidden sm:inline text-[11px] text-[var(--text-dim)] capitalize"
+            >
+              · {translateGenre(g.genre, autoTranslate)}
+            </span>
+          ))}
+        </div>
+      </div>
 
-        {/* Rating */}
+      {/* Rating & Quick Actions */}
+      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        {film.ratingImdb && (
+          <span className="hidden md:inline-flex items-center gap-1 text-[11px] font-bold text-[#f5c518] bg-[rgba(245,197,24,0.12)] border border-[rgba(245,197,24,0.3)] rounded px-2 py-0.5">
+            IMDb {film.ratingImdb.toFixed(1)}
+          </span>
+        )}
         {rating && (
-          <div className="flex items-center gap-[4px] sm:gap-[5px] flex-shrink-0">
+          <div className="flex items-center gap-[4px] sm:gap-[5px]">
             <Star size={12} fill="#f5c518" stroke="#f5c518" />
             <span className="text-[#f5c518] font-display text-[15px] sm:text-[18px] md:text-[20px]">
               {rating}
             </span>
           </div>
         )}
+
+        <div className="hidden sm:flex items-center gap-1 ml-1">
+          <button
+            type="button"
+            onClick={() => {
+              const added = toggleFavorite(filmEntry);
+              toast.success(
+                added ? "Added to Favorites" : "Removed from Favorites",
+              );
+            }}
+            title={isFav ? "In Favorites" : "Add to Favorites"}
+            className={`w-8 h-8 rounded-full border flex items-center justify-center cursor-pointer transition-all ${
+              isFav
+                ? "bg-[var(--accent-dim)] border-[var(--accent)] text-[var(--accent)]"
+                : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-muted)] hover:text-white"
+            }`}
+          >
+            <Heart
+              size={13}
+              fill={isFav ? "var(--accent)" : "none"}
+              stroke={isFav ? "var(--accent)" : "currentColor"}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const added = toggleWatchLater(filmEntry);
+              toast.info(
+                added ? "Saved to Watch Later" : "Removed from Watch Later",
+              );
+            }}
+            title={isWL ? "In Watch Later" : "Save to Watch Later"}
+            className={`w-8 h-8 rounded-full border flex items-center justify-center cursor-pointer transition-all ${
+              isWL
+                ? "bg-[rgba(96,165,250,0.14)] border-[#60a5fa] text-[#60a5fa]"
+                : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-muted)] hover:text-white"
+            }`}
+          >
+            <Clock size={13} />
+          </button>
+        </div>
       </div>
-    </Link>
+    </div>
   );
 }
 
@@ -126,6 +207,9 @@ export default function Top250Client({
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(250);
   const [loading, setLoading] = useState(true);
+  const [hideWatched, setHideWatched] = useState(false);
+  const [watchedIds, setWatchedIds] = useState<Set<number>>(new Set());
+
   const autoTranslate = useAutoTranslate();
 
   useDocumentTitle(
@@ -133,6 +217,16 @@ export default function Top250Client({
       ? "Top 250 TV Series"
       : "Top 250 Movies",
   );
+
+  useEffect(() => {
+    const syncHistory = () => {
+      setWatchedIds(new Set(getList("history").map((e) => e.film_id)));
+    };
+    syncHistory();
+    window.addEventListener("cinemix-session-change", syncHistory);
+    return () =>
+      window.removeEventListener("cinemix-session-change", syncHistory);
+  }, []);
 
   useEffect(() => {
     if (!hasApiKeys()) {
@@ -157,6 +251,20 @@ export default function Top250Client({
       .finally(() => setLoading(false));
   }, [page, collectionType]);
 
+  const watchedOnPageCount = useMemo(
+    () =>
+      films.filter((f) => watchedIds.has(f.kinopoiskId ?? f.filmId ?? 0))
+        .length,
+    [films, watchedIds],
+  );
+
+  const visibleFilms = useMemo(() => {
+    if (!hideWatched) return films;
+    return films.filter(
+      (f) => !watchedIds.has(f.kinopoiskId ?? f.filmId ?? 0),
+    );
+  }, [films, hideWatched, watchedIds]);
+
   if (noKey) return <NoKeyBanner />;
 
   const getGlobalRank = (localIndex: number) =>
@@ -176,9 +284,25 @@ export default function Top250Client({
         }
         rightSlot={
           !loading && total > 0 ? (
-            <span className="text-[12px] sm:text-[13px] text-[var(--text-muted)]">
-              {total.toLocaleString()} ranked titles
-            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[12px] text-[var(--text-muted)] bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-1.5 rounded-full">
+                Watched on this page:{" "}
+                <strong className="text-[#4ade80]">{watchedOnPageCount}</strong>{" "}
+                / {films.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => setHideWatched((v) => !v)}
+                className={`px-3 py-1.5 rounded-full text-[12px] font-semibold border cursor-pointer inline-flex items-center gap-1.5 ${
+                  hideWatched
+                    ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
+                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
+                }`}
+              >
+                <EyeOff size={12} />
+                {hideWatched ? "Showing Unwatched Only" : "Hide Watched"}
+              </button>
+            </div>
           ) : null
         }
       />
@@ -209,24 +333,40 @@ export default function Top250Client({
             />
           ))}
         </div>
-      ) : films.length === 0 ? (
+      ) : visibleFilms.length === 0 ? (
         <EmptyState
           icon={<Trophy size={36} />}
-          title="Failed to Load Top 250"
-          description="Please check your API key quota or try again in a moment."
+          title={
+            hideWatched
+              ? "All Titles on This Page Watched!"
+              : "Failed to Load Top 250"
+          }
+          description={
+            hideWatched
+              ? "Move to the next page or disable 'Hide Watched' to view all ranked titles."
+              : "Please check your API key quota or try again in a moment."
+          }
           actionLabel="Explore Films"
           actionHref="/explore"
         />
       ) : (
         <div className="flex flex-col gap-[2px] sm:gap-[3px]">
-          {films.map((film, i) => (
-            <Top250Row
-              key={film.kinopoiskId ?? film.filmId ?? i}
-              film={film}
-              rank={getGlobalRank(i)}
-              autoTranslate={autoTranslate}
-            />
-          ))}
+          {films.map((film, i) => {
+            if (
+              hideWatched &&
+              watchedIds.has(film.kinopoiskId ?? film.filmId ?? 0)
+            ) {
+              return null;
+            }
+            return (
+              <Top250Row
+                key={film.kinopoiskId ?? film.filmId ?? i}
+                film={film}
+                rank={getGlobalRank(i)}
+                autoTranslate={autoTranslate}
+              />
+            );
+          })}
         </div>
       )}
 

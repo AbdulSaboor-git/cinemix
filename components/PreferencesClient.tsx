@@ -13,6 +13,8 @@ import {
   Monitor,
   Home,
   Film,
+  ShieldCheck,
+  Globe,
 } from "lucide-react";
 import {
   Preferences,
@@ -233,6 +235,7 @@ export default function PreferencesClient() {
         apiKeys: prefs.apiKeys.map((k) => k.trim()).filter(Boolean),
       };
       savePreferences(cleaned);
+      clearApiCache();
       setPrefs(cleaned);
       setUnsaved(false);
       toast.success("Preferences saved.");
@@ -454,6 +457,76 @@ export default function PreferencesClient() {
         </div>
       </div>
 
+      {/* Content Safety & Regional Priority */}
+      <div className={card}>
+        <div className={cardHdr}>
+          <SectionIcon>
+            <ShieldCheck size={15} strokeWidth={2} />
+          </SectionIcon>
+          <div>
+            <SectionTitle>Safe Mode & Regional Curation</SectionTitle>
+            <p className={`${hint} !mt-0`}>
+              Control adult content filtering across all pages and prioritize
+              Hollywood & international releases.
+            </p>
+          </div>
+        </div>
+        <div className="py-2">
+          <div className={row}>
+            <div className="min-w-0 flex-1">
+              <p className={lbl}>App-Wide Safe Mode (Hide Adult & Erotic)</p>
+              <p className={hint}>
+                Automatically strips adult (`для взрослых`), erotic (`эротика`),
+                and NC-17 titles from Home, Explore, Search, Navbar suggestions,
+                Actor credits, and direct film/watch links.
+              </p>
+            </div>
+            <Toggle
+              checked={prefs.safeModeEnabled ?? true}
+              onChange={(v) =>
+                updatePref((p) => ({ ...p, safeModeEnabled: v }))
+              }
+            />
+          </div>
+
+          <div className="px-4 sm:px-6 py-3 sm:py-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Globe size={14} className="text-[var(--accent)]" />
+              <p className={lbl}>Regional Content Priority</p>
+            </div>
+            <p className={`${hint} mb-3`}>
+              Prevents domestic Russian releases from suppressing Hollywood and
+              global hits on the Home page and Explore defaults.
+            </p>
+            <div className="flex gap-[6px] flex-wrap">
+              {(
+                [
+                  {
+                    id: "GLOBAL_FIRST",
+                    label: "Hollywood & Global First (Exclude RU)",
+                  },
+                  { id: "BALANCED", label: "Balanced Mix" },
+                  { id: "ALL", label: "All Regions Unfiltered" },
+                ] as const
+              ).map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() =>
+                    updatePref((p) => ({ ...p, contentRegionMode: mode.id }))
+                  }
+                  className={optBtn(
+                    (prefs.contentRegionMode ?? "GLOBAL_FIRST") === mode.id,
+                  )}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Watch History */}
       <div className={card}>
         <div className={cardHdr}>
@@ -607,12 +680,12 @@ export default function PreferencesClient() {
               Which order the Explore page loads with by default.
             </p>
             <div className="flex gap-[5px] sm:gap-[6px] flex-wrap">
-              {(["RATING", "NUM_VOTE", "YEAR"] as const).map((o) => {
+              {(["NUM_VOTE", "RATING", "YEAR"] as const).map((o) => {
                 const label =
                   o === "RATING"
                     ? "Top Rated"
                     : o === "NUM_VOTE"
-                      ? "Most Voted"
+                      ? "Most Popular (Votes)"
                       : "Newest";
                 return (
                   <button
@@ -737,6 +810,11 @@ export default function PreferencesClient() {
                 "Release Dates",
                 "Country-by-country release info — 1 call",
               ],
+              [
+                "parentalGuide",
+                "Parental Guide",
+                "IMDb content advisories & age certifications",
+              ],
             ] as [keyof Preferences["filmSections"], string, string][]
           ).map(([key, label, hint_], i, arr) => (
             <div key={key} className={i === arr.length - 1 ? rowLast : row}>
@@ -745,7 +823,7 @@ export default function PreferencesClient() {
                 <p className={hint}>{hint_}</p>
               </div>
               <Toggle
-                checked={prefs.filmSections[key]}
+                checked={prefs.filmSections[key] ?? true}
                 onChange={(v) =>
                   updatePref((p) => ({
                     ...p,

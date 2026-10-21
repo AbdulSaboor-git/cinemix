@@ -560,3 +560,30 @@ export async function getParentalGuide(
   inflightPg.set(cacheKey, promise);
   return promise;
 }
+
+export function getQuickCertBadge(
+  film?: Partial<Film> | null,
+): { label: string; isMature: boolean } | null {
+  if (!film) return null;
+  const mpaa = normalizeMpaaRating(film.ratingMpaa);
+  const age = normalizeAgeLimit(film.ratingAgeLimits);
+  if (mpaa && age) {
+    return {
+      label: `${mpaa} · ${age}+`,
+      isMature: mpaa === "R" || mpaa === "NC-17" || age === "18",
+    };
+  }
+  if (mpaa) {
+    return {
+      label: mpaa,
+      isMature: mpaa === "R" || mpaa === "NC-17",
+    };
+  }
+  if (age) {
+    return {
+      label: `${age}+`,
+      isMature: age === "18",
+    };
+  }
+  return null;
+}
