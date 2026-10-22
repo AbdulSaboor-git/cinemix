@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import {
   Film as FilmIcon,
@@ -33,24 +33,41 @@ interface HeroBannerProps {
 
 export default function HeroBanner({ film, films }: HeroBannerProps) {
   const slides =
-    films && films.length > 0 ? films.slice(0, 6) : film ? [film] : [];
+    films && films.length > 0 ? films.slice(0, 5) : film ? [film] : [];
   const [activeIdx, setActiveIdx] = useState(0);
   const [paused, setPaused] = useState(false);
   const [parentalOpen, setParentalOpen] = useState(false);
+  const [dragOffsetX, setDragOffsetX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
 
-  const currentFilm = slides[activeIdx] ?? slides[0];
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+  const swipedRef = useRef(false);
+
+  const safeIdx = slides.length > 0 ? activeIdx % slides.length : 0;
+  const currentFilm = slides[safeIdx] ?? slides[0];
   const autoTranslate = useAutoTranslate();
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (slides.length <= 1 || paused || parentalOpen) return;
-    const t = setInterval(() => {
-      setActiveIdx((prev) => (prev + 1) % slides.length);
-    }, 7000);
-    return () => clearInterval(t);
-  }, [slides.length, paused, parentalOpen]);
+  const goNext = useCallback(() => {
+    if (slides.length <= 1) return;
+    setActiveIdx((prev) => (prev + 1) % slides.length);
+  }, [slides.length]);
 
-  const id = currentFilm ? (currentFilm.kinopoiskId ?? currentFilm.filmId ?? 0) : 0;
+  const goPrev = useCallback(() => {
+    if (slides.length <= 1) return;
+    setActiveIdx((prev) => (prev - 1 + slides.length) % slides.length);
+  }, [slides.length]);
+
+  useEffect(() => {
+    if (slides.length <= 1 || paused || parentalOpen || isDragging) return;
+    const t = setInterval(goNext, 6500);
+    return () => clearInterval(t);
+  }, [slides.length, paused, parentalOpen, isDragging, goNext]);
+
+  const id = currentFilm
+    ? (currentFilm.kinopoiskId ?? currentFilm.filmId ?? 0)
+    : 0;
   const name = useFilmTitle(currentFilm, autoTranslate);
   const rawDesc =
     currentFilm?.shortDescription ||
@@ -78,7 +95,7 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
     film_name: name,
     poster_url: currentFilm.posterUrlPreview || currentFilm.posterUrl || null,
     year: currentFilm.year ?? currentFilm.startYear ?? null,
-    rating: currentFilm.ratingKinopoisk ?? currentFilm.ratingImdb ?? null,
+    rating: currentFilm.ratingImdb ?? currentFilm.ratingKinopoisk ?? null,
   };
 
   const handleFav = () => {
@@ -91,37 +108,131 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
     toast.info(added ? "Saved to Watch Later" : "Removed from Watch Later");
   };
 
+  // Touch & Pointer swipe handlers for smooth mobile/tablet/desktop swiping
+  const handleSwipeStart = (clientX: number, clientY: number) => {
+    if (slides.length <= 1) return;
+    touchStartX.current = clientX;
+    touchStartY.current = clientY;
+    swipedRef.current = false;
+    setIsDragging(true);
+  };
+
+  const handleSwipeMove = (clientX: number, clientY: number) => {
+    if (touchStartX.current === null || touchStartY.current === null) return;
+    const dx = clientX - touchStartX.current;
+    const dy = clientY - touchStartY.current;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
+      swipedRef.current = true;
+      setDragOffsetX(Math.max(-140, Math.min(140, dx * 0.45)));
+    }
+  };
+
+  const handleSwipeEnd = (clientX: number) => {
+    if (touchStartX.current === null) return;
+    const dx = clientX - touchStartX.current;
+    if (Math.abs(dx) >= 48) {
+      if (dx < 0) goNext();
+      else goPrev();
+    }
+    touchStartX.current = null;
+    touchStartY.current = null;
+    setDragOffsetX(0);
+    setIsDragging(false);
+  };
+
   return (
     <div
-      className="relative w-full overflow-hidden h-[390px] sm:h-[500px] md:h-[620px] lg:h-[min(86vh,780px)] group"
+      className="relative w-full overflow-hidden h-[380px] sm:h-[490px] md:h-[600px] lg:h-[min(85vh,760px)] group select-none touch-pan-y bg-[#080808]"
       onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
+      onMouseLeave={() => {
+        setPaused(false);
+        if (isDragging) {
+          touchStartX.current = null;
+          setDragOffsetX(0);
+          setIsDragging(false);
+        }
+      }}
+      onTouchStart={(e) => {
+        const t = e.touches[0];
+        if (t) handleSwipeStart(t.clientX, t.clientY);
+      }}
+      onTouchMove={(e) => {
+        const t = e.touches[0];
+        if (t) handleSwipeMove(t.clientX, t.clientY);
+      }}
+      onTouchEnd={(e) => {
+        const t = e.changedTouches[0];
+        if (t) handleSwipeEnd(t.clientX);
+      }}
+      onPointerDown={(e) => {
+        if (e.pointerType === "mouse" && e.button === 0) {
+          handleSwipeStart(e.clientX, e.clientY);
+        }
+      }}
+      onPointerMove={(e) => {
+        if (e.pointerType === "mouse" && isDragging) {
+          handleSwipeMove(e.clientX, e.clientY);
+        }
+      }}
+      onPointerUp={(e) => {
+        if (e.pointerType === "mouse" && isDragging) {
+          handleSwipeEnd(e.clientX);
+        }
+      }}
     >
-      {/* Background */}
-      {(currentFilm.coverUrl || currentFilm.posterUrl) && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          key={currentFilm.coverUrl || currentFilm.posterUrl}
-          src={currentFilm.coverUrl || currentFilm.posterUrl}
-          alt={name}
-          fetchPriority="high"
-          decoding="async"
-          className="absolute inset-0 w-full h-full object-cover object-[center_20%] transition-opacity duration-500"
-        />
-      )}
+      {/* Pre-rendered layered slides for butter-smooth crossfade + subtle zoom animation */}
+      {slides.map((slide, idx) => {
+        const isCurrent = idx === safeIdx;
+        const bgUrl =
+          slide.coverUrl || slide.posterUrl || slide.posterUrlPreview;
+        if (!bgUrl) return null;
+        return (
+          <div
+            key={slide.kinopoiskId ?? slide.filmId ?? idx}
+            aria-hidden={!isCurrent}
+            className={`absolute inset-0 transition-all duration-700 ease-out ${
+              isCurrent
+                ? "opacity-100 scale-100 z-[1]"
+                : "opacity-0 scale-[1.04] z-0 pointer-events-none"
+            }`}
+            style={
+              isCurrent && dragOffsetX !== 0
+                ? {
+                    transform: `translateX(${dragOffsetX}px) scale(1.01)`,
+                    transition: "none",
+                  }
+                : undefined
+            }
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={bgUrl}
+              alt={slide.nameEn || slide.nameOriginal || slide.nameRu || "Hero"}
+              loading={idx === 0 ? "eager" : "lazy"}
+              fetchPriority={idx === 0 ? "high" : "auto"}
+              decoding="async"
+              draggable={false}
+              className="w-full h-full object-cover object-[center_20%]"
+            />
+          </div>
+        );
+      })}
 
       {/* Gradient layers */}
-      <div className="hero-gradient-left absolute inset-0" />
-      <div className="hero-gradient-bottom absolute inset-0" />
-      <div className="absolute inset-0 bg-gradient-to-b from-[rgba(0,0,0,0.45)] via-transparent to-transparent" />
+      <div className="hero-gradient-left absolute inset-0 z-[2] pointer-events-none" />
+      <div className="hero-gradient-bottom absolute inset-0 z-[2] pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-b from-[rgba(0,0,0,0.45)] via-transparent to-transparent z-[2] pointer-events-none" />
 
       {/* Content */}
-      <div className="absolute bottom-0 left-0 right-0 px-4 sm:px-[var(--page-x)] pb-8 sm:pb-[8%]">
+      <div
+        key={`hero-meta-${id}`}
+        className="absolute bottom-0 left-0 right-0 z-[3] px-4 sm:px-[var(--page-x)] pb-8 sm:pb-[7%] fade-up"
+      >
         <div className="max-w-[620px]">
-          {/* Type & Slide Counter badge */}
-          <div className="flex items-center gap-2 mb-3">
-            {currentFilm.type && (
-              <div className="inline-flex items-center gap-[5px] bg-[var(--accent)] rounded-[4px] px-2.5 py-[3px] text-[10px] sm:text-[11px] font-bold tracking-[1.2px] uppercase text-white">
+          {/* Type badge */}
+          {currentFilm.type && (
+            <div className="flex items-center gap-2 mb-2.5 sm:mb-3">
+              <div className="inline-flex items-center gap-[5px] bg-[var(--accent)] rounded-[4px] px-2.5 py-[3px] text-[10px] sm:text-[11px] font-bold tracking-[1.2px] uppercase text-white shadow-[0_2px_12px_rgba(229,9,20,0.45)]">
                 {currentFilm.type === "FILM" ? (
                   <>
                     <FilmIcon size={12} />
@@ -140,53 +251,32 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
                   </>
                 )}
               </div>
-            )}
-            {slides.length > 1 && (
-              <span className="text-[11px] font-semibold text-white/60 bg-black/45 backdrop-blur-md px-2.5 py-[2px] rounded-[4px] border border-white/10">
-                #{activeIdx + 1} of {slides.length}
-              </span>
-            )}
-          </div>
+            </div>
+          )}
 
           <h1
-            className="font-display uppercase leading-[0.95] tracking-[2px] text-white mb-3 sm:mb-4 line-clamp-2"
+            className="font-display uppercase leading-[0.95] tracking-[2px] text-white mb-2.5 sm:mb-3.5 line-clamp-2"
             style={{
-              fontSize: "clamp(26px, 5.5vw, 72px)",
-              textShadow: "0 4px 24px rgba(0,0,0,0.7)",
+              fontSize: "clamp(26px, 5.5vw, 70px)",
+              textShadow: "0 4px 24px rgba(0,0,0,0.75)",
             }}
           >
             {name}
           </h1>
 
-          {/* Meta row */}
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap mb-2.5 sm:mb-3">
-            {imdbScore ? (
-              <div className="flex items-center gap-[4px] bg-black/50 backdrop-blur-md border border-[rgba(245,197,24,0.35)] rounded-[5px] px-2 py-0.5">
+          {/* Meta row — clean & decluttered (no KP badge anywhere; PG/18+ hidden on mobile) */}
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap mb-3 sm:mb-3.5">
+            {ratingDisplay && (
+              <div className="flex items-center gap-[5px] bg-black/50 backdrop-blur-md border border-[rgba(245,197,24,0.35)] rounded-[5px] px-2 py-0.5">
                 <Star size={11} fill="#f5c518" stroke="#f5c518" />
                 <span className="font-display text-[#f5c518] text-[14px] sm:text-[16px]">
-                  {imdbScore.toFixed(1)}
-                </span>
-                <span className="text-[10px] text-white/65 font-semibold">
-                  IMDb
-                </span>
-              </div>
-            ) : ratingDisplay ? (
-              <div className="flex items-center gap-[4px] sm:gap-[5px]">
-                <Star size={12} fill="#f5c518" stroke="#f5c518" />
-                <span className="font-display text-[#f5c518] text-[15px] sm:text-[18px]">
                   {ratingDisplay}
                 </span>
-              </div>
-            ) : null}
-
-            {kpScore && imdbScore && (
-              <div className="flex items-center gap-[4px] bg-black/50 backdrop-blur-md border border-white/15 rounded-[5px] px-2 py-0.5">
-                <span className="font-display text-white text-[14px] sm:text-[16px]">
-                  {kpScore.toFixed(1)}
-                </span>
-                <span className="text-[10px] text-white/60 font-semibold">
-                  KP
-                </span>
+                {imdbScore && (
+                  <span className="text-[10px] text-white/70 font-semibold">
+                    IMDb
+                  </span>
+                )}
               </div>
             )}
 
@@ -201,12 +291,14 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
                 {currentFilm.filmLength % 60}m
               </span>
             )}
+
+            {/* Age / MPAA rating hidden on mobile (< sm) to keep mobile Hero clean */}
             {(currentFilm.ratingAgeLimits || currentFilm.ratingMpaa) && (
               <button
                 type="button"
                 onClick={() => setParentalOpen(true)}
                 title="View Parental Guide"
-                className="inline-flex items-center gap-1 bg-black/50 backdrop-blur-md border border-[rgba(255,255,255,0.28)] hover:border-[var(--accent)] rounded-[5px] px-2 py-[2px] text-[10px] sm:text-[11px] text-white/85 cursor-pointer transition-colors"
+                className="hidden sm:inline-flex items-center gap-1 bg-black/50 backdrop-blur-md border border-[rgba(255,255,255,0.28)] hover:border-[var(--accent)] rounded-[5px] px-2 py-[2px] text-[11px] text-white/85 cursor-pointer transition-colors"
               >
                 <ShieldAlert size={11} className="text-[var(--accent)]" />
                 {currentFilm.ratingMpaa
@@ -216,15 +308,15 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
             )}
           </div>
 
-          {/* Genres & Countries */}
-          <div className="hidden sm:flex flex-wrap gap-2 mb-3 sm:mb-4">
+          {/* Genres & Countries (desktop/tablet only) */}
+          <div className="hidden sm:flex flex-wrap gap-2 mb-3.5">
             {currentFilm.genres?.slice(0, 4).map((g) => (
               <Link
                 key={g.genre}
                 href={`/explore?genres=${encodeURIComponent(g.genre)}`}
                 className="no-underline"
               >
-                <span className="tag tag-dim hover:border-white/30 transition-colors">
+                <span className="tag tag-dim hover:border-white/30 transition-colors capitalize">
                   {translateGenre(g.genre, autoTranslate)}
                 </span>
               </Link>
@@ -249,35 +341,42 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
             </p>
           )}
 
-          {/* Action Buttons */}
-          <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
-            <Link href={`/watch/${id}`} className="no-underline">
-              <button
-                type="button"
-                className="btn btn-primary px-4 sm:px-6 py-2.5 sm:py-3 text-[13px] sm:text-[14px]"
-              >
-                <Play size={13} fill="white" stroke="white" />
+          {/* CTAs — On mobile: only Watch Now & Details; on sm+: also In Favorites & Watch Later */}
+          <div className="flex gap-2.5 sm:gap-3 flex-wrap items-center">
+            <Link
+              href={`/watch/${id}`}
+              className="no-underline"
+              onClick={(e) => {
+                if (swipedRef.current) e.preventDefault();
+              }}
+            >
+              <span className="btn btn-primary px-4 sm:px-[22px] py-2 sm:py-[11px] text-[12px] sm:text-[14px]">
+                <Play size={14} fill="white" stroke="white" />
                 Watch Now
-              </button>
+              </span>
             </Link>
-            <Link href={`/film/${id}`} className="no-underline">
-              <button
-                type="button"
-                className="btn btn-secondary px-4 sm:px-5 py-2.5 sm:py-3 text-[13px] sm:text-[14px]"
-              >
-                <Info size={13} strokeWidth={2} />
-                More Info
-              </button>
+
+            <Link
+              href={`/film/${id}`}
+              className="no-underline"
+              onClick={(e) => {
+                if (swipedRef.current) e.preventDefault();
+              }}
+            >
+              <span className="btn btn-secondary px-4 sm:px-[20px] py-2 sm:py-[11px] text-[12px] sm:text-[14px]">
+                <Info size={14} strokeWidth={2.2} />
+                Details
+              </span>
             </Link>
 
             <button
               type="button"
               onClick={handleFav}
               title={isFav ? "In Favorites" : "Add to Favorites"}
-              className={`btn py-2.5 sm:py-3 px-3.5 text-[12px] sm:text-[13px] border backdrop-blur-md ${
+              className={`hidden sm:inline-flex btn btn-secondary px-3.5 py-[11px] text-[13px] ${
                 isFav
-                  ? "bg-[rgba(229,9,20,0.25)] border-[rgba(229,9,20,0.65)] text-white"
-                  : "bg-black/45 border-white/20 text-white hover:border-white/40"
+                  ? "!border-[rgba(229,9,20,0.6)] !bg-[rgba(229,9,20,0.2)] !text-white"
+                  : ""
               }`}
             >
               <Heart
@@ -293,14 +392,14 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
             <button
               type="button"
               onClick={handleWL}
-              title={isWL ? "In Watch Later" : "Watch Later"}
-              className={`btn py-2.5 sm:py-3 px-3.5 text-[12px] sm:text-[13px] border backdrop-blur-md ${
+              title={isWL ? "In Watch Later" : "Save to Watch Later"}
+              className={`hidden sm:inline-flex btn btn-secondary px-3.5 py-[11px] text-[13px] ${
                 isWL
-                  ? "bg-[rgba(96,165,250,0.25)] border-[rgba(96,165,250,0.65)] text-[#93c5fd]"
-                  : "bg-black/45 border-white/20 text-white hover:border-white/40"
+                  ? "!border-[rgba(96,165,250,0.6)] !bg-[rgba(96,165,250,0.18)] !text-[#60a5fa]"
+                  : ""
               }`}
             >
-              <Clock size={14} stroke={isWL ? "#60a5fa" : "currentColor"} />
+              <Clock size={14} />
               <span className="hidden md:inline">
                 {isWL ? "In Watch Later" : "Watch Later"}
               </span>
@@ -309,43 +408,47 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
         </div>
       </div>
 
-      {/* Multi-Slide Controls & Dots */}
+      {/* Carousel Controls (Prev/Next + Animated Dots) */}
       {slides.length > 1 && (
-        <div className="absolute bottom-3 sm:bottom-6 right-4 sm:right-[var(--page-x)] flex items-center gap-2 z-10">
-          <div className="flex items-center gap-1.5 mr-1">
-            {slides.map((s, idx) => (
-              <button
-                key={s.kinopoiskId ?? s.filmId ?? idx}
-                type="button"
-                aria-label={`Slide ${idx + 1}`}
-                onClick={() => setActiveIdx(idx)}
-                className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer border-none p-0 ${
-                  idx === activeIdx
-                    ? "w-6 bg-[var(--accent)]"
-                    : "w-2 bg-white/35 hover:bg-white/60"
-                }`}
-              />
-            ))}
+        <>
+          <div className="hidden sm:flex items-center gap-2 absolute right-6 bottom-8 z-[4]">
+            <button
+              type="button"
+              onClick={goPrev}
+              aria-label="Previous spotlight film"
+              className="w-10 h-10 rounded-full bg-black/55 hover:bg-[var(--accent)] border border-white/15 flex items-center justify-center text-white cursor-pointer transition-all backdrop-blur-md"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={goNext}
+              aria-label="Next spotlight film"
+              className="w-10 h-10 rounded-full bg-black/55 hover:bg-[var(--accent)] border border-white/15 flex items-center justify-center text-white cursor-pointer transition-all backdrop-blur-md"
+            >
+              <ChevronRight size={18} />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() =>
-              setActiveIdx((prev) => (prev - 1 + slides.length) % slides.length)
-            }
-            aria-label="Previous featured film"
-            className="w-8 h-8 rounded-full bg-black/55 border border-white/20 text-white flex items-center justify-center cursor-pointer hover:bg-black/80 hover:border-white/40 transition-all"
-          >
-            <ChevronLeft size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveIdx((prev) => (prev + 1) % slides.length)}
-            aria-label="Next featured film"
-            className="w-8 h-8 rounded-full bg-black/55 border border-white/20 text-white flex items-center justify-center cursor-pointer hover:bg-black/80 hover:border-white/40 transition-all"
-          >
-            <ChevronRight size={15} />
-          </button>
-        </div>
+
+          <div className="absolute bottom-3 sm:bottom-5 left-1/2 -translate-x-1/2 z-[4] flex items-center gap-1.5">
+            {slides.map((s, idx) => {
+              const active = idx === safeIdx;
+              return (
+                <button
+                  key={s.kinopoiskId ?? s.filmId ?? idx}
+                  type="button"
+                  onClick={() => setActiveIdx(idx)}
+                  aria-label={`Slide ${idx + 1}`}
+                  className={`h-1.5 rounded-full border-none cursor-pointer transition-all duration-300 p-0 ${
+                    active
+                      ? "w-7 bg-[var(--accent)] shadow-[0_0_8px_var(--accent)]"
+                      : "w-2 bg-white/35 hover:bg-white/60"
+                  }`}
+                />
+              );
+            })}
+          </div>
+        </>
       )}
 
       <ParentalGuideModal

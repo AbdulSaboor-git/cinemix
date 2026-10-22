@@ -276,15 +276,36 @@ export default function HomeClient() {
 
   const s = sections!;
 
-  // Curate 5 high-impact global spotlight slides for the top Hero Carousel
-  const heroPool = deduplicateFilms([...popularFilms, ...top250Films]).filter(
-    (f) => !isRussianDomesticFilm(f),
-  );
+  // Curate 5 daily-rotating spotlight slides seeded by today's date (changes automatically every day)
+  const heroPool = deduplicateFilms([
+    ...popularFilms,
+    ...top250Films,
+    ...premiereFilms,
+    ...scifiFilms,
+    ...actionFilms,
+  ]).filter((f) => !isRussianDomesticFilm(f));
   const heroWithCovers = heroPool.filter((f) => f.coverUrl);
-  const heroSlides =
-    heroWithCovers.length >= 3
-      ? heroWithCovers.slice(0, 5)
-      : heroPool.slice(0, 5);
+  const candidateSlides =
+    heroWithCovers.length >= 5 ? heroWithCovers : heroPool;
+
+  const dayKey = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  let daySeed = 0;
+  for (let i = 0; i < dayKey.length; i++) {
+    daySeed = (daySeed * 31 + dayKey.charCodeAt(i)) % 1000003;
+  }
+  const rotatedCandidates = [...candidateSlides];
+  if (rotatedCandidates.length > 5) {
+    let s = daySeed + 17;
+    for (let i = rotatedCandidates.length - 1; i > 0; i--) {
+      s = (s * 16807) % 2147483647;
+      const j = s % (i + 1);
+      [rotatedCandidates[i], rotatedCandidates[j]] = [
+        rotatedCandidates[j],
+        rotatedCandidates[i],
+      ];
+    }
+  }
+  const heroSlides = rotatedCandidates.slice(0, 5);
 
   const secondHero =
     top250Films.find(

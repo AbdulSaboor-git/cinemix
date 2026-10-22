@@ -1181,8 +1181,22 @@ function applyClientDiscoveryFilters(
       return false;
     }
 
-    // 4. Exclude Russian/USSR Domestic Content
-    if (opts.excludeRussian && isRussianDomesticFilm(film)) {
+    // 4. Silent Regional Priority (from Preferences) unless user explicitly included Russia/USSR in Countries filter
+    const userExplicitlyIncludedRussia = (opts.includeCountries ?? []).some((cId) => {
+      const names = countryIdToNames.get(cId) ?? [];
+      return names.some((n) => RUSSIAN_COUNTRIES.has(n));
+    });
+    const prefRegionMode =
+      typeof window !== "undefined"
+        ? (getPreferences().contentRegionMode ?? "GLOBAL_FIRST")
+        : "GLOBAL_FIRST";
+    const shouldExcludeRussianSilent =
+      !userExplicitlyIncludedRussia &&
+      (opts.excludeRussian !== undefined
+        ? opts.excludeRussian
+        : prefRegionMode === "GLOBAL_FIRST");
+
+    if (shouldExcludeRussianSilent && isRussianDomesticFilm(film)) {
       return false;
     }
 

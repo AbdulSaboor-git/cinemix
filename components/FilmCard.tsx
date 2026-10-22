@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Heart, Clock, Star, Play, Info, Scale, Check } from "lucide-react";
+import { Heart, Clock, Star, Play, Info, Check } from "lucide-react";
 import { translateCountry, translateGenre } from "@/lib/translate";
 import { useAutoTranslate, useFilmTitle } from "@/hooks/useTranslate";
 import { useListStatus } from "@/hooks/useListStatus";
@@ -18,8 +18,6 @@ interface FilmCardProps {
   size?: "sm" | "md" | "lg";
   index?: number;
   onQuickPeek?: (film: Film) => void;
-  onToggleCompare?: (film: Film) => void;
-  isCompared?: boolean;
 }
 
 const SCROLL_SIZE_CLASSES = {
@@ -69,8 +67,6 @@ export default function FilmCard({
   size = "md",
   index,
   onQuickPeek,
-  onToggleCompare,
-  isCompared = false,
 }: FilmCardProps) {
   const autoTranslate = useAutoTranslate();
   const id = film.kinopoiskId ?? film.filmId ?? 0;
@@ -284,15 +280,6 @@ export default function FilmCard({
     [film, onQuickPeek],
   );
 
-  const handleCompareClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      onToggleCompare?.(film);
-    },
-    [film, onToggleCompare],
-  );
-
   const handleLinkClick = useCallback(
     (e: React.MouseEvent) => {
       if (didLongPress.current || mobileMenuOpen) {
@@ -336,16 +323,15 @@ export default function FilmCard({
           {/* ── Poster ── */}
           <div
             ref={posterRef}
-            className={`rounded-[var(--radius-lg)] overflow-hidden relative bg-[var(--bg-card)] transition-all duration-200 border ${
-              isCompared
-                ? "border-[#f5c518] shadow-[0_0_24px_rgba(245,197,24,0.3)]"
-                : "border-[var(--border)] md:group-hover:border-[rgba(229,9,20,0.35)] shadow-[0_4px_16px_rgba(0,0,0,0.4)] md:group-hover:shadow-[0_16px_48px_rgba(0,0,0,0.7),0_0_0_1px_rgba(229,9,20,0.2)]"
-            } ${isScroll ? `${SCROLL_SIZE_CLASSES[size]}` : "w-full aspect-[2/3]"}`}
+            className={`rounded-[var(--radius-lg)] overflow-hidden relative bg-[var(--bg-card)] transition-all duration-200 border border-[var(--border)] md:group-hover:border-[rgba(229,9,20,0.35)] shadow-[0_4px_16px_rgba(0,0,0,0.4)] md:group-hover:shadow-[0_16px_48px_rgba(0,0,0,0.7),0_0_0_1px_rgba(229,9,20,0.2)] ${
+              isScroll ? `${SCROLL_SIZE_CLASSES[size]}` : "w-full aspect-[2/3]"
+            }`}
           >
             <PosterImage
               src={film.posterUrlPreview || film.posterUrl}
               alt={name}
               title={name}
+              priority={index !== undefined && index < 6}
             />
 
             {/* Gradient overlay */}
@@ -385,7 +371,11 @@ export default function FilmCard({
                 <button
                   type="button"
                   onClick={handleFav}
-                  title={isFav ? "In Favorites (click to remove)" : "Add to Favorites"}
+                  title={
+                    isFav
+                      ? "In Favorites (click to remove)"
+                      : "Add to Favorites"
+                  }
                   className={`flex items-center gap-[4px] rounded-[6px] px-[7px] py-[5px] text-[10px] font-semibold backdrop-blur-[8px] border transition-all duration-150 cursor-pointer ${
                     isFav
                       ? "bg-[rgba(229,9,20,0.28)] border-[rgba(229,9,20,0.65)] text-[var(--accent)]"
@@ -402,7 +392,11 @@ export default function FilmCard({
                 <button
                   type="button"
                   onClick={handleWL}
-                  title={isWL ? "In Watch Later (click to remove)" : "Save to Watch Later"}
+                  title={
+                    isWL
+                      ? "In Watch Later (click to remove)"
+                      : "Save to Watch Later"
+                  }
                   className={`flex items-center gap-[4px] rounded-[6px] px-[7px] py-[5px] text-[10px] font-semibold backdrop-blur-[8px] border transition-all duration-150 cursor-pointer ${
                     isWL
                       ? "bg-[rgba(96,165,250,0.25)] border-[rgba(96,165,250,0.55)] text-[#60a5fa]"
@@ -423,20 +417,6 @@ export default function FilmCard({
                     className="flex items-center gap-[4px] rounded-[6px] px-[7px] py-[5px] text-[10px] font-semibold backdrop-blur-[8px] border bg-[rgba(0,0,0,0.68)] border-[rgba(255,255,255,0.16)] text-white hover:bg-[rgba(255,255,255,0.18)] hover:border-white/40 transition-all duration-150 cursor-pointer"
                   >
                     <Info size={13} strokeWidth={2.2} />
-                  </button>
-                )}
-                {onToggleCompare && (
-                  <button
-                    type="button"
-                    onClick={handleCompareClick}
-                    title={isCompared ? "Remove from Compare" : "Compare Film"}
-                    className={`flex items-center gap-[4px] rounded-[6px] px-[7px] py-[5px] text-[10px] font-semibold backdrop-blur-[8px] border transition-all duration-150 cursor-pointer ${
-                      isCompared
-                        ? "bg-[rgba(245,197,24,0.28)] border-[#f5c518] text-[#f5c518]"
-                        : "bg-[rgba(0,0,0,0.68)] border-[rgba(255,255,255,0.16)] text-white hover:border-[#f5c518] hover:text-[#f5c518]"
-                    }`}
-                  >
-                    <Scale size={13} strokeWidth={2.2} />
                   </button>
                 )}
               </div>

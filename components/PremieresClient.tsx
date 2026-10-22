@@ -7,10 +7,16 @@ import {
   ChevronLeft,
   ChevronRight,
   Star,
-  Globe,
   SlidersHorizontal,
+  ShieldAlert,
 } from "lucide-react";
-import { getPremieres, isRussianDomesticFilm } from "@/lib/kinopoisk";
+import {
+  getPremieres,
+  getFilm,
+  getCachedFilmMeta,
+  CompactFilmMeta,
+  isRussianDomesticFilm,
+} from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
 import {
   translateGenre,
@@ -20,6 +26,8 @@ import {
 import { useAutoTranslate, useFilmTitle } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { hasApiKeys, getPreferences } from "@/lib/preferences";
+import { getQuickCertBadge } from "@/lib/parentalGuide";
+import ParentalGuideModal from "@/components/ParentalGuideModal";
 import PageContainer from "@/components/ui/PageContainer";
 import PageHeader from "@/components/ui/PageHeader";
 import TabBar from "@/components/ui/TabBar";
@@ -101,21 +109,13 @@ export default function PremieresClient({
   );
   const [films, setFilms] = useState<Film[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Filter & Sort Controls
-  const [globalOnly, setGlobalOnly] = useState(false);
   const [sortBy, setSortBy] = useState<"DATE" | "RATING">("DATE");
+  const [metaMap, setMetaMap] = useState<Record<number, CompactFilmMeta>>({});
+  const [parentalModalFilm, setParentalModalFilm] = useState<Film | null>(null);
 
   const didMountRef = useRef(false);
 
   useDocumentTitle(`Premieres — ${MONTH_FULL[monthIdx]} ${year}`);
-
-  useEffect(() => {
-    const prefs = getPreferences();
-    if (prefs.contentRegionMode === "GLOBAL_FIRST") {
-      setGlobalOnly(true);
-    }
-  }, []);
 
   const load = useCallback((y: number, mi: number) => {
     if (!hasApiKeys()) {
@@ -126,14 +126,25 @@ export default function PremieresClient({
     setLoading(true);
     setFilms([]);
     getPremieres(y, MONTHS[mi])
-      .then((d) => setFilms(d.items ?? []))
+      .then((d) => {
+        const list = d.items ?? [];
+        setFilms(list);
+        const seeded: Record<number, CompactFilmMeta> = {};
+        for (const f of list) {
+          const id = f.kinopoiskId ?? f.filmId;
+          if (id) {
+            const cached = getCachedFilmMeta(id);
+            if (cached) seeded[id] = cached;
+          }
+        }
+        setMetaMap(seeded);
+      })
       .catch(() => setFilms([]))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     load(year, monthIdx);
-    // Only replace URL when user changes year/month or if URL doesn't already match
     const targetMonth = MONTHS[monthIdx];
     if (
       didMountRef.current &&
@@ -147,21 +158,74 @@ export default function PremieresClient({
     didMountRef.current = true;
   }, [year, monthIdx, load, router, yearParam, monthParam]);
 
+  // Silent background regional curation controlled directly by Preferences (Task 9)
   const displayedFilms = useMemo(() => {
-    const base = globalOnly
-      ? films.filter((f) => !isRussianDomesticFilm(f))
-      : films;
-    return [...base].sort((a, b) => {
+    const regionMode =
+      typeof window !== "undefined"
+        ? (getPreferences().contentRegionMode ?? "GLOBAL_FIRST")
+        : "GLOBAL_FIRST";
+    const base =
+      regionMode === "GLOBAL_FIRST"
+        ? films.filter((f) => !isRussianDomesticFilm(f))
+        : films;
+    const pool = base.length > 0 ? base : films;
+
+    return [...pool].sort((a, b) => {
       if (sortBy === "RATING") {
-        const rA = a.ratingKinopoisk ?? a.ratingImdb ?? 0;
-        const rB = b.ratingKinopoisk ?? b.ratingImdb ?? 0;
+        const idA = a.kinopoiskId ?? a.filmId ?? 0;
+        const idB = b.kinopoiskId ?? b.filmId ?? 0;
+        const rA =
+          metaMap[idA]?.ratingImdb ?? a.ratingImdb ?? a.ratingKinopoisk ?? 0;
+        const rB =
+          metaMap[idB]?.ratingImdb ?? b.ratingImdb ?? b.ratingKinopoisk ?? 0;
         return rB - rA;
       }
       const dA = a.premiereRu ? new Date(a.premiereRu).getTime() || 0 : 0;
       const dB = b.premiereRu ? new Date(b.premiereRu).getTime() || 0 : 0;
       return dA - dB;
     });
-  }, [films, globalOnly, sortBy]);
+  }, [films, sortBy, metaMap]);
+
+  // Progressively enrich visible premieres with Age / MPAA ratings (PG-13, R, 16+, 18+) (Task 13)
+  useEffect(() => {
+    if (displayedFilms.length === 0) return;
+    let cancelled = false;
+
+    const toFetch = displayedFilms
+      .slice(0, 24)
+      .map((f) => f.kinopoiskId ?? f.filmId ?? 0)
+      .filter((fid) => {
+        if (!fid) return false;
+        const existing = getCachedFilmMeta(fid);
+        return (
+          !existing ||
+          (existing.ratingAgeLimits === undefined &&
+            existing.ratingMpaa === undefined)
+        );
+      });
+
+    if (toFetch.length === 0) return;
+
+    (async () => {
+      for (const fid of toFetch) {
+        if (cancelled) break;
+        try {
+          await getFilm(fid);
+          if (cancelled) break;
+          const updated = getCachedFilmMeta(fid);
+          if (updated) {
+            setMetaMap((prev) => ({ ...prev, [fid]: updated }));
+          }
+        } catch {
+          // ignore individual fetch error
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [displayedFilms]);
 
   if (noKey) return <NoKeyBanner />;
 
@@ -204,34 +268,16 @@ export default function PremieresClient({
           </>
         }
         rightSlot={
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setGlobalOnly((v) => !v)}
-              className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border cursor-pointer inline-flex items-center gap-1.5 ${
-                globalOnly
-                  ? "bg-[rgba(34,197,94,0.14)] border-[#22c55e] text-[#4ade80]"
-                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
-              }`}
+          <div className="inline-flex items-center gap-1.5">
+            <SlidersHorizontal size={13} className="text-[var(--text-muted)]" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as "DATE" | "RATING")}
+              className="select text-[12px] py-1.5 px-3 rounded-[8px]"
             >
-              <Globe size={12} />
-              {globalOnly ? "Hollywood & Global Only" : "All Regions"}
-            </button>
-
-            <div className="inline-flex items-center gap-1.5">
-              <SlidersHorizontal
-                size={13}
-                className="text-[var(--text-muted)]"
-              />
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as "DATE" | "RATING")}
-                className="select text-[12px] py-1.5 px-3 rounded-[8px]"
-              >
-                <option value="DATE">Sort: Release Date</option>
-                <option value="RATING">Sort: Rating</option>
-              </select>
-            </div>
+              <option value="DATE">Sort: Release Date</option>
+              <option value="RATING">Sort: Rating</option>
+            </select>
           </div>
         }
       />
@@ -321,18 +367,34 @@ export default function PremieresClient({
         <EmptyState
           icon={<Calendar size={36} />}
           title="No Premieres Found"
-          description="Try selecting a different month or toggling 'All Regions'."
+          description="Try selecting a different month or year."
         />
       ) : (
         <div className="grid gap-4 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          {displayedFilms.map((film, i) => (
-            <PremiereCard
-              key={film.kinopoiskId ?? film.filmId ?? i}
-              film={film}
-              autoTranslate={autoTranslate}
-            />
-          ))}
+          {displayedFilms.map((film, i) => {
+            const fid = film.kinopoiskId ?? film.filmId ?? i;
+            return (
+              <PremiereCard
+                key={fid}
+                film={film}
+                meta={metaMap[fid]}
+                index={i}
+                autoTranslate={autoTranslate}
+                onOpenParentalGuide={(enrichedFilm) =>
+                  setParentalModalFilm(enrichedFilm)
+                }
+              />
+            );
+          })}
         </div>
+      )}
+
+      {parentalModalFilm && (
+        <ParentalGuideModal
+          open={Boolean(parentalModalFilm)}
+          onClose={() => setParentalModalFilm(null)}
+          film={parentalModalFilm}
+        />
       )}
     </PageContainer>
   );
@@ -340,74 +402,119 @@ export default function PremieresClient({
 
 function PremiereCard({
   film,
+  meta,
+  index,
   autoTranslate,
+  onOpenParentalGuide,
 }: {
   film: Film;
+  meta?: CompactFilmMeta;
+  index: number;
   autoTranslate: boolean;
+  onOpenParentalGuide: (film: Film) => void;
 }) {
   const name = useFilmTitle(film, autoTranslate);
-  const id = film.kinopoiskId ?? film.filmId;
+  const id = film.kinopoiskId ?? film.filmId ?? 0;
   const safePremiereDate = formatDateSafe(film.premiereRu, {
     month: "short",
     day: "numeric",
   });
-  const durationMins = film.filmLength ?? film.duration;
+  const durationMins = film.filmLength ?? film.duration ?? meta?.filmLength;
+
+  const mergedFilm: Film = {
+    ...film,
+    ratingAgeLimits: film.ratingAgeLimits ?? meta?.ratingAgeLimits,
+    ratingMpaa: film.ratingMpaa ?? meta?.ratingMpaa,
+    ratingImdb: film.ratingImdb ?? meta?.ratingImdb,
+    ratingKinopoisk: film.ratingKinopoisk ?? meta?.ratingKinopoisk,
+  };
+
+  const ageCert = getQuickCertBadge(mergedFilm);
+  const displayRating = mergedFilm.ratingImdb ?? mergedFilm.ratingKinopoisk;
 
   return (
-    <Link href={`/film/${id}`} className="no-underline group">
-      <div className="flex gap-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-3 hover:border-[rgba(229,9,20,0.3)] transition-all duration-200 h-full">
-        {/* Poster */}
+    <div className="flex gap-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-3 hover:border-[rgba(229,9,20,0.3)] transition-all duration-200 h-full group">
+      {/* Poster */}
+      <Link href={`/film/${id}`} className="no-underline flex-shrink-0">
         <PosterImage
           src={film.posterUrlPreview || film.posterUrl}
           alt={name}
           title={name}
           fallbackType="mini"
-          className="w-[70px] sm:w-[80px] flex-shrink-0 rounded-[8px] overflow-hidden aspect-[2/3] relative bg-[var(--surface)]"
+          priority={index < 6}
+          className="w-[70px] sm:w-[80px] rounded-[8px] overflow-hidden aspect-[2/3] relative bg-[var(--surface)]"
         />
+      </Link>
 
-        {/* Info */}
-        <div className="flex-1 min-w-0 flex flex-col justify-between py-[2px]">
-          <div>
-            <p className="font-semibold text-[var(--text)] text-[13px] sm:text-[14px] leading-[1.3] mb-1 group-hover:text-white transition-colors line-clamp-2">
-              {name}
+      {/* Info */}
+      <div className="flex-1 min-w-0 flex flex-col justify-between py-[2px]">
+        <div>
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <Link href={`/film/${id}`} className="no-underline min-w-0 flex-1">
+              <p className="font-semibold text-[var(--text)] text-[13px] sm:text-[14px] leading-[1.3] m-0 group-hover:text-white transition-colors line-clamp-2">
+                {name}
+              </p>
+            </Link>
+
+            {/* Age / MPAA Certification Badge (PG-13, R, 16+, 18+ - Clickable for Parental Guide) */}
+            {ageCert && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onOpenParentalGuide(mergedFilm);
+                }}
+                title="View Parental Guide"
+                className={`flex-shrink-0 text-[10px] font-bold rounded-[5px] px-1.5 py-[1px] border cursor-pointer inline-flex items-center gap-1 transition-colors ${
+                  ageCert.isMature
+                    ? "bg-[rgba(229,9,20,0.15)] border-[rgba(229,9,20,0.45)] text-[var(--accent)] hover:bg-[rgba(229,9,20,0.25)]"
+                    : "bg-[var(--bg-elevated)] border-[var(--border-hover)] text-[var(--text)] hover:border-white"
+                }`}
+              >
+                <ShieldAlert size={9} />
+                {ageCert.label}
+              </button>
+            )}
+          </div>
+
+          {film.genres && film.genres.length > 0 && (
+            <p className="text-[11px] text-[var(--text-muted)] capitalize mb-1 truncate">
+              {film.genres
+                .slice(0, 2)
+                .map((g) => translateGenre(g.genre, autoTranslate))
+                .join(" · ")}
             </p>
-            {film.genres && film.genres.length > 0 && (
-              <p className="text-[11px] text-[var(--text-muted)] capitalize mb-1">
-                {film.genres
-                  .slice(0, 2)
-                  .map((g) => translateGenre(g.genre, autoTranslate))
-                  .join(" · ")}
-              </p>
-            )}
-            {film.countries && film.countries.length > 0 && (
-              <p className="text-[11px] text-[var(--text-muted)]">
-                {film.countries
-                  .slice(0, 2)
-                  .map((c) => translateCountry(c.country, autoTranslate))
-                  .join(", ")}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
-            {safePremiereDate && (
-              <span className="text-[11px] text-[var(--accent)] font-semibold">
-                {safePremiereDate}
-              </span>
-            )}
-            {durationMins !== undefined && durationMins > 0 && (
-              <span className="text-[11px] text-[var(--text-muted)]">
-                {Math.floor(durationMins / 60)}h {durationMins % 60}m
-              </span>
-            )}
-            {film.ratingKinopoisk && (
-              <span className="inline-flex items-center gap-1 text-[12px] text-[#f5c518] font-bold font-display">
-                <Star size={10} fill="#f5c518" stroke="#f5c518" />
-                {film.ratingKinopoisk.toFixed(1)}
-              </span>
-            )}
-          </div>
+          )}
+          {film.countries && film.countries.length > 0 && (
+            <p className="text-[11px] text-[var(--text-muted)] truncate">
+              {film.countries
+                .slice(0, 2)
+                .map((c) => translateCountry(c.country, autoTranslate))
+                .join(", ")}
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
+          {safePremiereDate && (
+            <span className="text-[11px] text-[var(--accent)] font-semibold">
+              {safePremiereDate}
+            </span>
+          )}
+          {durationMins !== undefined && durationMins > 0 && (
+            <span className="text-[11px] text-[var(--text-muted)]">
+              {Math.floor(durationMins / 60)}h {durationMins % 60}m
+            </span>
+          )}
+          {displayRating !== undefined && displayRating > 0 && (
+            <span className="inline-flex items-center gap-1 text-[12px] text-[#f5c518] font-bold font-display">
+              <Star size={10} fill="#f5c518" stroke="#f5c518" />
+              {displayRating.toFixed(1)}
+            </span>
+          )}
         </div>
       </div>
-    </Link>
+    </div>
   );
 }

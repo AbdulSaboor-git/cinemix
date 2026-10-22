@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { User, Film } from "lucide-react";
 import { FilmPosterFallback } from "@/components/posterFallback";
 
@@ -13,6 +13,22 @@ interface PosterImageProps {
   imgClassName?: string;
 }
 
+/**
+ * Converts full-size 2MB Kinopoisk poster URLs (/images/posters/kp/...) into
+ * fast 20KB thumbnail URLs (/images/posters/kp_small/...) for cards & thumbnails.
+ */
+function optimizePosterUrl(
+  rawUrl?: string | null,
+  fallbackType?: "film" | "person" | "mini",
+  priority?: boolean,
+): string | null {
+  if (!rawUrl) return null;
+  if (!priority && (fallbackType === "film" || fallbackType === "mini")) {
+    return rawUrl.replace("/images/posters/kp/", "/images/posters/kp_small/");
+  }
+  return rawUrl;
+}
+
 export default function PosterImage({
   src,
   alt,
@@ -22,13 +38,22 @@ export default function PosterImage({
   className = "w-full h-full relative overflow-hidden bg-[var(--surface)]",
   imgClassName = "w-full h-full object-cover block",
 }: PosterImageProps) {
+  const optimizedSrc = optimizePosterUrl(src, fallbackType, priority);
   const [error, setError] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
     setError(false);
-  }, [src]);
+    const el = imgRef.current;
+    if (el && el.complete && el.naturalWidth > 0) {
+      setLoaded(true);
+    } else {
+      setLoaded(false);
+    }
+  }, [optimizedSrc]);
 
-  if (!src || error) {
+  if (!optimizedSrc || error) {
     if (fallbackType === "person") {
       return (
         <div
@@ -61,16 +86,29 @@ export default function PosterImage({
 
   return (
     <div className={className}>
+      {!loaded && (
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 skeleton pointer-events-none"
+        />
+      )}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={src}
+        ref={imgRef}
+        src={optimizedSrc}
         alt={alt}
         loading={priority ? "eager" : "lazy"}
         decoding="async"
         fetchPriority={priority ? "high" : "auto"}
         draggable={false}
-        onError={() => setError(true)}
-        className={imgClassName}
+        onLoad={() => setLoaded(true)}
+        onError={() => {
+          // If kp_small failed but original src differs, fall back cleanly
+          setError(true);
+        }}
+        className={`${imgClassName} transition-opacity duration-300 ease-out ${
+          loaded ? "opacity-100" : "opacity-0"
+        }`}
       />
     </div>
   );

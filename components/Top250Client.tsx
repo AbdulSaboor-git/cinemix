@@ -54,10 +54,10 @@ function Top250Row({
 
   const rankSize =
     rank <= 10
-      ? "text-[22px] sm:text-[28px]"
+      ? "text-[18px] sm:text-[26px]"
       : rank <= 50
-        ? "text-[18px] sm:text-[22px]"
-        : "text-[15px] sm:text-[18px]";
+        ? "text-[16px] sm:text-[21px]"
+        : "text-[14px] sm:text-[17px]";
   const rankColor =
     rank <= 3
       ? "text-[#f5c518]"
@@ -74,10 +74,10 @@ function Top250Row({
   };
 
   return (
-    <div className="flex items-center gap-2 sm:gap-4 md:gap-5 px-2 sm:px-4 py-[10px] sm:py-3 rounded-[10px] border border-white/5 transition-all duration-[180ms] hover:bg-[var(--bg-card)] hover:border-[var(--border)] group">
+    <div className="flex items-center gap-2.5 sm:gap-4 md:gap-5 px-2.5 sm:px-4 py-2.5 sm:py-3 rounded-[10px] border border-white/5 transition-all duration-[180ms] hover:bg-[var(--bg-card)] hover:border-[var(--border)] group w-full max-w-full overflow-hidden">
       {/* Rank */}
       <div
-        className={`w-7 sm:w-10 text-right flex-shrink-0 font-display leading-none ${rankSize} ${rankColor}`}
+        className={`w-6 sm:w-9 text-right flex-shrink-0 font-display leading-none ${rankSize} ${rankColor}`}
       >
         {rank}
       </div>
@@ -89,40 +89,44 @@ function Top250Row({
           alt={name}
           title={name}
           fallbackType="mini"
-          className="w-[38px] sm:w-[46px] h-[57px] sm:h-[68px] rounded-[6px] overflow-hidden bg-[var(--surface)] relative"
+          priority={rank <= 8}
+          className="w-[38px] sm:w-[46px] h-[56px] sm:h-[68px] rounded-[6px] overflow-hidden bg-[var(--surface)] relative"
         />
       </Link>
 
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Link href={`/film/${id}`} className="no-underline">
-            <p className="text-[13px] sm:text-[14px] md:text-[15px] font-semibold text-[var(--text)] overflow-hidden text-ellipsis whitespace-nowrap mb-[2px] sm:mb-1 group-hover:text-white transition-colors">
+      {/* Info — strictly constrained min-w-0 flex-1 overflow-hidden so mobile titles never overflow */}
+      <div className="flex-1 min-w-0 overflow-hidden">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Link
+            href={`/film/${id}`}
+            className="no-underline block min-w-0 flex-1 overflow-hidden"
+          >
+            <p className="text-[13px] sm:text-[14px] md:text-[15px] font-semibold text-[var(--text)] truncate block m-0 mb-[2px] sm:mb-1 group-hover:text-white transition-colors">
               {name}
             </p>
           </Link>
           {isWatched && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#4ade80] bg-[rgba(34,197,94,0.12)] border border-[rgba(34,197,94,0.3)] rounded px-1.5 py-[1px]">
-              <CheckCircle2 size={10} />
-              Watched
+            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-semibold text-[#4ade80] bg-[rgba(34,197,94,0.12)] border border-[rgba(34,197,94,0.3)] rounded px-1.5 py-[1px]">
+              <CheckCircle2 size={9} />
+              <span className="hidden xs:inline">Watched</span>
             </span>
           )}
         </div>
-        <div className="flex gap-2 items-center flex-wrap">
+        <div className="flex gap-1.5 sm:gap-2 items-center min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
           {film.year && (
-            <span className="text-[11px] sm:text-[12px] text-[var(--text-muted)]">
+            <span className="text-[11px] sm:text-[12px] text-[var(--text-muted)] flex-shrink-0">
               {film.year}
             </span>
           )}
           {film.countries?.[0] && (
-            <span className="hidden md:inline text-[11px] text-[var(--text-muted)]">
+            <span className="hidden md:inline text-[11px] text-[var(--text-muted)] truncate">
               · {translateCountry(film.countries[0].country, autoTranslate)}
             </span>
           )}
           {film.genres?.slice(0, 2).map((g) => (
             <span
               key={g.genre}
-              className="hidden sm:inline text-[11px] text-[var(--text-dim)] capitalize"
+              className="text-[11px] text-[var(--text-dim)] capitalize truncate"
             >
               · {translateGenre(g.genre, autoTranslate)}
             </span>
@@ -131,16 +135,16 @@ function Top250Row({
       </div>
 
       {/* Rating & Quick Actions */}
-      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 pl-1">
         {film.ratingImdb && (
           <span className="hidden md:inline-flex items-center gap-1 text-[11px] font-bold text-[#f5c518] bg-[rgba(245,197,24,0.12)] border border-[rgba(245,197,24,0.3)] rounded px-2 py-0.5">
             IMDb {film.ratingImdb.toFixed(1)}
           </span>
         )}
         {rating && (
-          <div className="flex items-center gap-[4px] sm:gap-[5px]">
-            <Star size={12} fill="#f5c518" stroke="#f5c518" />
-            <span className="text-[#f5c518] font-display text-[15px] sm:text-[18px] md:text-[20px]">
+          <div className="flex items-center gap-[3px] sm:gap-[5px]">
+            <Star size={11} fill="#f5c518" stroke="#f5c518" />
+            <span className="text-[#f5c518] font-display text-[14px] sm:text-[18px] md:text-[20px]">
               {rating}
             </span>
           </div>
@@ -260,9 +264,7 @@ export default function Top250Client({
 
   const visibleFilms = useMemo(() => {
     if (!hideWatched) return films;
-    return films.filter(
-      (f) => !watchedIds.has(f.kinopoiskId ?? f.filmId ?? 0),
-    );
+    return films.filter((f) => !watchedIds.has(f.kinopoiskId ?? f.filmId ?? 0));
   }, [films, hideWatched, watchedIds]);
 
   if (noKey) return <NoKeyBanner />;
@@ -285,29 +287,29 @@ export default function Top250Client({
         rightSlot={
           !loading && total > 0 ? (
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[12px] text-[var(--text-muted)] bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-1.5 rounded-full">
-                Watched on this page:{" "}
+              <span className="text-[11px] sm:text-[12px] text-[var(--text-muted)] bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-1.5 rounded-full">
+                Watched:{" "}
                 <strong className="text-[#4ade80]">{watchedOnPageCount}</strong>{" "}
                 / {films.length}
               </span>
               <button
                 type="button"
                 onClick={() => setHideWatched((v) => !v)}
-                className={`px-3 py-1.5 rounded-full text-[12px] font-semibold border cursor-pointer inline-flex items-center gap-1.5 ${
+                className={`px-3 py-1.5 rounded-full text-[11px] sm:text-[12px] font-semibold border cursor-pointer inline-flex items-center gap-1.5 ${
                   hideWatched
                     ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
                     : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
                 }`}
               >
                 <EyeOff size={12} />
-                {hideWatched ? "Showing Unwatched Only" : "Hide Watched"}
+                {hideWatched ? "Unwatched Only" : "Hide Watched"}
               </button>
             </div>
           ) : null
         }
       />
 
-      <TabBar className="mb-6">
+      <TabBar className="mb-5 sm:mb-6">
         <TabPill
           active={collectionType === "TOP_250_MOVIES"}
           href="/top250?type=TOP_250_MOVIES"
@@ -350,7 +352,7 @@ export default function Top250Client({
           actionHref="/explore"
         />
       ) : (
-        <div className="flex flex-col gap-[2px] sm:gap-[3px]">
+        <div className="flex flex-col gap-[3px]">
           {films.map((film, i) => {
             if (
               hideWatched &&
