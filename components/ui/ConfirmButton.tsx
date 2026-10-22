@@ -46,7 +46,7 @@ export default function ConfirmButton({
     <button
       type="button"
       onClick={() => setConfirming(true)}
-      className={`bg-transparent border border-[var(--border)] text-[var(--text-muted)] rounded-[var(--radius)] px-4 py-[9px] text-[12px] font-medium cursor-pointer hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)] transition-all active:scale-95 whitespace-nowrap ${className}`.trim()}
+      className={`bg-transparent border border-white/60 text-white/60 rounded-[var(--radius)] px-4 py-[9px] text-[12px] font-medium cursor-pointer hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)] transition-all active:scale-95 whitespace-nowrap ${className}`.trim()}
     >
       {label}
     </button>

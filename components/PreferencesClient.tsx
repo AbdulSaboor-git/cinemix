@@ -14,7 +14,6 @@ import {
   Home,
   Film,
   ShieldCheck,
-  Globe,
 } from "lucide-react";
 import {
   Preferences,
@@ -305,14 +304,14 @@ export default function PreferencesClient() {
   const card =
     "bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden mb-4 sm:mb-5";
   const cardHdr =
-    "flex items-center gap-3 px-4 sm:px-6 py-[16px] sm:py-[18px] border-b border-[var(--border)]";
+    "flex items-center gap-3 px-4 sm:px-6 py-[15px] sm:py-[18px] border-b border-[var(--border)]";
   const row =
     "flex items-center justify-between px-4 sm:px-6 py-[12px] sm:py-[14px] gap-3 sm:gap-4 border-b border-[var(--border)]";
   const rowLast =
     "flex items-center justify-between px-4 sm:px-6 py-[12px] sm:py-[14px] gap-3 sm:gap-4";
-  const lbl = "text-[13px] sm:text-[14px] font-medium text-[var(--text)]";
+  const lbl = "text-[13px] sm:text-[14px] font-medium text-[var(--text)] m-0";
   const hint =
-    "text-[11px] sm:text-[12px] text-[var(--text-muted)] mt-[2px] leading-[1.5]";
+    "text-[11px] sm:text-[12px] text-[var(--text-muted)] mt-[2px] leading-[1.5] m-0";
   const optBtn = (active: boolean) =>
     `px-[10px] sm:px-[14px] py-[6px] rounded-[var(--radius)] text-[11px] sm:text-[12px] font-semibold cursor-pointer transition-all duration-150 ${
       active
@@ -323,10 +322,10 @@ export default function PreferencesClient() {
   return (
     <PageContainer variant="narrow" className="pb-24">
       {/* ── Sticky Save Bar ── */}
-      <div className="sticky top-[var(--nav-height)] z-[100] -mx-4 sm:-mx-[var(--page-x)] px-4 sm:px-[var(--page-x)] py-[10px] mb-6 bg-[#080808cc] backdrop-blur-[20px] border-b border-[var(--border)] transition-all duration-300">
+      <div className="sticky top-[var(--nav-height)] z-[100] -mx-4 sm:-mx-[var(--page-x)] px-4 sm:px-[var(--page-x)] py-[10px] mb-5 sm:mb-6 bg-[#080808e6] backdrop-blur-[20px] border-b border-[var(--border)] transition-all duration-300">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-[10px] min-w-0">
-            <Settings width={20} />
+            <Settings width={19} />
             <h1 className="font-display tracking-[2px] text-[var(--text)] m-0 text-[clamp(16px,3vw,22px)]">
               PREFERENCES
             </h1>
@@ -416,7 +415,7 @@ export default function PreferencesClient() {
                   strokeWidth={2}
                   className="flex-shrink-0 mt-[2px]"
                 />
-                <p className="text-[12px] sm:text-[13px] text-[var(--text-dim)] leading-[1.5]">
+                <p className="text-[12px] sm:text-[13px] text-[var(--text-dim)] leading-[1.5] m-0">
                   No API key configured. The app won&apos;t load content until
                   you add one.
                 </p>
@@ -457,73 +456,19 @@ export default function PreferencesClient() {
         </div>
       </div>
 
-      {/* Content Safety & Regional Priority */}
+      {/* Safe Mode (Requirement 9: Minimal "Safe Mode" with toggle only, no RU/USSR text) */}
       <div className={card}>
-        <div className={cardHdr}>
-          <SectionIcon>
-            <ShieldCheck size={15} strokeWidth={2} />
-          </SectionIcon>
-          <div>
-            <SectionTitle>Safe Mode & Regional Curation</SectionTitle>
-            <p className={`${hint} !mt-0`}>
-              Control adult content filtering across all pages and prioritize
-              Hollywood & international releases.
-            </p>
+        <div className="flex items-center justify-between px-4 sm:px-6 py-[14px] sm:py-[16px] gap-3">
+          <div className="flex items-center gap-3">
+            <SectionIcon>
+              <ShieldCheck size={15} strokeWidth={2} />
+            </SectionIcon>
+            <span className={lbl}>Safe Mode</span>
           </div>
-        </div>
-        <div className="py-2">
-          <div className={row}>
-            <div className="min-w-0 flex-1">
-              <p className={lbl}>App-Wide Safe Mode (Hide Adult & Erotic)</p>
-              <p className={hint}>
-                Automatically strips adult (`для взрослых`), erotic (`эротика`),
-                and NC-17 titles from Home, Explore, Search, Navbar suggestions,
-                Actor credits, and direct film/watch links.
-              </p>
-            </div>
-            <Toggle
-              checked={prefs.safeModeEnabled ?? true}
-              onChange={(v) =>
-                updatePref((p) => ({ ...p, safeModeEnabled: v }))
-              }
-            />
-          </div>
-
-          <div className="px-4 sm:px-6 py-3 sm:py-4">
-            <div className="flex items-center gap-2 mb-1">
-              <Globe size={14} className="text-[var(--accent)]" />
-              <p className={lbl}>Regional Content Priority</p>
-            </div>
-            <p className={`${hint} mb-3`}>
-              Prevents domestic Russian releases from suppressing Hollywood and
-              global hits on the Home page and Explore defaults.
-            </p>
-            <div className="flex gap-[6px] flex-wrap">
-              {(
-                [
-                  {
-                    id: "GLOBAL_FIRST",
-                    label: "Hollywood & Global First (Exclude RU)",
-                  },
-                  { id: "BALANCED", label: "Balanced Mix" },
-                  { id: "ALL", label: "All Regions Unfiltered" },
-                ] as const
-              ).map((mode) => (
-                <button
-                  key={mode.id}
-                  type="button"
-                  onClick={() =>
-                    updatePref((p) => ({ ...p, contentRegionMode: mode.id }))
-                  }
-                  className={optBtn(
-                    (prefs.contentRegionMode ?? "GLOBAL_FIRST") === mode.id,
-                  )}
-                >
-                  {mode.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <Toggle
+            checked={prefs.safeModeEnabled ?? true}
+            onChange={(v) => updatePref((p) => ({ ...p, safeModeEnabled: v }))}
+          />
         </div>
       </div>
 
@@ -660,9 +605,9 @@ export default function PreferencesClient() {
         <div className="py-2">
           <div className={row}>
             <div className="min-w-0 flex-1">
-              <p className={lbl}>Auto-translate Russian content</p>
+              <p className={lbl}>Auto-translate content</p>
               <p className={hint}>
-                Automatically translate Russian titles, synopses, trivia,
+                Automatically translate foreign titles, synopses, trivia,
                 awards, and reviews into English.
               </p>
             </div>
@@ -672,6 +617,32 @@ export default function PreferencesClient() {
                 updatePref((p) => ({ ...p, autoTranslateEnabled: v }))
               }
             />
+          </div>
+
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
+            <p className={`${lbl} mb-2`}>Catalog Priority</p>
+            <div className="flex gap-[5px] sm:gap-[6px] flex-wrap">
+              {(
+                [
+                  { id: "GLOBAL_FIRST", label: "Global & Hollywood" },
+                  { id: "BALANCED", label: "Balanced Mix" },
+                  { id: "ALL", label: "All Regions" },
+                ] as const
+              ).map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() =>
+                    updatePref((p) => ({ ...p, contentRegionMode: mode.id }))
+                  }
+                  className={optBtn(
+                    (prefs.contentRegionMode ?? "GLOBAL_FIRST") === mode.id,
+                  )}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">

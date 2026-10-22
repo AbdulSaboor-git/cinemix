@@ -1,36 +1,52 @@
 "use client";
 import Link from "next/link";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { Heart, Clock, Star, Play, Info, Check } from "lucide-react";
+import {
+  Heart,
+  Clock,
+  Star,
+  Play,
+  Info,
+  Check,
+  ShieldAlert,
+} from "lucide-react";
 import { translateCountry, translateGenre } from "@/lib/translate";
 import { useAutoTranslate, useFilmTitle } from "@/hooks/useTranslate";
 import { useListStatus } from "@/hooks/useListStatus";
 import { Film } from "@/types/kinopoisk";
+import {
+  hydrateFilmWithCache,
+  queueFilmMetaHydration,
+  getCachedFilmMeta,
+} from "@/lib/kinopoisk";
+import { getQuickCertBadge } from "@/lib/parentalGuide";
 import { toggleFavorite, toggleWatchLater } from "@/lib/userLists";
 import { lockScroll, unlockScroll } from "@/lib/scrollLock";
 import { useToast } from "@/lib/toast";
 import PosterImage from "@/components/ui/PosterImage";
+import ParentalGuideModal from "@/components/ParentalGuideModal";
 
 interface FilmCardProps {
   film: Film;
   variant?: "grid" | "scroll";
   size?: "sm" | "md" | "lg";
   index?: number;
+  priority?: boolean;
   onQuickPeek?: (film: Film) => void;
 }
 
 const SCROLL_SIZE_CLASSES = {
   sm: "w-[110px] h-[165px] sm:w-[140px] sm:h-[210px]",
-  md: "w-[130px] h-[195px] sm:w-[175px] sm:h-[263px]",
-  lg: "w-[160px] h-[240px] sm:w-[220px] sm:h-[330px]",
+  md: "w-[126px] h-[189px] sm:w-[175px] sm:h-[263px]",
+  lg: "w-[156px] h-[234px] sm:w-[220px] sm:h-[330px]",
 };
 
 const POPUP_WIDTH = 256;
 const POPUP_HEIGHT = 384;
-const LONG_PRESS_MS = 450;
+const LONG_PRESS_MS = 430;
 const MOVE_THRESHOLD_PX = 10;
-const EXIT_ANIMATION_MS = 240;
+const EXIT_ANIMATION_MS = 230;
 
 export function resolveRating(film: Film): number | string | null {
   const candidates = [
@@ -56,30 +72,94 @@ export function resolveRating(film: Film): number | string | null {
   return null;
 }
 
-function formatRating(r: number | string): string {
+export function formatRating(r: number | string): string {
   if (typeof r === "number") return r.toFixed(1);
   return String(r);
 }
 
-export default function FilmCard({
-  film,
-  variant = "grid",
-  size = "md",
-  index,
-  onQuickPeek,
-}: FilmCardProps) {
-  const autoTranslate = useAutoTranslate();
-  const id = film.kinopoiskId ?? film.filmId ?? 0;
-  const name = useFilmTitle(film, autoTranslate);
-  const rating = resolveRating(film);
-  const year = film.year || film.startYear;
-  const isScroll = variant === "scroll";
+/**
+ * Hook that provides live-hydrated Film metadata (year, genres, countries, rating, MPAA/age limits)
+ * and automatically queues background hydration when a partial card enters the viewport.
+ */
+export function useHydratedFilm(
+  rawFilm: Film,
+  observeRef?: React.RefObject<HTMLElement | null>,
+  requireFullDetail = false,
+): Film {
+  const id = rawFilm.kinopoiskId ?? rawFilm.filmId ?? 0;
+  const [metaTick, setMetaTick] = useState(0);
 
-  const { isFav, isWL, isWatched, mounted } = useListStatus(id);
-  const { toast } = useToast();
+  const hydrated = useMemo(
+    () => hydrateFilmWithCache(rawFilm),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawFilm, metaTick],
+  );
 
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [menuEntered, setMenuEntered] = useState(false);
+  // Listen for live metadata updates from background hydration
+  useEffect(() => {
+    if (!id) return;
+    const onMetaUpdated = (e: Event) => {
+      const detail = (e as CustomEvent<{ filmId?: number }>).detail;
+      if (!detail?.filmId || detail.filmId === id) {
+        setMetaTick((t) => t + 1);
+      }
+    };
+    window.addEventListener("cinemix-meta-updated", onMetaUpdated);
+    return () =>
+      window.removeEventListener("cinemix-meta-updated", onMetaUpdated);
+  }, [id]);
+
+  const isAlreadyEnriched = Boolean(id > 0 && getCachedFilmMeta(id)?.enriched);
+  const hasRating = resolveRating(hydrated) !== null;
+  const hasCert = Boolean(hydrated.ratingAgeLimits || hydrated.ratingMpaa);
+  const hasDuration = Boolean(
+    (hydrated.filmLength && hydrated.filmLength > 0) ||
+    (hydrated.duration && hydrated.duration > 0),
+  );
+
+  // If this card is missing year, genres, rating, or (on Premieres) age rating/duration, hydrate when near viewport
+  const needsHydration =
+    id > 0 &&
+    !isAlreadyEnriched &&
+    (!hydrated.year ||
+      !hydrated.genres ||
+      hydrated.genres.length === 0 ||
+      !hasRating ||
+      (requireFullDetail && (!hasCert || !hasDuration)));
+
+  useEffect(() => {
+    if (!needsHydration || !id) return;
+    const el = observeRef?.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      queueFilmMetaHydration(id);
+      return;
+    }
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          queueFilmMetaHydration(id);
+          obs.disconnect();
+        }
+      },
+      { rootMargin: "240px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [needsHydration, id, observeRef]);
+
+  return hydrated;
+}
+
+/**
+ * Reusable Long-Press gesture controller + centered Quick-Peek portal state.
+ * Can be attached to any card or row across Home, Explore, Premieres, Top 250, and Lists.
+ */
+export function useFilmLongPress(
+  filmId: number,
+  targetRef: React.RefObject<HTMLElement | null>,
+) {
+  const [popupOpen, setPopupOpen] = useState(false);
+  const [popupEntered, setPopupEntered] = useState(false);
   const [originDelta, setOriginDelta] = useState<{
     x: number;
     y: number;
@@ -90,27 +170,30 @@ export default function FilmCard({
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const historyPushedRef = useRef(false);
   const didLongPress = useRef(false);
-  const touchMoved = useRef(false);
-  const touchStartPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const cardRef = useRef<HTMLDivElement>(null);
-  const posterRef = useRef<HTMLDivElement>(null);
+  const pointerMoved = useRef(false);
+  const startPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  const animateCloseMobileMenu = useCallback(() => {
-    setMenuEntered(false);
+  const animateClose = useCallback(() => {
+    setPopupEntered(false);
     if (closeTimer.current) clearTimeout(closeTimer.current);
     closeTimer.current = setTimeout(() => {
-      setMobileMenuOpen(false);
+      setPopupOpen(false);
       closeTimer.current = null;
     }, EXIT_ANIMATION_MS);
   }, []);
 
-  const openMobileMenu = useCallback(() => {
+  const openPopup = useCallback(() => {
     if (closeTimer.current) {
       clearTimeout(closeTimer.current);
       closeTimer.current = null;
     }
 
-    const targetEl = posterRef.current ?? cardRef.current;
+    // Ensure full metadata (including MPAA/age certification) is hydrated immediately on long-press
+    if (filmId > 0) {
+      queueFilmMetaHydration(filmId, true);
+    }
+
+    const targetEl = targetRef.current;
     if (targetEl && typeof window !== "undefined") {
       const rect = targetEl.getBoundingClientRect();
       const cardCenterX = rect.left + rect.width / 2;
@@ -132,42 +215,44 @@ export default function FilmCard({
           ? window.history.state
           : {};
       window.history.pushState(
-        { ...currentState, filmCardPopup: true, filmId: id },
+        { ...currentState, filmCardPopup: true, filmId },
         "",
         window.location.href,
       );
       historyPushedRef.current = true;
     }
 
-    setMobileMenuOpen(true);
+    setPopupOpen(true);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        setMenuEntered(true);
+        setPopupEntered(true);
       });
     });
-  }, [id]);
+  }, [filmId, targetRef]);
 
-  const closeMobileMenu = useCallback(() => {
-    animateCloseMobileMenu();
-    if (typeof window !== "undefined" && historyPushedRef.current) {
+  const closePopup = useCallback(() => {
+    animateClose();
+    if (
+      typeof window !== "undefined" &&
+      historyPushedRef.current &&
+      window.history.state?.filmCardPopup
+    ) {
       historyPushedRef.current = false;
-      window.history.back();
+      const cleaned = { ...window.history.state };
+      delete cleaned.filmCardPopup;
+      window.history.replaceState(cleaned, "", window.location.href);
     }
-  }, [animateCloseMobileMenu]);
+  }, [animateClose]);
 
   useEffect(() => {
-    if (!mobileMenuOpen) return;
-
+    if (!popupOpen) return;
     const handlePopState = () => {
       historyPushedRef.current = false;
-      animateCloseMobileMenu();
+      animateClose();
     };
-
     window.addEventListener("popstate", handlePopState);
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, [mobileMenuOpen, animateCloseMobileMenu]);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [popupOpen, animateClose]);
 
   useEffect(() => {
     return () => {
@@ -176,60 +261,488 @@ export default function FilmCard({
     };
   }, []);
 
-  // Unified scroll lock while mobile popup is active
   useEffect(() => {
-    if (!mobileMenuOpen) return;
+    if (!popupOpen) return;
     lockScroll();
-    return () => {
-      unlockScroll();
-    };
-  }, [mobileMenuOpen]);
+    return () => unlockScroll();
+  }, [popupOpen]);
+
+  const clearTimer = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
 
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
-      if (mobileMenuOpen) return;
+      if (popupOpen) return;
       didLongPress.current = false;
-      touchMoved.current = false;
+      pointerMoved.current = false;
       const touch = e.touches[0];
       if (touch) {
-        touchStartPos.current = { x: touch.clientX, y: touch.clientY };
+        startPos.current = { x: touch.clientX, y: touch.clientY };
       }
-
+      clearTimer();
       longPressTimer.current = setTimeout(() => {
-        if (touchMoved.current) return;
+        if (pointerMoved.current) return;
         didLongPress.current = true;
         if (typeof navigator !== "undefined" && navigator.vibrate) {
           navigator.vibrate(35);
         }
-        openMobileMenu();
+        openPopup();
       }, LONG_PRESS_MS);
     },
-    [mobileMenuOpen, openMobileMenu],
+    [popupOpen, clearTimer, openPopup],
   );
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    if (touch) {
-      const dx = touch.clientX - touchStartPos.current.x;
-      const dy = touch.clientY - touchStartPos.current.y;
-      if (Math.hypot(dx, dy) < MOVE_THRESHOLD_PX) return;
-    }
-    touchMoved.current = true;
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      const touch = e.touches[0];
+      if (touch) {
+        const dx = touch.clientX - startPos.current.x;
+        const dy = touch.clientY - startPos.current.y;
+        if (Math.hypot(dx, dy) < MOVE_THRESHOLD_PX) return;
+      }
+      pointerMoved.current = true;
+      clearTimer();
+    },
+    [clearTimer],
+  );
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (popupOpen || e.button !== 0) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("button")) return;
+      didLongPress.current = false;
+      pointerMoved.current = false;
+      startPos.current = { x: e.clientX, y: e.clientY };
+      clearTimer();
+      longPressTimer.current = setTimeout(() => {
+        if (pointerMoved.current) return;
+        didLongPress.current = true;
+        openPopup();
+      }, LONG_PRESS_MS);
+    },
+    [popupOpen, clearTimer, openPopup],
+  );
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!longPressTimer.current) return;
+      const dx = e.clientX - startPos.current.x;
+      const dy = e.clientY - startPos.current.y;
+      if (Math.hypot(dx, dy) >= MOVE_THRESHOLD_PX) {
+        pointerMoved.current = true;
+        clearTimer();
+      }
+    },
+    [clearTimer],
+  );
+
+  const handleClickCapture = useCallback(
+    (e: React.MouseEvent) => {
+      if (didLongPress.current || popupOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        didLongPress.current = false;
+      }
+    },
+    [popupOpen],
+  );
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
   }, []);
 
-  const handleTouchEnd = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
+  return {
+    popupOpen,
+    popupEntered,
+    originDelta,
+    closePopup,
+    setPopupOpen,
+    setPopupEntered,
+    historyPushedRef,
+    bindLongPress: {
+      onTouchStart: handleTouchStart,
+      onTouchMove: handleTouchMove,
+      onTouchEnd: clearTimer,
+      onTouchCancel: clearTimer,
+      onMouseDown: handleMouseDown,
+      onMouseMove: handleMouseMove,
+      onMouseUp: clearTimer,
+      onMouseLeave: clearTimer,
+      onClickCapture: handleClickCapture,
+      onContextMenu: handleContextMenu,
+    },
+  };
+}
+
+/**
+ * Shared Long-Press Centered Quick-Peek & Action Portal.
+ * Shows the MPAA / Age Certification badge on the top-left corner (clickable for Parental Guide)
+ * instead of Favorite/Watch Later tags, since their status is shown in the action buttons below.
+ */
+export function FilmLongPressPortal({
+  film,
+  popupOpen,
+  popupEntered,
+  originDelta,
+  closePopup,
+  setPopupOpen,
+  setPopupEntered,
+  historyPushedRef,
+}: {
+  film: Film;
+  popupOpen: boolean;
+  popupEntered: boolean;
+  originDelta: { x: number; y: number; scale: number };
+  closePopup: () => void;
+  setPopupOpen: (v: boolean) => void;
+  setPopupEntered: (v: boolean) => void;
+  historyPushedRef: React.MutableRefObject<boolean>;
+}) {
+  const autoTranslate = useAutoTranslate();
+  const hydrated = useHydratedFilm(film);
+  const id = hydrated.kinopoiskId ?? hydrated.filmId ?? 0;
+  const name = useFilmTitle(hydrated, autoTranslate);
+  const rating = resolveRating(hydrated);
+  const year = hydrated.year || hydrated.startYear;
+  const certBadge = getQuickCertBadge(hydrated);
+
+  const { isFav, isWL, mounted } = useListStatus(id);
+  const { toast } = useToast();
+  const [parentalOpen, setParentalOpen] = useState(false);
+
+  const posterUrl = hydrated.posterUrlPreview || hydrated.posterUrl || null;
+  const hiResPosterUrl =
+    hydrated.posterUrl || hydrated.posterUrlPreview || undefined;
+  const entryYear = hydrated.year ?? hydrated.startYear ?? null;
+  const entryRating = hydrated.ratingKinopoisk ?? hydrated.ratingImdb ?? null;
+
+  const primaryGenre = hydrated.genres?.[0]
+    ? translateGenre(hydrated.genres[0].genre, autoTranslate)
+    : null;
+  const primaryCountry = hydrated.countries?.[0]
+    ? translateCountry(hydrated.countries[0].country, autoTranslate)
+    : null;
+
+  const handleFav = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const added = toggleFavorite({
+        film_id: id,
+        film_name: name,
+        poster_url: posterUrl,
+        year: entryYear,
+        rating: entryRating,
+      });
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(20);
+      }
+      toast.success(added ? "Added to Favorites" : "Removed from Favorites");
+    },
+    [id, name, posterUrl, entryYear, entryRating, toast],
+  );
+
+  const handleWL = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const added = toggleWatchLater({
+        film_id: id,
+        film_name: name,
+        poster_url: posterUrl,
+        year: entryYear,
+        rating: entryRating,
+      });
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(20);
+      }
+      toast.info(added ? "Saved to Watch Later" : "Removed from Watch Later");
+    },
+    [id, name, posterUrl, entryYear, entryRating, toast],
+  );
+
+  if (!mounted || typeof document === "undefined") return null;
+
+  return (
+    <>
+      {popupOpen &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[9998] flex flex-col items-center justify-center px-6 select-none"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              closePopup();
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            {/* Full-screen blurred glass backdrop */}
+            <div
+              className={`absolute inset-0 transition-all duration-300 ease-out ${
+                popupEntered
+                  ? "bg-black/78 backdrop-blur-xl opacity-100"
+                  : "bg-black/0 backdrop-blur-none opacity-0"
+              }`}
+              style={{
+                backgroundImage: popupEntered
+                  ? "radial-gradient(circle at 50% 42%, rgba(229, 9, 20, 0.16), transparent 62%)"
+                  : "none",
+              }}
+            />
+
+            {/* Centered wrapper for card + positioned controls */}
+            <div
+              className="relative z-10 flex flex-col items-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Expanded Center Popup Card */}
+              <div
+                style={{
+                  width: `${POPUP_WIDTH}px`,
+                  height: `${POPUP_HEIGHT}px`,
+                  transform: popupEntered
+                    ? "translate3d(0px, 0px, 0px) scale(1)"
+                    : `translate3d(${originDelta.x}px, ${originDelta.y}px, 0px) scale(${originDelta.scale})`,
+                  transition:
+                    "transform 360ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease-out, box-shadow 360ms ease-out",
+                  opacity: popupEntered ? 1 : 0.2,
+                }}
+                className="relative rounded-[20px] overflow-hidden bg-[var(--bg-card)] border border-white/15 shadow-[0_28px_70px_rgba(0,0,0,0.85),0_0_0_1px_rgba(229,9,20,0.28)]"
+              >
+                <PosterImage
+                  src={hiResPosterUrl}
+                  alt={name}
+                  title={name}
+                  size="lg"
+                  priority
+                />
+
+                {/* Multi-stop cinematic vignette */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/30 to-black/15 pointer-events-none" />
+
+                {/* Top-Left MPAA / Age Certification Badge (Requirement 4) */}
+                <div className="absolute top-3 left-3 z-10">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setParentalOpen(true);
+                    }}
+                    title="View Parental Guide"
+                    className={`rounded-lg px-2.5 py-1 backdrop-blur-md border flex items-center gap-1.5 shadow-lg cursor-pointer transition-transform active:scale-95 ${
+                      certBadge?.isMature
+                        ? "bg-[rgba(229,9,20,0.88)] border-white/25 text-white"
+                        : "bg-black/80 border-white/25 text-white"
+                    }`}
+                  >
+                    <ShieldAlert size={11} className="shrink-0" />
+                    <span className="text-[11px] font-bold tracking-[0.5px]">
+                      {certBadge ? certBadge.label : "PG Guide"}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Top-Right Rating Badge */}
+                {rating !== null && (
+                  <div className="absolute top-3 right-3 z-10 bg-black/80 backdrop-blur-md border border-[rgba(245,197,24,0.4)] rounded-lg px-2.5 py-1 flex items-center gap-1.5 shadow-lg">
+                    <Star size={12} fill="#f5c518" stroke="#f5c518" />
+                    <span className="text-[12px] font-semibold text-[#f5c518] font-display tracking-[0.5px]">
+                      {formatRating(rating)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Bottom Metadata Inside Expanded Poster */}
+                <div
+                  style={{
+                    transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+                    transitionDelay: popupEntered ? "80ms" : "0ms",
+                  }}
+                  className={`absolute bottom-0 inset-x-0 p-4 z-10 transition-all duration-300 ${
+                    popupEntered
+                      ? "opacity-100 translate-y-0"
+                      : "opacity-0 translate-y-3"
+                  }`}
+                >
+                  <p className="text-[16px] font-bold text-white leading-[1.25] line-clamp-2 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] m-0">
+                    {name}
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                    {year && (
+                      <span className="text-[11px] font-medium text-white/85 bg-white/10 backdrop-blur-sm px-2 py-0.5 rounded-md border border-white/10">
+                        {year}
+                      </span>
+                    )}
+                    {primaryGenre && (
+                      <span className="text-[11px] font-medium text-white/85 bg-white/10 backdrop-blur-sm px-2 py-0.5 rounded-md border border-white/10 capitalize">
+                        {primaryGenre}
+                      </span>
+                    )}
+                    {primaryCountry && (
+                      <span className="text-[11px] font-medium text-white/75 bg-white/10 backdrop-blur-sm px-2 py-0.5 rounded-md border border-white/10">
+                        {primaryCountry}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Floating Action Controls Below Popup Card ── */}
+              <div className="mt-4 w-[256px] flex flex-col gap-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={handleFav}
+                    style={{
+                      transitionTimingFunction:
+                        "cubic-bezier(0.22, 1, 0.36, 1)",
+                      transitionDelay: popupEntered ? "100ms" : "0ms",
+                    }}
+                    className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl border backdrop-blur-xl font-semibold text-[12px] active:scale-95 transition-all duration-300 cursor-pointer ${
+                      popupEntered
+                        ? "opacity-100 translate-y-0 scale-100"
+                        : "opacity-0 -translate-y-3 scale-90"
+                    } ${
+                      isFav
+                        ? "bg-[rgba(229,9,20,0.28)] border-[rgba(229,9,20,0.75)] text-white shadow-[0_8px_24px_rgba(229,9,20,0.3)]"
+                        : "bg-[rgba(24,24,28,0.85)] border-white/15 text-white/90"
+                    }`}
+                  >
+                    <Heart
+                      size={16}
+                      fill={isFav ? "var(--accent)" : "none"}
+                      stroke={isFav ? "var(--accent)" : "currentColor"}
+                      strokeWidth={2.2}
+                      className="shrink-0"
+                    />
+                    <span className="truncate">
+                      {isFav ? "In Favorites" : "Favorite"}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleWL}
+                    style={{
+                      transitionTimingFunction:
+                        "cubic-bezier(0.22, 1, 0.36, 1)",
+                      transitionDelay: popupEntered ? "140ms" : "0ms",
+                    }}
+                    className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl border backdrop-blur-xl font-semibold text-[12px] active:scale-95 transition-all duration-300 cursor-pointer ${
+                      popupEntered
+                        ? "opacity-100 translate-y-0 scale-100"
+                        : "opacity-0 -translate-y-3 scale-90"
+                    } ${
+                      isWL
+                        ? "bg-[rgba(96,165,250,0.28)] border-[rgba(96,165,250,0.75)] text-[#93c5fd] shadow-[0_8px_24px_rgba(96,165,250,0.28)]"
+                        : "bg-[rgba(24,24,28,0.85)] border-white/15 text-white/90"
+                    }`}
+                  >
+                    <Clock
+                      size={16}
+                      stroke={isWL ? "#60a5fa" : "currentColor"}
+                      strokeWidth={2.2}
+                      className="shrink-0"
+                    />
+                    <span className="truncate">
+                      {isWL ? "In Watchlist" : "Watch Later"}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Bottom Full-Width Primary Action: Open / Watch Film */}
+                <Link
+                  href={`/film/${id}`}
+                  onClick={() => {
+                    if (
+                      typeof window !== "undefined" &&
+                      historyPushedRef.current &&
+                      window.history.state?.filmCardPopup
+                    ) {
+                      historyPushedRef.current = false;
+                      const cleaned = { ...window.history.state };
+                      delete cleaned.filmCardPopup;
+                      window.history.replaceState(
+                        cleaned,
+                        "",
+                        window.location.href,
+                      );
+                    }
+                    setPopupEntered(false);
+                    setPopupOpen(false);
+                  }}
+                  style={{
+                    transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+                    transitionDelay: popupEntered ? "180ms" : "0ms",
+                  }}
+                  className={`flex items-center justify-center gap-2 w-full py-3 px-4 rounded-2xl bg-[var(--accent,#e50914)] text-white font-semibold text-[13px] no-underline shadow-[0_10px_28px_rgba(229,9,20,0.45)] border border-white/15 active:scale-95 transition-all duration-300 ${
+                    popupEntered
+                      ? "opacity-100 translate-y-0 scale-100"
+                      : "opacity-0 -translate-y-3 scale-90"
+                  }`}
+                >
+                  <Play size={15} fill="white" stroke="white" />
+                  <span>Details & Watch</span>
+                </Link>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {parentalOpen && (
+        <ParentalGuideModal
+          open={parentalOpen}
+          onClose={() => setParentalOpen(false)}
+          film={hydrated}
+        />
+      )}
+    </>
+  );
+}
+
+export default function FilmCard({
+  film: rawFilm,
+  variant = "grid",
+  size = "md",
+  index,
+  priority = false,
+  onQuickPeek,
+}: FilmCardProps) {
+  const autoTranslate = useAutoTranslate();
+  const cardRef = useRef<HTMLDivElement>(null);
+  const posterRef = useRef<HTMLDivElement>(null);
+
+  // Live self-hydrating film metadata (fixes missing year/genres/rating on For You, Watch Later, Similar cards)
+  const film = useHydratedFilm(rawFilm, cardRef);
+
+  const id = film.kinopoiskId ?? film.filmId ?? 0;
+  const name = useFilmTitle(film, autoTranslate);
+  const rating = resolveRating(film);
+  const year = film.year || film.startYear;
+  const isScroll = variant === "scroll";
+
+  const { isFav, isWL, isWatched, mounted } = useListStatus(id);
+  const { toast } = useToast();
+
+  const {
+    popupOpen,
+    popupEntered,
+    originDelta,
+    closePopup,
+    setPopupOpen,
+    setPopupEntered,
+    historyPushedRef,
+    bindLongPress,
+  } = useFilmLongPress(id, posterRef);
 
   const posterUrl = film.posterUrlPreview || film.posterUrl || null;
-  const hiResPosterUrl = film.posterUrl || film.posterUrlPreview || undefined;
   const entryYear = film.year ?? film.startYear ?? null;
   const entryRating = film.ratingKinopoisk ?? film.ratingImdb ?? null;
 
@@ -280,20 +793,6 @@ export default function FilmCard({
     [film, onQuickPeek],
   );
 
-  const handleLinkClick = useCallback(
-    (e: React.MouseEvent) => {
-      if (didLongPress.current || mobileMenuOpen) {
-        e.preventDefault();
-        didLongPress.current = false;
-      }
-    },
-    [mobileMenuOpen],
-  );
-
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-  }, []);
-
   const primaryGenre = film.genres?.[0]
     ? translateGenre(film.genres[0].genre, autoTranslate)
     : null;
@@ -301,24 +800,44 @@ export default function FilmCard({
     ? translateCountry(film.countries[0].country, autoTranslate)
     : null;
 
+  const upcomingDateLabel = (() => {
+    if (!film.premiereRu) return null;
+    const rawDate = film.premiereRu.slice(0, 10);
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    if (rawDate <= todayStr) return null;
+    const parsed = new Date(`${rawDate}T00:00:00`);
+    if (isNaN(parsed.getTime())) return null;
+    const sameYear = parsed.getFullYear() === now.getFullYear();
+    return parsed.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      ...(sameYear ? {} : { year: "numeric" }),
+    });
+  })();
+
   return (
     <>
       <Link
         href={`/film/${id}`}
         className="group block shrink-0 no-underline select-none [-webkit-touch-callout:none]"
-        onClick={handleLinkClick}
-        onContextMenu={handleContextMenu}
+        onClickCapture={bindLongPress.onClickCapture}
+        onContextMenu={bindLongPress.onContextMenu}
       >
         <div
           ref={cardRef}
           className={`film-card pb-1 cursor-pointer relative transition-all duration-300 ${
             isScroll ? `min-h-fit ${SCROLL_SIZE_CLASSES[size]}` : "w-full"
-          } ${mobileMenuOpen ? "opacity-0 scale-95 pointer-events-none" : ""}`}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={handleTouchEnd}
-          onTouchMove={handleTouchMove}
-          onContextMenu={handleContextMenu}
+          } ${popupOpen ? "opacity-0 scale-95 pointer-events-none" : ""}`}
+          onTouchStart={bindLongPress.onTouchStart}
+          onTouchEnd={bindLongPress.onTouchEnd}
+          onTouchCancel={bindLongPress.onTouchCancel}
+          onTouchMove={bindLongPress.onTouchMove}
+          onMouseDown={bindLongPress.onMouseDown}
+          onMouseMove={bindLongPress.onMouseMove}
+          onMouseUp={bindLongPress.onMouseUp}
+          onMouseLeave={bindLongPress.onMouseLeave}
+          onContextMenu={bindLongPress.onContextMenu}
         >
           {/* ── Poster ── */}
           <div
@@ -331,7 +850,8 @@ export default function FilmCard({
               src={film.posterUrlPreview || film.posterUrl}
               alt={name}
               title={name}
-              priority={index !== undefined && index < 6}
+              size="sm"
+              priority={priority || (index !== undefined && index < 6)}
             />
 
             {/* Gradient overlay */}
@@ -352,7 +872,7 @@ export default function FilmCard({
               </div>
             )}
 
-            {/* Rank number */}
+            {/* Rank number (only shown when index is explicitly passed, e.g. Top 250 row on Home) */}
             {index !== undefined && (
               <div
                 className={`absolute bottom-1 left-1.5 sm:left-2 font-display leading-none text-white opacity-95 [text-shadow:0_2px_12px_rgba(0,0,0,0.9),-2px_0_0_rgba(0,0,0,0.5)] ${
@@ -436,7 +956,7 @@ export default function FilmCard({
               </div>
             )}
 
-            {/* ── Active state badges ── */}
+            {/* ── Active state badges on normal grid card ── */}
             {mounted && (isFav || isWL || isWatched) && (
               <div className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 flex flex-col gap-[4px]">
                 {isFav && (
@@ -468,18 +988,24 @@ export default function FilmCard({
           </div>
 
           {/* ── Info below poster ── */}
-          <div className="mt-[8px] sm:mt-[10px] px-[2px]">
-            <p className="text-[12px] sm:text-[13px] font-semibold overflow-hidden text-ellipsis whitespace-nowrap leading-[1.3] transition-colors duration-200 text-[var(--text)] group-hover:text-white">
+          <div className="mt-[7px] sm:mt-[9px] px-[2px]">
+            <p className="text-[12px] sm:text-[13px] font-semibold overflow-hidden text-ellipsis whitespace-nowrap leading-[1.3] transition-colors duration-200 text-[var(--text)] group-hover:text-white m-0">
               {name}
             </p>
-            <div className="flex items-center gap-[5px] sm:gap-[6px] mt-1 flex-wrap">
-              {year && (
-                <span className="text-[10px] sm:text-[11px] text-[var(--text-muted)]">
-                  {year}
+            <div className="flex items-center gap-[5px] sm:gap-[6px] mt-1 flex-wrap min-h-[18px]">
+              {upcomingDateLabel ? (
+                <span className="text-[10px] sm:text-[11px] font-semibold text-[#f5c518]">
+                  {upcomingDateLabel}
                 </span>
+              ) : (
+                year && (
+                  <span className="text-[10px] sm:text-[11px] text-[var(--text-muted)]">
+                    {year}
+                  </span>
+                )
               )}
               {primaryGenre && (
-                <span className="tag tag-dim !text-[9px] sm:!text-[10px] !py-[1px] !px-[6px] sm:!px-[7px]">
+                <span className="tag tag-dim !text-[9px] sm:!text-[10px] !py-[1px] !px-[6px] sm:!px-[7px] capitalize">
                   {primaryGenre}
                 </span>
               )}
@@ -493,215 +1019,17 @@ export default function FilmCard({
         </div>
       </Link>
 
-      {/* ── Mobile Long-Press Centered Peek & Action Portal ── */}
-      {mounted &&
-        mobileMenuOpen &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[9999] sm:hidden flex flex-col items-center justify-center px-6 select-none"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              closeMobileMenu();
-            }}
-            onContextMenu={handleContextMenu}
-          >
-            {/* Full-screen blurred glass backdrop */}
-            <div
-              className={`absolute inset-0 transition-all duration-300 ease-out ${
-                menuEntered
-                  ? "bg-black/75 backdrop-blur-xl opacity-100"
-                  : "bg-black/0 backdrop-blur-none opacity-0"
-              }`}
-              style={{
-                backgroundImage: menuEntered
-                  ? "radial-gradient(circle at 50% 42%, rgba(229, 9, 20, 0.16), transparent 62%)"
-                  : "none",
-              }}
-            />
-
-            {/* Centered wrapper for card + positioned controls */}
-            <div
-              className="relative z-10 flex flex-col items-center"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Expanded Center Popup Card */}
-              <div
-                style={{
-                  width: `${POPUP_WIDTH}px`,
-                  height: `${POPUP_HEIGHT}px`,
-                  transform: menuEntered
-                    ? "translate3d(0px, 0px, 0px) scale(1)"
-                    : `translate3d(${originDelta.x}px, ${originDelta.y}px, 0px) scale(${originDelta.scale})`,
-                  transition:
-                    "transform 380ms cubic-bezier(0.22, 1, 0.36, 1), opacity 240ms ease-out, box-shadow 380ms ease-out",
-                  opacity: menuEntered ? 1 : 0.2,
-                }}
-                className="relative rounded-[20px] overflow-hidden bg-[var(--bg-card)] border border-white/15 shadow-[0_28px_70px_rgba(0,0,0,0.85),0_0_0_1px_rgba(229,9,20,0.28)]"
-              >
-                <PosterImage src={hiResPosterUrl} alt={name} title={name} />
-
-                {/* Multi-stop cinematic vignette */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/30 to-black/15 pointer-events-none" />
-
-                {/* Top-Left Active Status Pills */}
-                {(isFav || isWL) && (
-                  <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10">
-                    {isFav && (
-                      <div className="w-7 h-7 rounded-lg bg-[rgba(229,9,20,0.9)] backdrop-blur-md border border-white/20 flex items-center justify-center shadow-lg">
-                        <Heart size={13} fill="white" stroke="white" />
-                      </div>
-                    )}
-                    {isWL && (
-                      <div className="w-7 h-7 rounded-lg bg-[rgba(96,165,250,0.9)] backdrop-blur-md border border-white/20 flex items-center justify-center shadow-lg">
-                        <Clock size={13} stroke="white" strokeWidth={2.5} />
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Top-Right Rating Badge */}
-                {rating !== null && (
-                  <div className="absolute top-3 right-3 z-10 bg-black/80 backdrop-blur-md border border-[rgba(245,197,24,0.4)] rounded-lg px-2.5 py-1 flex items-center gap-1.5 shadow-lg">
-                    <Star size={12} fill="#f5c518" stroke="#f5c518" />
-                    <span className="text-[12px] font-semibold text-[#f5c518] font-display tracking-[0.5px]">
-                      {formatRating(rating)}
-                    </span>
-                  </div>
-                )}
-
-                {/* Bottom Metadata Inside Expanded Poster */}
-                <div
-                  style={{
-                    transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
-                    transitionDelay: menuEntered ? "90ms" : "0ms",
-                  }}
-                  className={`absolute bottom-0 inset-x-0 p-4 z-10 transition-all duration-300 ${
-                    menuEntered
-                      ? "opacity-100 translate-y-0"
-                      : "opacity-0 translate-y-3"
-                  }`}
-                >
-                  <p className="text-[16px] font-bold text-white leading-[1.25] line-clamp-2 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
-                    {name}
-                  </p>
-                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                    {year && (
-                      <span className="text-[11px] font-medium text-white/80 bg-white/10 backdrop-blur-sm px-2 py-0.5 rounded-md border border-white/10">
-                        {year}
-                      </span>
-                    )}
-                    {primaryGenre && (
-                      <span className="text-[11px] font-medium text-white/85 bg-white/10 backdrop-blur-sm px-2 py-0.5 rounded-md border border-white/10">
-                        {primaryGenre}
-                      </span>
-                    )}
-                    {primaryCountry && (
-                      <span className="text-[11px] font-medium text-white/70 bg-white/10 backdrop-blur-sm px-2 py-0.5 rounded-md border border-white/10">
-                        {primaryCountry}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* ── Floating Action Controls Below Popup Card ── */}
-              <div className="mt-4 w-[256px] flex flex-col gap-2.5">
-                <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={handleFav}
-                    style={{
-                      transitionTimingFunction:
-                        "cubic-bezier(0.22, 1, 0.36, 1)",
-                      transitionDelay: menuEntered ? "110ms" : "0ms",
-                    }}
-                    className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl border backdrop-blur-xl font-semibold text-[12px] active:scale-95 transition-all duration-300 ${
-                      menuEntered
-                        ? "opacity-100 translate-y-0 scale-100"
-                        : "opacity-0 -translate-y-3 scale-90"
-                    } ${
-                      isFav
-                        ? "bg-[rgba(229,9,20,0.28)] border-[rgba(229,9,20,0.75)] text-white shadow-[0_8px_24px_rgba(229,9,20,0.3)]"
-                        : "bg-[rgba(24,24,28,0.82)] border-white/15 text-white/90"
-                    }`}
-                  >
-                    <Heart
-                      size={16}
-                      fill={isFav ? "var(--accent)" : "none"}
-                      stroke={isFav ? "var(--accent)" : "currentColor"}
-                      strokeWidth={2.2}
-                      className="shrink-0"
-                    />
-                    <span className="truncate">
-                      {isFav ? "In Favorites" : "Favorite"}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleWL}
-                    style={{
-                      transitionTimingFunction:
-                        "cubic-bezier(0.22, 1, 0.36, 1)",
-                      transitionDelay: menuEntered ? "150ms" : "0ms",
-                    }}
-                    className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl border backdrop-blur-xl font-semibold text-[12px] active:scale-95 transition-all duration-300 ${
-                      menuEntered
-                        ? "opacity-100 translate-y-0 scale-100"
-                        : "opacity-0 -translate-y-3 scale-90"
-                    } ${
-                      isWL
-                        ? "bg-[rgba(96,165,250,0.28)] border-[rgba(96,165,250,0.75)] text-[#93c5fd] shadow-[0_8px_24px_rgba(96,165,250,0.28)]"
-                        : "bg-[rgba(24,24,28,0.82)] border-white/15 text-white/90"
-                    }`}
-                  >
-                    <Clock
-                      size={16}
-                      stroke={isWL ? "#60a5fa" : "currentColor"}
-                      strokeWidth={2.2}
-                      className="shrink-0"
-                    />
-                    <span className="truncate">
-                      {isWL ? "In Watchlist" : "Watch Later"}
-                    </span>
-                  </button>
-                </div>
-
-                {/* Bottom Full-Width Primary Action: Open / Watch Film */}
-                <Link
-                  href={`/film/${id}`}
-                  onClick={() => {
-                    if (
-                      typeof window !== "undefined" &&
-                      historyPushedRef.current &&
-                      window.history.state?.filmCardPopup
-                    ) {
-                      // Replace the dummy popup state before navigating
-                      historyPushedRef.current = false;
-                    }
-                    setMenuEntered(false);
-                    setMobileMenuOpen(false);
-                  }}
-                  style={{
-                    transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
-                    transitionDelay: menuEntered ? "190ms" : "0ms",
-                  }}
-                  className={`flex items-center justify-center gap-2 w-full py-3 px-4 rounded-2xl bg-[var(--accent,#e50914)] text-white font-semibold text-[13px] no-underline shadow-[0_10px_28px_rgba(229,9,20,0.45)] border border-white/15 active:scale-95 transition-all duration-300 ${
-                    menuEntered
-                      ? "opacity-100 translate-y-0 scale-100"
-                      : "opacity-0 -translate-y-3 scale-90"
-                  }`}
-                >
-                  <Play size={15} fill="white" stroke="white" />
-                  <span>Details & Watch</span>
-                </Link>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {/* ── Long-Press Centered Quick-Peek Portal ── */}
+      <FilmLongPressPortal
+        film={film}
+        popupOpen={popupOpen}
+        popupEntered={popupEntered}
+        originDelta={originDelta}
+        closePopup={closePopup}
+        setPopupOpen={setPopupOpen}
+        setPopupEntered={setPopupEntered}
+        historyPushedRef={historyPushedRef}
+      />
     </>
   );
 }

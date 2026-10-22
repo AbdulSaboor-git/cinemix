@@ -569,8 +569,8 @@ export function getQuickCertBadge(
   const age = normalizeAgeLimit(film.ratingAgeLimits);
   if (mpaa && age) {
     return {
-      label: `${mpaa} · ${age}+`,
-      isMature: mpaa === "R" || mpaa === "NC-17" || age === "18",
+      label: `${mpaa} · ${age}`,
+      isMature: mpaa === "R" || mpaa === "NC-17" || age === "18+" || age === "18",
     };
   }
   if (mpaa) {
@@ -581,8 +581,8 @@ export function getQuickCertBadge(
   }
   if (age) {
     return {
-      label: `${age}+`,
-      isMature: age === "18",
+      label: age,
+      isMature: age === "18+" || age === "18",
     };
   }
   return null;

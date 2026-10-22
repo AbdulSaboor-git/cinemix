@@ -22,11 +22,11 @@ import {
   Play,
   Heart,
   Clock,
-  Star,
   Plus,
   Minus,
   SlidersHorizontal,
   ChevronDown,
+  ChevronUp,
   Check,
   RotateCcw,
 } from "lucide-react";
@@ -96,7 +96,7 @@ const SORT_ORDERS: { value: ExploreSortOrder; label: string }[] = [
   { value: "YEAR", label: "Release Year" },
   { value: "HIDDEN_GEMS", label: "Hidden Gems" },
   { value: "CRITICS", label: "Critics Score" },
-  { value: "TITLE", label: "Title (A–Z)" },
+  // { value: "TITLE", label: "Title (A–Z)" },
   { value: "RANDOM", label: "Random Roulette" },
 ];
 
@@ -268,6 +268,62 @@ function sameStrArray(a: string[], b: string[]): boolean {
   return sA.every((v, i) => v === sB[i]);
 }
 
+/**
+ * Normalizes any preset parameter map (or legacy queryString) by removing default/no-op keys
+ * and sorting comma-separated IDs so saved preset comparison is 100% deterministic.
+ */
+function normalizePresetParams(
+  preset: SavedExplorePreset,
+): Record<string, string> {
+  const raw: Record<string, string> = { ...(preset.params ?? {}) };
+  if (Object.keys(raw).length === 0 && preset.queryString) {
+    const sp = new URLSearchParams(preset.queryString);
+    sp.forEach((v, k) => {
+      raw[k] = v;
+    });
+  }
+
+  const out: Record<string, string> = {};
+  const DEFAULT_VALS: Record<string, string> = {
+    type: "ALL",
+    order: "NUM_VOTE",
+    dir: "DESC",
+    genreMode: "AND",
+    ratingSource: "AUTO",
+    runtime: "ANY",
+    status: "ALL",
+  };
+  const IGNORED_KEYS = new Set(["page", "excludeRu", "view", "lens"]);
+  const LIST_KEYS = new Set([
+    "genres",
+    "excludeGenres",
+    "countries",
+    "excludeCountries",
+    "age",
+    "excludeAge",
+    "excludeTypes",
+  ]);
+
+  for (const [k, val] of Object.entries(raw)) {
+    if (!val || IGNORED_KEYS.has(k)) continue;
+    const trimmed = String(val).trim();
+    if (!trimmed) continue;
+    if (DEFAULT_VALS[k] && DEFAULT_VALS[k] === trimmed) continue;
+    if (LIST_KEYS.has(k)) {
+      const sorted = trimmed
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .sort()
+        .join(",");
+      if (sorted) out[k] = sorted;
+    } else {
+      out[k] = trimmed;
+    }
+  }
+  return out;
+}
+
 interface DraftFilterState {
   includeGenres: number[];
   excludeGenres: number[];
@@ -400,8 +456,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [streamedPage, setStreamedPage] = useState(page);
 
-  // Studio Command Deck & Mobile Drawer UI state
+  // Studio Command Deck & Mobile Collapsible Controls state (Requirement 5)
   const [deckExpanded, setDeckExpanded] = useState(false);
+  const [mobileControlsExpanded, setMobileControlsExpanded] = useState(false);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [activeStudioTab, setActiveStudioTab] = useState<
     "GENRES" | "COUNTRIES" | "RATINGS" | "ERA_RUNTIME" | "LIBRARY"
@@ -421,7 +478,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const [surpriseFilm, setSurpriseFilm] = useState<Film | null>(null);
   const [parentalGuideFilm, setParentalGuideFilm] = useState<Film | null>(null);
 
-  // Lock body scroll when mobile filter bottom-sheet is open
   useEffect(() => {
     if (!mobileSheetOpen) return;
     lockScroll();
@@ -497,7 +553,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
     number[]
   >(() => parseNumberList(props.excludeCountries));
 
-  // Staged Draft State (updates locally on tag/input changes without firing API calls until "Apply Filters" is clicked)
+  // Staged Draft State
   const [draft, setDraft] = useState<DraftFilterState>({
     includeGenres: parseNumberList(props.genres),
     excludeGenres: parseNumberList(props.excludeGenres),
@@ -889,25 +945,42 @@ export default function BrowseClient(props: ExploreSearchParams) {
     [buildFilterHref],
   );
 
-  // Check whether a saved custom preset matches the currently active URL parameters
+  // Requirement 6: Deterministic check whether a custom saved preset is currently active
   const isSavedPresetSelected = useCallback(
     (preset: SavedExplorePreset): boolean => {
-      const pParams = preset.params ?? {};
-      const activeRec = currentParamsRecord();
+      if (activeLens === preset.id) return true;
+      // If another lens is explicitly active, this saved preset is not selected
+      if (
+        activeLens &&
+        SMART_LENSES.some((l) => l.id === activeLens) &&
+        preset.params?.lens !== activeLens
+      ) {
+        return false;
+      }
+
+      const normPreset = normalizePresetParams(preset);
+      const activeRaw: Record<string, string> = {};
+      Object.entries(currentParamsRecord()).forEach(([k, v]) => {
+        if (v !== undefined && v !== "") activeRaw[k] = v;
+      });
+      const normActive = normalizePresetParams({
+        id: "_active",
+        name: "_active",
+        params: activeRaw,
+        createdAt: 0,
+      });
+
       const keys = new Set([
-        ...Object.keys(pParams),
-        ...Object.keys(activeRec).filter((k) => activeRec[k] !== undefined),
+        ...Object.keys(normPreset),
+        ...Object.keys(normActive),
       ]);
-      keys.delete("page");
       if (keys.size === 0) return false;
       for (const k of keys) {
-        const a = pParams[k] || undefined;
-        const b = activeRec[k] || undefined;
-        if (a !== b) return false;
+        if ((normPreset[k] || "") !== (normActive[k] || "")) return false;
       }
       return true;
     },
-    [currentParamsRecord],
+    [activeLens, currentParamsRecord],
   );
 
   // Fetch films via Partitioned Multi-Constraint Discovery Engine
@@ -1054,7 +1127,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     }
   };
 
-  // Filtered countries for the Studio Country Deck
   const filteredCountries = useMemo(() => {
     const q = countrySearch.trim().toLowerCase();
     const list = countries.filter((c) => {
@@ -1067,7 +1139,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
 
   if (noKey) return <NoKeyBanner />;
 
-  // Draft Include / Exclude handlers (can exclude any tag directly without including first!)
+  // Draft Include / Exclude handlers
   const toggleDraftGenreInclude = (genreId: number) => {
     setDraft((prev) => {
       const isInc = prev.includeGenres.includes(genreId);
@@ -1193,15 +1265,64 @@ export default function BrowseClient(props: ExploreSearchParams) {
     setSurpriseModalOpen(true);
   };
 
+  // Requirement 6: Save current filters (including any pending draft filters) and immediately activate the preset
   const handleSaveCurrentPreset = () => {
     const label = presetNameInput.trim();
     if (!label) return;
+    const newId = `preset-${Date.now()}`;
+    const mergedParams: Record<string, string | undefined> = {
+      ...currentParamsRecord(),
+      genres:
+        draft.includeGenres.length > 0
+          ? draft.includeGenres.join(",")
+          : undefined,
+      excludeGenres:
+        draft.excludeGenres.length > 0
+          ? draft.excludeGenres.join(",")
+          : undefined,
+      genreMode:
+        draft.genreMatchMode !== "AND" ? draft.genreMatchMode : undefined,
+      countries:
+        draft.includeCountries.length > 0
+          ? draft.includeCountries.join(",")
+          : undefined,
+      excludeCountries:
+        draft.excludeCountries.length > 0
+          ? draft.excludeCountries.join(",")
+          : undefined,
+      ratingFrom: draft.ratingFrom.trim() || undefined,
+      ratingTo: draft.ratingTo.trim() || undefined,
+      ratingSource:
+        draft.ratingSource !== "AUTO" ? draft.ratingSource : undefined,
+      minVotes: draft.minVotes.trim() || undefined,
+      requireImdb: draft.requireImdb ? "1" : undefined,
+      yearFrom: draft.yearFrom.trim() || undefined,
+      yearTo: draft.yearTo.trim() || undefined,
+      runtime: draft.runtimeBucket !== "ANY" ? draft.runtimeBucket : undefined,
+      age:
+        draft.includeAgeTiers.length > 0
+          ? draft.includeAgeTiers.join(",")
+          : undefined,
+      excludeAge:
+        draft.excludeAgeTiers.length > 0
+          ? draft.excludeAgeTiers.join(",")
+          : undefined,
+      status: draft.seriesStatus !== "ALL" ? draft.seriesStatus : undefined,
+      keyword: draft.keyword.trim() || undefined,
+      collection: draft.collectionPreset,
+      hideWatched: draft.hideWatched ? "1" : undefined,
+      hideFavorites: draft.hideFavorites ? "1" : undefined,
+      hideWatchLater: draft.hideWatchLater ? "1" : undefined,
+      lens: newId,
+    };
+
     const cleanParams: Record<string, string> = {};
-    Object.entries(currentParamsRecord()).forEach(([k, v]) => {
+    Object.entries(mergedParams).forEach(([k, v]) => {
       if (v !== undefined && v !== "") cleanParams[k] = v;
     });
+
     const newPreset: SavedExplorePreset = {
-      id: `preset-${Date.now()}`,
+      id: newId,
       name: label,
       params: cleanParams,
       createdAt: Date.now(),
@@ -1210,10 +1331,11 @@ export default function BrowseClient(props: ExploreSearchParams) {
     setSavedPresets(updated);
     setPresetNameInput("");
     setShowSavePresetInput(false);
-    toast.success(`Saved preset "${label}"`);
+    pushFilters(cleanParams, true);
+    toast.success(`Saved & activated preset "${label}"`);
   };
 
-  // Build active applied filter chips (no Russian exclusion chip — silent backend rule)
+  // Build active applied filter chips
   const activeFilterTags: {
     label: string;
     isNegative?: boolean;
@@ -1435,7 +1557,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
   // Shared Filter Panel Body rendered inside Desktop Deck or Mobile Bottom-Sheet
   const renderFilterDeckBody = () => (
     <div className="flex flex-col gap-4">
-      {/* Segmented Tap Mode Bar for Genres / Countries / Age */}
       {(activeStudioTab === "GENRES" ||
         activeStudioTab === "COUNTRIES" ||
         activeStudioTab === "ERA_RUNTIME") && (
@@ -1471,8 +1592,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
               </button>
             </div>
             <span className="text-[11px] text-[var(--text-muted)] hidden sm:inline">
-              (Tip: You can also long-press or right-click any tag to exclude it
-              directly)
+              (Tip: Long-press or right-click any tag to exclude directly)
             </span>
           </div>
 
@@ -1946,10 +2066,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
 
   return (
     <PageContainer>
-      {/* Clean, Uncluttered Explore Header (Task 3) */}
+      {/* Clean, Uncluttered Explore Header */}
       <PageHeader
         title="EXPLORE"
-        className="mb-4 sm:mb-6"
+        className="mb-3.5 sm:mb-6"
         rightSlot={
           <button
             type="button"
@@ -1963,11 +2083,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
         }
       />
 
-      {/* ── LAYER 1: Default Smart Lenses + Separate Custom Saved Presets Row (Tasks 4 & 10) ── */}
-      <div className="mb-4 sm:mb-5">
+      {/* ── LAYER 1: Default Smart Lenses + Separate Custom Saved Presets Row (Always visible) ── */}
+      <div className="mb-3.5 sm:mb-5">
         <div className="flex items-center justify-between gap-2 mb-2">
           <span className="text-[11px] font-bold uppercase tracking-[1.4px] text-[var(--text-muted)] flex items-center gap-1.5">
-            <Sparkles size={12} className="text-[var(--accent)]" />
             Quick Presets
           </span>
           <button
@@ -2024,7 +2143,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                     pushFilters({ ...lens.params, lens: lens.id }, true);
                   }
                 }}
-                className={`flex-shrink-0 px-3 py-2 rounded-[10px] border text-left transition-all cursor-pointer flex items-center gap-2 ${
+                className={`flex-shrink-0 px-3 py-2 rounded-[10px] border text-left transition-all cursor-pointer flex items-center gap-2 active:scale-95 ${
                   isSelected
                     ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white shadow-[0_0_18px_rgba(229,9,20,0.25)]"
                     : "bg-[var(--bg-card)] border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-hover)] hover:text-white"
@@ -2047,9 +2166,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
           })}
         </div>
 
-        {/* Row 2: Custom Saved Presets on a Separate Line Below Default Presets (Tasks 4 & 10) */}
+        {/* Row 2: Custom Saved Presets on a Separate Line with Identical Active/Toggle Behavior (Requirement 6) */}
         {savedPresets.length > 0 && (
-          <div className="mt-2.5 pt-2.5 border-t border-[var(--border)]">
+          <div className="mt-2 pt-2 border-t border-[var(--border)]">
             <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
               <span className="text-[10px] font-bold uppercase tracking-[1px] text-[var(--text-muted)] flex-shrink-0 mr-1">
                 Saved:
@@ -2061,8 +2180,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
                     key={preset.id}
                     className={`flex-shrink-0 inline-flex items-center rounded-[10px] overflow-hidden border transition-all ${
                       selected
-                        ? "bg-[rgba(245,197,24,0.2)] border-[#f5c518] shadow-[0_0_18px_rgba(245,197,24,0.3)]"
-                        : "bg-[var(--bg-card)] border-[var(--border)] hover:border-[rgba(245,197,24,0.45)]"
+                        ? "bg-[var(--accent-dim)] border-[var(--accent)] shadow-[0_0_18px_rgba(229,9,20,0.28)]"
+                        : "bg-[var(--bg-card)] border-[var(--border)] hover:border-[var(--border-hover)]"
                     }`}
                   >
                     <button
@@ -2071,41 +2190,27 @@ export default function BrowseClient(props: ExploreSearchParams) {
                         if (selected) {
                           handleResetAllFilters();
                         } else {
-                          pushFilters(preset.params ?? {}, true);
+                          const norm = normalizePresetParams(preset);
+                          pushFilters({ ...norm, lens: preset.id }, true);
                         }
                       }}
-                      className={`px-3 py-1.5 text-[12px] font-semibold bg-transparent border-none cursor-pointer inline-flex items-center gap-1.5 whitespace-nowrap ${
+                      className={`px-3 py-1.5 text-[12px] font-semibold bg-transparent border-none cursor-pointer inline-flex items-center gap-2 whitespace-nowrap active:scale-95 ${
                         selected
                           ? "text-white"
                           : "text-[var(--text-dim)] hover:text-white"
                       }`}
                     >
-                      {selected ? (
-                        <Check
-                          size={12}
-                          strokeWidth={3}
-                          className="text-[#f5c518]"
-                        />
-                      ) : (
-                        <Star
-                          size={11}
-                          fill="#f5c518"
-                          stroke="#f5c518"
-                          className="opacity-80"
-                        />
-                      )}
                       <span>{preset.name}</span>
-                      {selected && (
-                        <span className="text-[9px] font-bold uppercase tracking-[0.5px] bg-[#f5c518] text-black px-1.5 py-[1px] rounded">
-                          Active
-                        </span>
-                      )}
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         const next = deleteExplorePreset(preset.id);
                         setSavedPresets(next);
+                        if (selected) {
+                          handleResetAllFilters();
+                        }
                         toast.info(`Removed preset "${preset.name}"`);
                       }}
                       title="Delete preset"
@@ -2121,38 +2226,67 @@ export default function BrowseClient(props: ExploreSearchParams) {
         )}
       </div>
 
-      {/* ── LAYER 2: Responsive Filter & Sort Command Bar (Tasks 6, 7, 8, 9, 11, 12) ── */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[14px] p-3 sm:p-4 mb-6 shadow-[0_12px_40px_rgba(0,0,0,0.4)]">
-        {/* Top Row: Media Types + Sort + Keyword */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
-          {/* Media Type Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
-            {TYPES.map((t) => {
-              const isSelected = type === t.value;
-              return (
-                <button
-                  key={t.value}
-                  type="button"
-                  onClick={() =>
-                    pushFilters({
-                      type: t.value === "ALL" ? undefined : t.value,
-                    })
-                  }
-                  className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border transition-all cursor-pointer whitespace-nowrap ${
-                    isSelected
-                      ? "bg-[var(--accent)] border-[var(--accent)] text-white shadow-[0_0_12px_rgba(229,9,20,0.3)]"
-                      : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
+      {/* ── LAYER 2: Category Selector Row (Always Visible) + Collapsible Explore Controls on Mobile (Requirement 5) ── */}
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[14px] p-2.5 sm:p-4 mb-5 sm:mb-6 shadow-[0_12px_40px_rgba(0,0,0,0.4)]">
+        {/* Top Row: Category Selector Row (All, Movies, TV Series, ...) + Mobile Collapse Toggle */}
+        <div className="flex items-center gap-1.5 flex-wrap justify-center md:justify-start md:overflow-x-auto pb-0.5 scrollbar-none flex-1 min-w-0">
+          {TYPES.map((t) => {
+            const isSelected = type === t.value;
+            return (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() =>
+                  pushFilters({
+                    type: t.value === "ALL" ? undefined : t.value,
+                  })
+                }
+                className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
+                  isSelected
+                    ? "bg-[var(--accent)] border-[var(--accent)] text-white shadow-[0_0_12px_rgba(229,9,20,0.3)]"
+                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
+                }`}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+          {/* Mobile Collapse / Expand Toggle Button for all controls & tags below */}
+          <button
+            type="button"
+            onClick={() => setMobileControlsExpanded((v) => !v)}
+            aria-expanded={mobileControlsExpanded}
+            className={`md:hidden flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] text-[11px] font-semibold border cursor-pointer transition-all active:scale-95 ${
+              mobileControlsExpanded ||
+              activeFilterTags.length > 0 ||
+              pendingChangesCount > 0
+                ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
+                : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)]"
+            }`}
+          >
+            <SlidersHorizontal size={12} />
+            <span>Filters</span>
+            {(activeFilterTags.length > 0 || pendingChangesCount > 0) && (
+              <span className="bg-[var(--accent)] text-white text-[10px] font-bold rounded-full min-w-[16px] h-[16px] px-1 flex items-center justify-center">
+                {activeFilterTags.length + pendingChangesCount}
+              </span>
+            )}
+            {mobileControlsExpanded ? (
+              <ChevronUp size={12} />
+            ) : (
+              <ChevronDown size={12} />
+            )}
+          </button>
+        </div>
 
-          {/* Mobile & Desktop Control Row: Filter Drawer Button (Mobile) + Keyword + Sort + ASC/DESC */}
+        {/* Collapsible Section on Mobile (Hidden when collapsed on mobile; always visible on desktop) */}
+        <div
+          className={`${
+            mobileControlsExpanded ? "block" : "hidden md:block"
+          } mt-2.5 pt-2.5 border-t border-[var(--border)]`}
+        >
+          {/* Sort + Keyword + Mobile Filter Sheet Trigger */}
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-            {/* Mobile Filter Sheet Trigger Button */}
             <button
               type="button"
               onClick={() => setMobileSheetOpen(true)}
@@ -2163,7 +2297,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
               }`}
             >
               <SlidersHorizontal size={13} />
-              <span>Filters</span>
+              <span>All Filters</span>
               {(activeFilterTags.length > 0 || pendingChangesCount > 0) && (
                 <span className="bg-[var(--accent)] text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
                   {activeFilterTags.length + pendingChangesCount}
@@ -2171,7 +2305,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
               )}
             </button>
 
-            {/* Sort Order Selector */}
             <select
               className="select text-[12px] py-2 px-3 rounded-[8px] flex-1 sm:flex-initial min-w-[135px]"
               value={order}
@@ -2191,7 +2324,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
               ))}
             </select>
 
-            {/* Bidirectional Sort Toggle (DESC / ASC) */}
             {order !== "RANDOM" ? (
               <button
                 type="button"
@@ -2234,13 +2366,12 @@ export default function BrowseClient(props: ExploreSearchParams) {
               </button>
             )}
 
-            {/* Keyword Input */}
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 handleApplyDraftFilters();
               }}
-              className="relative w-full sm:w-[180px]"
+              className="relative w-full sm:w-[200px] sm:ml-auto"
             >
               <Search
                 size={13}
@@ -2269,136 +2400,135 @@ export default function BrowseClient(props: ExploreSearchParams) {
               )}
             </form>
           </div>
-        </div>
 
-        {/* Desktop Filter Category Tabs */}
-        <div className="hidden md:flex items-center justify-between gap-2 pt-3 mt-3 border-t border-[var(--border)] flex-wrap">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-            {studioTabs.map((tab) => {
-              const active = deckExpanded && activeStudioTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    if (deckExpanded && activeStudioTab === tab.id) {
-                      setDeckExpanded(false);
-                    } else {
-                      setActiveStudioTab(tab.id);
-                      setDeckExpanded(true);
-                    }
-                  }}
-                  className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border transition-all cursor-pointer inline-flex items-center gap-1.5 whitespace-nowrap ${
-                    active
-                      ? "bg-[var(--surface)] border-[var(--accent)] text-white"
-                      : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
-                  }`}
-                >
-                  <SlidersHorizontal size={11} />
-                  <span>{tab.label}</span>
-                  {tab.count > 0 && (
-                    <span className="bg-[var(--accent)] text-white text-[10px] font-bold rounded-full px-1.5 py-0">
-                      {tab.count}
-                    </span>
-                  )}
-                  <ChevronDown
-                    size={12}
-                    className={`transition-transform ${
-                      active ? "rotate-180 text-[var(--accent)]" : ""
+          {/* Desktop Filter Category Tabs */}
+          <div className="hidden md:flex items-center justify-between gap-2 pt-3 mt-3 border-t border-[var(--border)] flex-wrap">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              {studioTabs.map((tab) => {
+                const active = deckExpanded && activeStudioTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      if (deckExpanded && activeStudioTab === tab.id) {
+                        setDeckExpanded(false);
+                      } else {
+                        setActiveStudioTab(tab.id);
+                        setDeckExpanded(true);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border transition-all cursor-pointer inline-flex items-center gap-1.5 whitespace-nowrap ${
+                      active
+                        ? "bg-[var(--surface)] border-[var(--accent)] text-white"
+                        : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
                     }`}
-                  />
-                </button>
-              );
-            })}
-          </div>
+                  >
+                    <SlidersHorizontal size={11} />
+                    <span>{tab.label}</span>
+                    {tab.count > 0 && (
+                      <span className="bg-[var(--accent)] text-white text-[10px] font-bold rounded-full px-1.5 py-0">
+                        {tab.count}
+                      </span>
+                    )}
+                    <ChevronDown
+                      size={12}
+                      className={`transition-transform ${
+                        active ? "rotate-180 text-[var(--accent)]" : ""
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+            </div>
 
-          <div className="flex items-center gap-2">
-            {pendingChangesCount > 0 && (
-              <button
-                type="button"
-                onClick={handleApplyDraftFilters}
-                className="btn btn-primary py-1.5 px-4 text-[12px] animate-pulse"
-              >
-                <Check size={13} strokeWidth={2.8} />
-                Apply Filters ({pendingChangesCount})
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setDeckExpanded((v) => !v)}
-              className="text-[12px] font-semibold text-[var(--accent)] bg-transparent border-none cursor-pointer hover:underline"
-            >
-              {deckExpanded ? "Hide Filters ▲" : "Customize Filters ▼"}
-            </button>
-          </div>
-        </div>
-
-        {/* Desktop Expandable Studio Filter Panel + Apply Filters Footer */}
-        {deckExpanded && (
-          <div className="hidden md:block mt-4 pt-4 border-t border-[var(--border)] fade-in">
-            {renderFilterDeckBody()}
-
-            {/* Explicit Apply & Reset Action Bar (Task 8) */}
-            <div className="flex items-center justify-between gap-3 mt-5 pt-3.5 border-t border-[var(--border)]">
-              <span className="text-[11px] text-[var(--text-muted)]">
-                {pendingChangesCount > 0
-                  ? `${pendingChangesCount} filter change${pendingChangesCount !== 1 ? "s" : ""} ready to apply`
-                  : "Select multiple tags or ranges above, then click Apply Filters."}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleResetAllFilters}
-                  className="btn btn-ghost py-2 px-4 text-[12px]"
-                >
-                  <RotateCcw size={12} />
-                  Reset All
-                </button>
+            <div className="flex items-center gap-2">
+              {pendingChangesCount > 0 && (
                 <button
                   type="button"
                   onClick={handleApplyDraftFilters}
-                  className="btn btn-primary py-2 px-5 text-[12px]"
+                  className="btn btn-primary py-1.5 px-4 text-[12px] animate-pulse"
                 >
-                  <Check size={13} strokeWidth={2.5} />
-                  {pendingChangesCount > 0
-                    ? `Apply Filters (${pendingChangesCount})`
-                    : "Apply Filters"}
+                  <Check size={13} strokeWidth={2.8} />
+                  Apply Filters ({pendingChangesCount})
                 </button>
-              </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setDeckExpanded((v) => !v)}
+                className="text-[12px] font-semibold text-[var(--accent)] bg-transparent border-none cursor-pointer hover:underline"
+              >
+                {deckExpanded ? "Hide Filters ▲" : "Customize Filters ▼"}
+              </button>
             </div>
           </div>
-        )}
 
-        {/* Active Applied Filter Summary Chips */}
-        {activeFilterTags.length > 0 && (
-          <div className="flex items-center flex-wrap gap-1.5 mt-3 pt-3 border-t border-[var(--border)]">
-            {activeFilterTags.map((tag, idx) => (
+          {/* Desktop Expandable Studio Filter Panel + Apply Filters Footer */}
+          {deckExpanded && (
+            <div className="hidden md:block mt-4 pt-4 border-t border-[var(--border)] fade-in">
+              {renderFilterDeckBody()}
+
+              <div className="flex items-center justify-between gap-3 mt-5 pt-3.5 border-t border-[var(--border)]">
+                <span className="text-[11px] text-[var(--text-muted)]">
+                  {pendingChangesCount > 0
+                    ? `${pendingChangesCount} filter change${pendingChangesCount !== 1 ? "s" : ""} ready to apply`
+                    : "Select multiple tags or ranges above, then click Apply Filters."}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleResetAllFilters}
+                    className="btn btn-ghost py-2 px-4 text-[12px]"
+                  >
+                    <RotateCcw size={12} />
+                    Reset All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleApplyDraftFilters}
+                    className="btn btn-primary py-2 px-5 text-[12px]"
+                  >
+                    <Check size={13} strokeWidth={2.5} />
+                    {pendingChangesCount > 0
+                      ? `Apply Filters (${pendingChangesCount})`
+                      : "Apply Filters"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Active Applied Filter Summary Chips (Hidden when collapsed on mobile per Requirement 5) */}
+          {activeFilterTags.length > 0 && (
+            <div className="flex items-center flex-wrap gap-1.5 mt-3 pt-3 border-t border-[var(--border)]">
+              {activeFilterTags.map((tag, idx) => (
+                <button
+                  key={`${tag.label}-${idx}`}
+                  type="button"
+                  onClick={tag.onClear}
+                  className={`inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-2.5 py-1 border cursor-pointer transition-colors ${
+                    tag.isNegative
+                      ? "bg-[rgba(229,9,20,0.14)] border-[rgba(229,9,20,0.4)] text-[var(--accent)] hover:border-[var(--accent)]"
+                      : "bg-[rgba(34,197,94,0.12)] border-[rgba(34,197,94,0.35)] text-[#4ade80] hover:border-[#22c55e]"
+                  }`}
+                >
+                  {tag.label}
+                  <X size={10} strokeWidth={3} />
+                </button>
+              ))}
               <button
-                key={`${tag.label}-${idx}`}
                 type="button"
-                onClick={tag.onClear}
-                className={`inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-2.5 py-1 border cursor-pointer transition-colors ${
-                  tag.isNegative
-                    ? "bg-[rgba(229,9,20,0.14)] border-[rgba(229,9,20,0.4)] text-[var(--accent)] hover:border-[var(--accent)]"
-                    : "bg-[rgba(34,197,94,0.12)] border-[rgba(34,197,94,0.35)] text-[#4ade80] hover:border-[#22c55e]"
-                }`}
+                onClick={handleResetAllFilters}
+                className="text-[11px] font-semibold text-[var(--text-muted)] hover:text-white underline bg-transparent border-none cursor-pointer ml-1"
               >
-                {tag.label}
-                <X size={10} strokeWidth={3} />
+                Clear All
               </button>
-            ))}
-            <button
-              type="button"
-              onClick={handleResetAllFilters}
-              className="text-[11px] font-semibold text-[var(--text-muted)] hover:text-white underline bg-transparent border-none cursor-pointer ml-1"
-            >
-              Clear All
-            </button>
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ── Mobile Slide-Up Filter Sheet (Tasks 7, 8, 11, 12) ── */}
+      {/* ── Mobile Slide-Up Filter Sheet ── */}
       {mobileSheetOpen && (
         <div
           className="md:hidden fixed inset-0 z-[950] bg-black/80 backdrop-blur-md flex flex-col justify-end fade-in"
@@ -2407,8 +2537,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
           }}
         >
           <div className="bg-[var(--bg-card)] border-t border-[var(--border)] rounded-t-[20px] max-h-[88vh] flex flex-col overflow-hidden shadow-[0_-20px_60px_rgba(0,0,0,0.9)]">
-            {/* Sheet Header */}
-            <div className="flex items-center justify-between px-4 py-3.5 border-b border-[var(--border)]">
+            <div className="flex justify-center pt-2.5 pb-0.5">
+              <div className="w-9 h-1 rounded-full bg-white/20" />
+            </div>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
               <div className="flex items-center gap-2">
                 <SlidersHorizontal size={15} className="text-[var(--accent)]" />
                 <span className="font-display tracking-[1.5px] text-[18px] text-white">
@@ -2425,7 +2557,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
               </button>
             </div>
 
-            {/* Category Tabs inside Mobile Sheet */}
             <div className="flex items-center gap-1.5 overflow-x-auto px-4 py-2.5 border-b border-[var(--border)] bg-[var(--bg)] scrollbar-none">
               {studioTabs.map((tab) => {
                 const active = activeStudioTab === tab.id;
@@ -2457,13 +2588,16 @@ export default function BrowseClient(props: ExploreSearchParams) {
               })}
             </div>
 
-            {/* Scrollable Sheet Content */}
             <div className="flex-1 overflow-y-auto p-4">
               {renderFilterDeckBody()}
             </div>
 
-            {/* Sticky Bottom Apply & Reset Footer */}
-            <div className="px-4 py-3 border-t border-[var(--border)] bg-[var(--bg)] flex items-center gap-2.5 safe-bottom">
+            <div
+              className="px-4 py-3 border-t border-[var(--border)] bg-[var(--bg)] flex items-center gap-2.5"
+              style={{
+                paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+              }}
+            >
               <button
                 type="button"
                 onClick={handleResetAllFilters}
@@ -2487,7 +2621,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
         </div>
       )}
 
-      {/* ── LAYER 3: Standard Poster Grid (Task 6) ── */}
+      {/* ── LAYER 3: Standard Poster Grid without card rank numbers (Requirement 3) ── */}
       {loading ? (
         <div className="film-grid">
           {Array.from({ length: 20 }).map((_, i) => (
@@ -2514,7 +2648,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                 key={`${fid}-${i}`}
                 film={film}
                 variant="grid"
-                index={i}
+                priority={i < 6}
                 onQuickPeek={(f) => setQuickPeekFilm(f)}
               />
             );
@@ -2532,7 +2666,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
               disabled={loadingMore}
               className="btn btn-ghost border-[rgba(229,9,20,0.4)] text-white px-6 py-3 text-[13px] font-semibold hover:bg-[var(--accent-dim)]"
             >
-              {loadingMore ? "Loading Next Batch…" : "Load More (+20 Titles)"}
+              {loadingMore ? "Loading…" : "Load More"}
             </button>
           )}
           <Pagination
@@ -2564,7 +2698,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
         />
       )}
 
-      {/* Surprise Me / Spin the Reel Modal (Task 5 fixed) */}
+      {/* Surprise Me / Spin the Reel Modal */}
       {surpriseModalOpen && surpriseFilm && (
         <SurpriseMeModal
           film={surpriseFilm}
@@ -2792,7 +2926,7 @@ function QuickPeekModal({
   );
 }
 
-/* ── Surprise Me / Roulette Modal (Task 5 Fixed) ──────────────────────────── */
+/* ── Surprise Me / Roulette Modal ─────────────────────────────────────────── */
 function SurpriseMeModal({
   film,
   autoTranslate,

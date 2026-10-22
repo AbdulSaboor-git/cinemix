@@ -1,6 +1,5 @@
 "use client";
-import { useEffect, useState, useMemo } from "react";
-import Link from "next/link";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
   Star,
   Trophy,
@@ -20,6 +19,11 @@ import { hasApiKeys } from "@/lib/preferences";
 import { getList, toggleFavorite, toggleWatchLater } from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
 import { Film } from "@/types/kinopoisk";
+import {
+  useHydratedFilm,
+  useFilmLongPress,
+  FilmLongPressPortal,
+} from "@/components/FilmCard";
 import Pagination from "@/components/Pagination";
 import PageContainer from "@/components/ui/PageContainer";
 import PageHeader from "@/components/ui/PageHeader";
@@ -28,13 +32,14 @@ import TabPill from "@/components/ui/TabPill";
 import PosterImage from "@/components/ui/PosterImage";
 import EmptyState from "@/components/ui/EmptyState";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
+import { useRouter } from "next/navigation";
 
 const PAGE_SIZE = 20;
 
 type TopCollection = "TOP_250_MOVIES" | "TOP_250_TV_SHOWS";
 
 function Top250Row({
-  film,
+  film: rawFilm,
   rank,
   autoTranslate,
 }: {
@@ -43,9 +48,24 @@ function Top250Row({
   autoTranslate: boolean;
 }) {
   const { toast } = useToast();
+  const rowRef = useRef<HTMLDivElement>(null);
+  const posterWrapRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const film = useHydratedFilm(rawFilm, rowRef);
   const name = useFilmTitle(film, autoTranslate);
   const id = film.kinopoiskId ?? film.filmId ?? 0;
   const { isFav, isWL, isWatched } = useListStatus(id);
+
+  const {
+    popupOpen,
+    popupEntered,
+    originDelta,
+    closePopup,
+    setPopupOpen,
+    setPopupEntered,
+    historyPushedRef,
+    bindLongPress,
+  } = useFilmLongPress(id, posterWrapRef);
 
   const rating =
     film.ratingKinopoisk?.toFixed(1) ??
@@ -74,124 +94,153 @@ function Top250Row({
   };
 
   return (
-    <div className="flex items-center gap-2.5 sm:gap-4 md:gap-5 px-2.5 sm:px-4 py-2.5 sm:py-3 rounded-[10px] border border-white/5 transition-all duration-[180ms] hover:bg-[var(--bg-card)] hover:border-[var(--border)] group w-full max-w-full overflow-hidden">
-      {/* Rank */}
+    <>
       <div
-        className={`w-6 sm:w-9 text-right flex-shrink-0 font-display leading-none ${rankSize} ${rankColor}`}
+        ref={rowRef}
+        onClick={() => {
+          router.push(`/film/${id}`);
+        }}
+        className={`cursor-pointer flex items-center gap-2.5 sm:gap-4 md:gap-5 px-2.5 sm:px-4 py-2.5 sm:py-3 rounded-[10px] border border-white/5 transition-all duration-[180ms] hover:bg-[var(--bg-card)] hover:border-[var(--border)] active:bg-[var(--bg-card)] group w-full max-w-full overflow-hidden select-none [-webkit-touch-callout:none] ${
+          popupOpen ? "opacity-0 scale-[0.98] pointer-events-none" : ""
+        }`}
+        onTouchStart={bindLongPress.onTouchStart}
+        onTouchMove={bindLongPress.onTouchMove}
+        onTouchEnd={bindLongPress.onTouchEnd}
+        onTouchCancel={bindLongPress.onTouchCancel}
+        onMouseDown={bindLongPress.onMouseDown}
+        onMouseMove={bindLongPress.onMouseMove}
+        onMouseUp={bindLongPress.onMouseUp}
+        onMouseLeave={bindLongPress.onMouseLeave}
+        onClickCapture={bindLongPress.onClickCapture}
+        onContextMenu={bindLongPress.onContextMenu}
       >
-        {rank}
-      </div>
-
-      {/* Poster */}
-      <Link href={`/film/${id}`} className="no-underline flex-shrink-0">
-        <PosterImage
-          src={film.posterUrlPreview || film.posterUrl}
-          alt={name}
-          title={name}
-          fallbackType="mini"
-          priority={rank <= 8}
-          className="w-[38px] sm:w-[46px] h-[56px] sm:h-[68px] rounded-[6px] overflow-hidden bg-[var(--surface)] relative"
-        />
-      </Link>
-
-      {/* Info — strictly constrained min-w-0 flex-1 overflow-hidden so mobile titles never overflow */}
-      <div className="flex-1 min-w-0 overflow-hidden">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <Link
-            href={`/film/${id}`}
-            className="no-underline block min-w-0 flex-1 overflow-hidden"
-          >
-            <p className="text-[13px] sm:text-[14px] md:text-[15px] font-semibold text-[var(--text)] truncate block m-0 mb-[2px] sm:mb-1 group-hover:text-white transition-colors">
-              {name}
-            </p>
-          </Link>
-          {isWatched && (
-            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-semibold text-[#4ade80] bg-[rgba(34,197,94,0.12)] border border-[rgba(34,197,94,0.3)] rounded px-1.5 py-[1px]">
-              <CheckCircle2 size={9} />
-              <span className="hidden xs:inline">Watched</span>
-            </span>
-          )}
+        {/* Rank */}
+        <div
+          className={`w-6 sm:w-9 text-right flex-shrink-0 font-display leading-none ${rankSize} ${rankColor}`}
+        >
+          {rank}
         </div>
-        <div className="flex gap-1.5 sm:gap-2 items-center min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-          {film.year && (
-            <span className="text-[11px] sm:text-[12px] text-[var(--text-muted)] flex-shrink-0">
-              {film.year}
-            </span>
-          )}
-          {film.countries?.[0] && (
-            <span className="hidden md:inline text-[11px] text-[var(--text-muted)] truncate">
-              · {translateCountry(film.countries[0].country, autoTranslate)}
-            </span>
-          )}
-          {film.genres?.slice(0, 2).map((g) => (
-            <span
-              key={g.genre}
-              className="text-[11px] text-[var(--text-dim)] capitalize truncate"
-            >
-              · {translateGenre(g.genre, autoTranslate)}
-            </span>
-          ))}
-        </div>
-      </div>
 
-      {/* Rating & Quick Actions */}
-      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 pl-1">
-        {film.ratingImdb && (
-          <span className="hidden md:inline-flex items-center gap-1 text-[11px] font-bold text-[#f5c518] bg-[rgba(245,197,24,0.12)] border border-[rgba(245,197,24,0.3)] rounded px-2 py-0.5">
-            IMDb {film.ratingImdb.toFixed(1)}
-          </span>
-        )}
-        {rating && (
-          <div className="flex items-center gap-[3px] sm:gap-[5px]">
-            <Star size={11} fill="#f5c518" stroke="#f5c518" />
-            <span className="text-[#f5c518] font-display text-[14px] sm:text-[18px] md:text-[20px]">
-              {rating}
-            </span>
-          </div>
-        )}
-
-        <div className="hidden sm:flex items-center gap-1 ml-1">
-          <button
-            type="button"
-            onClick={() => {
-              const added = toggleFavorite(filmEntry);
-              toast.success(
-                added ? "Added to Favorites" : "Removed from Favorites",
-              );
-            }}
-            title={isFav ? "In Favorites" : "Add to Favorites"}
-            className={`w-8 h-8 rounded-full border flex items-center justify-center cursor-pointer transition-all ${
-              isFav
-                ? "bg-[var(--accent-dim)] border-[var(--accent)] text-[var(--accent)]"
-                : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-muted)] hover:text-white"
-            }`}
+        {/* Poster */}
+        <div className="no-underline flex-shrink-0">
+          <div
+            ref={posterWrapRef}
+            className="w-[38px] sm:w-[46px] h-[56px] sm:h-[68px] rounded-[6px] overflow-hidden bg-[var(--surface)] relative"
           >
-            <Heart
-              size={13}
-              fill={isFav ? "var(--accent)" : "none"}
-              stroke={isFav ? "var(--accent)" : "currentColor"}
+            <PosterImage
+              src={film.posterUrlPreview || film.posterUrl}
+              alt={name}
+              title={name}
+              size="sm"
+              fallbackType="mini"
+              priority={rank <= 8}
             />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const added = toggleWatchLater(filmEntry);
-              toast.info(
-                added ? "Saved to Watch Later" : "Removed from Watch Later",
-              );
-            }}
-            title={isWL ? "In Watch Later" : "Save to Watch Later"}
-            className={`w-8 h-8 rounded-full border flex items-center justify-center cursor-pointer transition-all ${
-              isWL
-                ? "bg-[rgba(96,165,250,0.14)] border-[#60a5fa] text-[#60a5fa]"
-                : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-muted)] hover:text-white"
-            }`}
-          >
-            <Clock size={13} />
-          </button>
+          </div>
+        </div>
+
+        {/* Info — strictly constrained min-w-0 flex-1 overflow-hidden so mobile titles never overflow */}
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <div className="no-underline block min-w-0 flex-1 overflow-hidden">
+              <p className="text-[13px] sm:text-[14px] md:text-[15px] font-semibold text-[var(--text)] truncate block m-0 mb-[2px] sm:mb-1 group-hover:text-white transition-colors">
+                {name}
+              </p>
+            </div>
+            {isWatched && (
+              <span className="flex-shrink-0 inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-semibold text-[#4ade80] bg-[rgba(34,197,94,0.12)] border border-[rgba(34,197,94,0.3)] rounded px-1.5 py-[1px]">
+                <CheckCircle2 size={9} />
+                <span className="hidden xs:inline">Watched</span>
+              </span>
+            )}
+          </div>
+          <div className="flex gap-1.5 sm:gap-2 items-center min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+            {film.year && (
+              <span className="text-[11px] sm:text-[12px] text-[var(--text-muted)] flex-shrink-0">
+                {film.year}
+              </span>
+            )}
+            {film.countries?.[0] && (
+              <span className="hidden md:inline text-[11px] text-[var(--text-muted)] truncate">
+                · {translateCountry(film.countries[0].country, autoTranslate)}
+              </span>
+            )}
+            {film.genres?.slice(0, 2).map((g) => (
+              <span
+                key={g.genre}
+                className="text-[11px] text-[var(--text-dim)] capitalize truncate"
+              >
+                · {translateGenre(g.genre, autoTranslate)}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Rating & Quick Actions */}
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 pl-1">
+          {film.ratingImdb && (
+            <div className="flex items-center gap-[3px] sm:gap-[5px]">
+              <Star size={11} fill="#f5c518" stroke="#f5c518" />
+              <span className="text-[#f5c518] font-display text-[14px] sm:text-[18px] md:text-[20px]">
+                {film.ratingImdb.toFixed(1)}
+              </span>
+            </div>
+          )}
+
+          <div className="hidden sm:flex items-center gap-1 ml-1">
+            <button
+              type="button"
+              onClick={() => {
+                const added = toggleFavorite(filmEntry);
+                toast.success(
+                  added ? "Added to Favorites" : "Removed from Favorites",
+                );
+              }}
+              title={isFav ? "In Favorites" : "Add to Favorites"}
+              className={`w-8 h-8 rounded-full border flex items-center justify-center cursor-pointer transition-all ${
+                isFav
+                  ? "bg-[var(--accent-dim)] border-[var(--accent)] text-[var(--accent)]"
+                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-muted)] hover:text-white"
+              }`}
+            >
+              <Heart
+                size={13}
+                fill={isFav ? "var(--accent)" : "none"}
+                stroke={isFav ? "var(--accent)" : "currentColor"}
+              />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const added = toggleWatchLater(filmEntry);
+                toast.info(
+                  added ? "Saved to Watch Later" : "Removed from Watch Later",
+                );
+              }}
+              title={isWL ? "In Watch Later" : "Save to Watch Later"}
+              className={`w-8 h-8 rounded-full border flex items-center justify-center cursor-pointer transition-all ${
+                isWL
+                  ? "bg-[rgba(96,165,250,0.14)] border-[#60a5fa] text-[#60a5fa]"
+                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-muted)] hover:text-white"
+              }`}
+            >
+              <Clock size={13} />
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Long-Press Centered Quick-Peek Portal (with Top-Left MPAA/Age Badge) */}
+      <FilmLongPressPortal
+        film={film}
+        popupOpen={popupOpen}
+        popupEntered={popupEntered}
+        originDelta={originDelta}
+        closePopup={closePopup}
+        setPopupOpen={setPopupOpen}
+        setPopupEntered={setPopupEntered}
+        historyPushedRef={historyPushedRef}
+      />
+    </>
   );
 }
 

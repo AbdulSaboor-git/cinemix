@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -13,6 +13,7 @@ import {
   Shuffle,
   LayoutGrid,
   List as ListIcon,
+  ArrowUpDown,
 } from "lucide-react";
 import {
   getList,
@@ -22,10 +23,17 @@ import {
   ListType,
 } from "@/lib/userLists";
 import { getSessionName, FilmListEntry } from "@/lib/session";
-import { formatDateSafe } from "@/lib/translate";
-import { useTranslate } from "@/hooks/useTranslate";
+import { formatDateSafe, translateGenre } from "@/lib/translate";
+import { useAutoTranslate, useFilmTitle } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useToast } from "@/lib/toast";
+import { Film } from "@/types/kinopoisk";
+import FilmCard, {
+  useHydratedFilm,
+  useFilmLongPress,
+  FilmLongPressPortal,
+  resolveRating,
+} from "@/components/FilmCard";
 import BackButton from "@/components/BackButton";
 import PageContainer from "@/components/ui/PageContainer";
 import PosterImage from "@/components/ui/PosterImage";
@@ -60,6 +68,19 @@ const CONFIG = {
   },
 };
 
+function entryToFilm(entry: FilmListEntry): Film {
+  return {
+    kinopoiskId: entry.film_id,
+    filmId: entry.film_id,
+    nameEn: entry.film_name,
+    nameRu: entry.film_name,
+    posterUrl: entry.poster_url || "",
+    posterUrlPreview: entry.poster_url || "",
+    year: entry.year ?? undefined,
+    ratingKinopoisk: entry.rating ?? undefined,
+  };
+}
+
 function UserListRow({
   entry,
   type,
@@ -70,8 +91,24 @@ function UserListRow({
   onRemove: (id: number) => void;
 }) {
   const [removing, setRemoving] = useState(false);
-  const translatedTitle = useTranslate(entry.film_name);
-  const displayName = translatedTitle || entry.film_name;
+  const autoTranslate = useAutoTranslate();
+  const rowRef = useRef<HTMLDivElement>(null);
+  const posterWrapRef = useRef<HTMLDivElement>(null);
+
+  const rawFilm = useMemo(() => entryToFilm(entry), [entry]);
+  const film = useHydratedFilm(rawFilm, rowRef);
+  const displayName = useFilmTitle(film, autoTranslate);
+
+  const {
+    popupOpen,
+    popupEntered,
+    originDelta,
+    closePopup,
+    setPopupOpen,
+    setPopupEntered,
+    historyPushedRef,
+    bindLongPress,
+  } = useFilmLongPress(entry.film_id, posterWrapRef);
 
   const handleRemove = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -94,63 +131,105 @@ function UserListRow({
         ? `Saved ${formattedDate}`
         : `Added ${formattedDate}`;
 
+  const year = film.year || film.startYear || entry.year;
+  const rating = resolveRating(film) ?? entry.rating;
+  const primaryGenre = film.genres?.[0]
+    ? translateGenre(film.genres[0].genre, autoTranslate)
+    : null;
+
   return (
-    <div
-      className={`flex items-center gap-3 py-3 sm:py-4 border-b border-[var(--border)] last:border-b-0 transition-all duration-200 ${
-        removing ? "opacity-0 scale-[0.97]" : "opacity-100"
-      }`}
-    >
-      <Link
-        href={`/film/${entry.film_id}`}
-        className="no-underline flex items-center gap-3 flex-1 min-w-0 group active:opacity-80 transition-opacity"
+    <>
+      <div
+        ref={rowRef}
+        className={`flex items-center gap-3 py-3 sm:py-3.5 border-b border-[var(--border)] last:border-b-0 transition-all duration-200 select-none [-webkit-touch-callout:none] ${
+          removing || popupOpen
+            ? "opacity-0 scale-[0.97] pointer-events-none"
+            : "opacity-100"
+        }`}
+        onTouchStart={bindLongPress.onTouchStart}
+        onTouchMove={bindLongPress.onTouchMove}
+        onTouchEnd={bindLongPress.onTouchEnd}
+        onTouchCancel={bindLongPress.onTouchCancel}
+        onMouseDown={bindLongPress.onMouseDown}
+        onMouseMove={bindLongPress.onMouseMove}
+        onMouseUp={bindLongPress.onMouseUp}
+        onMouseLeave={bindLongPress.onMouseLeave}
+        onClickCapture={bindLongPress.onClickCapture}
+        onContextMenu={bindLongPress.onContextMenu}
       >
-        <PosterImage
-          src={entry.poster_url}
-          alt={displayName}
-          title={displayName}
-          fallbackType="mini"
-          className="w-12 h-[68px] sm:w-14 sm:h-[80px] rounded-[8px] overflow-hidden bg-[var(--bg-elevated)] flex-shrink-0 relative"
-        />
+        <Link
+          href={`/film/${entry.film_id}`}
+          className="no-underline flex items-center gap-3 flex-1 min-w-0 group active:opacity-80 transition-opacity"
+        >
+          <div
+            ref={posterWrapRef}
+            className="w-12 h-[68px] sm:w-14 sm:h-[80px] rounded-[8px] overflow-hidden bg-[var(--bg-elevated)] flex-shrink-0 relative"
+          >
+            <PosterImage
+              src={film.posterUrlPreview || film.posterUrl || entry.poster_url}
+              alt={displayName}
+              title={displayName}
+              size="sm"
+              fallbackType="mini"
+            />
+          </div>
 
-        <div className="flex-1 min-w-0 flex flex-col gap-[5px]">
-          <p className="text-[13px] sm:text-[14px] font-semibold text-[var(--text)] group-hover:text-white truncate transition-colors leading-[1.3]">
-            {displayName}
-          </p>
+          <div className="flex-1 min-w-0 flex flex-col gap-[4px]">
+            <p className="text-[13px] sm:text-[14px] font-semibold text-[var(--text)] group-hover:text-white truncate transition-colors leading-[1.3] m-0">
+              {displayName}
+            </p>
 
-          <div className="flex items-center gap-[8px] flex-wrap">
-            {entry.year && (
-              <span className="text-[11px] text-[var(--text-muted)]">
-                {entry.year}
-              </span>
-            )}
-            {entry.rating && (
-              <span className="flex items-center gap-[3px]">
-                <Star size={9} fill="#f5c518" stroke="#f5c518" />
-                <span className="text-[11px] text-[#f5c518] font-medium">
-                  {entry.rating.toFixed(1)}
+            <div className="flex items-center gap-[7px] flex-wrap">
+              {year && (
+                <span className="text-[11px] text-[var(--text-muted)]">
+                  {year}
                 </span>
+              )}
+              {primaryGenre && (
+                <span className="tag tag-dim !text-[9px] sm:!text-[10px] !py-[1px] !px-[6px] capitalize">
+                  {primaryGenre}
+                </span>
+              )}
+              {rating !== null && rating !== undefined && (
+                <span className="flex items-center gap-[3px]">
+                  <Star size={9} fill="#f5c518" stroke="#f5c518" />
+                  <span className="text-[11px] text-[#f5c518] font-medium">
+                    {typeof rating === "number" ? rating.toFixed(1) : rating}
+                  </span>
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-[5px]">
+              <Calendar size={10} stroke="var(--text-muted)" strokeWidth={2} />
+              <span className="text-[10px] sm:text-[11px] text-[var(--text-muted)]">
+                {dateLabel}
               </span>
-            )}
+            </div>
           </div>
+        </Link>
 
-          <div className="flex items-center gap-[5px]">
-            <Calendar size={10} stroke="var(--text-muted)" strokeWidth={2} />
-            <span className="text-[10px] sm:text-[11px] text-[var(--text-muted)]">
-              {dateLabel}
-            </span>
-          </div>
-        </div>
-      </Link>
+        <button
+          type="button"
+          onClick={handleRemove}
+          className="flex-shrink-0 w-9 h-9 flex items-center justify-center bg-transparent border border-[var(--border)] rounded-[8px] cursor-pointer text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[rgba(229,9,20,0.4)] active:scale-90 transition-all"
+          aria-label="Remove"
+        >
+          <X size={13} strokeWidth={2.2} />
+        </button>
+      </div>
 
-      <button
-        type="button"
-        onClick={handleRemove}
-        className="flex-shrink-0 w-9 h-9 flex items-center justify-center bg-transparent border border-[var(--border)] rounded-[8px] cursor-pointer text-[var(--text-muted)] hover:text-[var(--accent)] hover:border-[rgba(229,9,20,0.4)] active:scale-90 transition-all"
-        aria-label="Remove"
-      >
-        <X size={13} strokeWidth={2.2} />
-      </button>
-    </div>
+      <FilmLongPressPortal
+        film={film}
+        popupOpen={popupOpen}
+        popupEntered={popupEntered}
+        originDelta={originDelta}
+        closePopup={closePopup}
+        setPopupOpen={setPopupOpen}
+        setPopupEntered={setPopupEntered}
+        historyPushedRef={historyPushedRef}
+      />
+    </>
   );
 }
 
@@ -243,7 +322,7 @@ export default function UserListPage({ type }: { type: ListType }) {
     <PageContainer variant="narrow" className="pb-28">
       <BackButton fallbackHref="/profile" />
 
-      <div className="mb-5 pb-5 border-b border-[var(--border)] flex justify-between items-center gap-3 flex-wrap">
+      <div className="mb-5 pb-4 border-b border-[var(--border)] flex justify-between items-center gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           {cfg.icon}
           <h1
@@ -254,7 +333,7 @@ export default function UserListPage({ type }: { type: ListType }) {
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          {entries.length > 1 && (
+          {entries.length > 1 && !(type === "history") && (
             <button
               type="button"
               onClick={handlePickRandom}
@@ -291,9 +370,23 @@ export default function UserListPage({ type }: { type: ListType }) {
               placeholder={`Search in ${cfg.label}…`}
               className="input w-full pl-8 pr-3 py-2 text-[12px] rounded-[8px]"
             />
+            {query && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] bg-transparent border-none cursor-pointer p-1 hover:text-[var(--text)] transition-colors"
+                aria-label="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
+            <ArrowUpDown size={18} />
+
             <select
               value={sortBy}
               onChange={(e) =>
@@ -301,15 +394,15 @@ export default function UserListPage({ type }: { type: ListType }) {
                   e.target.value as "ADDED" | "RATING" | "YEAR" | "TITLE",
                 )
               }
-              className="select text-[12px] py-2 px-3 rounded-[8px]"
+              className="select text-[12px] py-2 px-3 rounded-[8px] flex-1 sm:flex-initial"
             >
-              <option value="ADDED">Sort: Recently Added</option>
-              <option value="RATING">Sort: Highest Rated</option>
-              <option value="YEAR">Sort: Release Year</option>
-              <option value="TITLE">Sort: Title (A–Z)</option>
+              <option value="ADDED">Recently Added</option>
+              <option value="RATING">Highest Rated</option>
+              <option value="YEAR">Release Year</option>
+              <option value="TITLE">Title (A–Z)</option>
             </select>
 
-            <div className="inline-flex items-center rounded-[8px] border border-[var(--border)] bg-[var(--bg-elevated)] p-0.5">
+            {/* <div className="inline-flex items-center rounded-[8px] border border-[var(--border)] bg-[var(--bg-elevated)] p-0.5">
               <button
                 type="button"
                 onClick={() => setViewMode("LIST")}
@@ -332,7 +425,7 @@ export default function UserListPage({ type }: { type: ListType }) {
               >
                 <LayoutGrid size={14} />
               </button>
-            </div>
+            </div> */}
           </div>
         </div>
       )}
@@ -346,38 +439,20 @@ export default function UserListPage({ type }: { type: ListType }) {
           actionHref="/"
         />
       ) : viewMode === "GRID" ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5">
-          {filteredEntries.map((e) => (
-            <div
-              key={e.film_id}
-              className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] overflow-hidden relative group"
-            >
-              <Link href={`/film/${e.film_id}`} className="no-underline block">
-                <PosterImage
-                  src={e.poster_url}
-                  alt={e.film_name}
-                  title={e.film_name}
-                  className="w-full aspect-[2/3] relative bg-[var(--surface)]"
-                />
-                <div className="p-2.5">
-                  <p className="text-[12px] font-semibold text-white truncate m-0">
-                    {e.film_name}
-                  </p>
-                  <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)] mt-1">
-                    <span>{e.year || "—"}</span>
-                    {e.rating && (
-                      <span className="text-[#f5c518] font-bold">
-                        ★ {e.rating.toFixed(1)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </Link>
+        <div className="film-grid">
+          {filteredEntries.map((e, i) => (
+            <div key={e.film_id} className="relative group">
+              <FilmCard film={entryToFilm(e)} priority={i < 6} size="sm" />
               <button
                 type="button"
-                onClick={() => handleRemove(e.film_id)}
-                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/75 border border-white/15 text-white flex items-center justify-center cursor-pointer opacity-80 hover:opacity-100"
+                onClick={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  handleRemove(e.film_id);
+                }}
+                className="absolute top-1.5 left-1.5 z-20 w-7 h-7 rounded-full bg-black/80 border border-white/20 text-white flex items-center justify-center cursor-pointer active:scale-90 transition-transform"
                 aria-label="Remove"
+                title="Remove from list"
               >
                 <X size={12} />
               </button>
@@ -385,7 +460,7 @@ export default function UserListPage({ type }: { type: ListType }) {
           ))}
         </div>
       ) : (
-        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] px-4 sm:px-5">
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] px-3.5 sm:px-5">
           {filteredEntries.map((e) => (
             <UserListRow
               key={e.film_id}

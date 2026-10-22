@@ -31,7 +31,7 @@ const BASE_URL =
   "https://kinopoiskapiunofficial.tech/api";
 
 const CACHE_PREFIX = "cinemix_api_cache_v1:";
-const FILM_META_CACHE_KEY = "cinemix_film_meta_v1";
+const FILM_META_CACHE_KEY = "cinemix_film_meta_v2";
 const EXHAUSTED_KEYS_STORAGE = "cinemix_exhausted_keys";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -111,7 +111,6 @@ export function isRussianDomesticFilm(film?: Partial<Film> | null): boolean {
     (c.country || "").trim().toLowerCase(),
   );
   if (countries.length === 0) {
-    // If no country listed, check if it only has a Russian title and no English/Original Latin title
     const hasLatinTitle =
       (film.nameEn && !isRussian(film.nameEn)) ||
       (film.nameOriginal && !isRussian(film.nameOriginal));
@@ -137,13 +136,17 @@ export function sanitizeFilmsForSafeMode<T extends Partial<Film>>(items: T[]): T
   return items.filter((item) => !isAdultContentFilm(item));
 }
 
-// ─── Persistent Compact Film Metadata Cache (for Actor Credits & Quick Peek) ──
+// ─── Persistent Compact Film Metadata Cache & Live Card Hydration ────────────
 
 export interface CompactFilmMeta extends Partial<Film> {
   votes?: number;
+  enriched?: boolean;
 }
 
 let memoryFilmMetaCache: Record<number, CompactFilmMeta> | null = null;
+const attemptedHydrationIds = new Set<number>();
+const hydrationQueue: number[] = [];
+let hydrationWorkerRunning = false;
 
 function getFilmMetaStore(): Record<number, CompactFilmMeta> {
   if (memoryFilmMetaCache) return memoryFilmMetaCache;
@@ -158,56 +161,198 @@ function getFilmMetaStore(): Record<number, CompactFilmMeta> {
 }
 
 export function getCachedFilmMeta(filmId: number): CompactFilmMeta | undefined {
+  if (!filmId || filmId <= 0) return undefined;
   return getFilmMetaStore()[filmId];
 }
 
-export function saveCompactFilmMeta(film: Film): void {
+/**
+ * Synchronously merges a partial Film object (e.g. from SimilarFilms, Sequels, or UserLists)
+ * with any cached metadata in localStorage so year, genres, countries, rating, and age badges
+ * display immediately without waiting for a click.
+ */
+export function hydrateFilmWithCache(film: Partial<Film> & { filmId?: number; kinopoiskId?: number }): Film {
+  const id = film.kinopoiskId ?? film.filmId ?? 0;
+  const cached = id > 0 ? getCachedFilmMeta(id) : undefined;
+  if (!cached) {
+    return {
+      ...film,
+      kinopoiskId: id,
+      filmId: film.filmId ?? id,
+      posterUrl: film.posterUrl || film.posterUrlPreview || "",
+      posterUrlPreview: film.posterUrlPreview || film.posterUrl || "",
+    } as Film;
+  }
+
+  const filmLength =
+    (typeof film.filmLength === "number" && film.filmLength > 0
+      ? film.filmLength
+      : undefined) ??
+    (typeof film.duration === "number" && film.duration > 0
+      ? film.duration
+      : undefined) ??
+    cached.filmLength;
+
+  const ratingKinopoisk =
+    (typeof film.ratingKinopoisk === "number" && film.ratingKinopoisk > 0
+      ? film.ratingKinopoisk
+      : undefined) ?? cached.ratingKinopoisk;
+
+  const ratingImdb =
+    (typeof film.ratingImdb === "number" && film.ratingImdb > 0
+      ? film.ratingImdb
+      : undefined) ?? cached.ratingImdb;
+
+  const ratingAwait =
+    (typeof film.ratingAwait === "number" && film.ratingAwait > 0
+      ? film.ratingAwait
+      : undefined) ?? cached.ratingAwait;
+
+  const ratingAgeLimits =
+    (film.ratingAgeLimits && String(film.ratingAgeLimits).trim()
+      ? film.ratingAgeLimits
+      : undefined) ?? cached.ratingAgeLimits;
+
+  const ratingMpaa =
+    (film.ratingMpaa && String(film.ratingMpaa).trim()
+      ? film.ratingMpaa
+      : undefined) ?? cached.ratingMpaa;
+
+  return {
+    ...cached,
+    ...film,
+    kinopoiskId: id,
+    filmId: film.filmId ?? id,
+    imdbId: film.imdbId || cached.imdbId,
+    nameRu: film.nameRu || cached.nameRu,
+    nameEn: film.nameEn || cached.nameEn,
+    nameOriginal: film.nameOriginal || cached.nameOriginal,
+    posterUrl: film.posterUrl || cached.posterUrl || film.posterUrlPreview || "",
+    posterUrlPreview: film.posterUrlPreview || cached.posterUrlPreview || film.posterUrl || "",
+    year: film.year ?? cached.year,
+    startYear: film.startYear ?? cached.startYear,
+    endYear: film.endYear ?? cached.endYear,
+    filmLength,
+    duration: filmLength ?? film.duration ?? cached.duration,
+    premiereRu: film.premiereRu || cached.premiereRu,
+    ratingKinopoisk,
+    ratingImdb,
+    ratingAwait,
+    rating:
+      ratingImdb ??
+      ratingKinopoisk ??
+      film.rating ??
+      cached.rating,
+    ratingAgeLimits,
+    ratingMpaa,
+    genres:
+      film.genres && film.genres.length > 0
+        ? film.genres
+        : cached.genres,
+    countries:
+      film.countries && film.countries.length > 0
+        ? film.countries
+        : cached.countries,
+  } as Film;
+}
+
+export function saveCompactFilmMeta(film: Film, fromFullDetail = false): void {
   if (typeof window === "undefined") return;
   const id = film.kinopoiskId ?? film.filmId;
   if (!id) return;
   const store = getFilmMetaStore();
   const prev = store[id] ?? {};
+
+  const nextYear = film.year ?? prev.year;
+  const nextGenres =
+    film.genres && film.genres.length > 0
+      ? film.genres.slice(0, 4)
+      : prev.genres;
+  const nextCountries =
+    film.countries && film.countries.length > 0
+      ? film.countries.slice(0, 3)
+      : prev.countries;
+  const nextLength =
+    (typeof film.filmLength === "number" && film.filmLength > 0
+      ? film.filmLength
+      : undefined) ??
+    (typeof film.duration === "number" && film.duration > 0
+      ? film.duration
+      : undefined) ??
+    prev.filmLength;
+  const nextAgeLimits =
+    (film.ratingAgeLimits && String(film.ratingAgeLimits).trim()
+      ? film.ratingAgeLimits
+      : undefined) ?? prev.ratingAgeLimits;
+  const nextMpaa =
+    (film.ratingMpaa && String(film.ratingMpaa).trim()
+      ? film.ratingMpaa
+      : undefined) ?? prev.ratingMpaa;
+  const nextKp =
+    (typeof film.ratingKinopoisk === "number" && film.ratingKinopoisk > 0
+      ? film.ratingKinopoisk
+      : undefined) ?? prev.ratingKinopoisk;
+  const nextImdb =
+    (typeof film.ratingImdb === "number" && film.ratingImdb > 0
+      ? film.ratingImdb
+      : undefined) ?? prev.ratingImdb;
+  const nextAwait =
+    (typeof film.ratingAwait === "number" && film.ratingAwait > 0
+      ? film.ratingAwait
+      : undefined) ?? prev.ratingAwait;
+
+  const wasMissingCore =
+    (!prev.year && Boolean(nextYear)) ||
+    ((!prev.genres || prev.genres.length === 0) &&
+      Boolean(nextGenres && nextGenres.length > 0)) ||
+    (!prev.ratingAgeLimits && Boolean(nextAgeLimits)) ||
+    (!prev.ratingMpaa && Boolean(nextMpaa)) ||
+    (!prev.ratingKinopoisk && Boolean(nextKp)) ||
+    (!prev.ratingImdb && Boolean(nextImdb)) ||
+    (!prev.ratingAwait && Boolean(nextAwait)) ||
+    (!prev.filmLength && Boolean(nextLength)) ||
+    (fromFullDetail && !prev.enriched);
+
+  // IMPORTANT: Only mark `enriched = true` when full detail (`/v2.2/films/{id}`) was fetched!
+  // List endpoints (such as `/v2.2/films/premieres`) include year & genres but omit age rating,
+  // IMDb/KP rating, and duration, so marking them `enriched` prematurely blocked background hydration.
   store[id] = {
     kinopoiskId: id,
     filmId: id,
-    imdbId: film.imdbId ?? prev.imdbId,
+    imdbId: film.imdbId || prev.imdbId,
     nameRu: film.nameRu ?? prev.nameRu,
     nameEn: film.nameEn ?? prev.nameEn,
     nameOriginal: film.nameOriginal ?? prev.nameOriginal,
     posterUrl: film.posterUrl || prev.posterUrl || "",
     posterUrlPreview: film.posterUrlPreview || prev.posterUrlPreview || "",
-    year: film.year ?? prev.year,
+    year: nextYear,
     startYear: film.startYear ?? prev.startYear,
     endYear: film.endYear ?? prev.endYear,
     serial: film.serial ?? prev.serial,
     completed: film.completed ?? prev.completed,
     type: film.type ?? prev.type,
-    ratingKinopoisk: film.ratingKinopoisk ?? prev.ratingKinopoisk,
+    ratingKinopoisk: nextKp,
     ratingKinopoiskVoteCount:
       film.ratingKinopoiskVoteCount ?? prev.ratingKinopoiskVoteCount,
-    ratingImdb: film.ratingImdb ?? prev.ratingImdb,
+    ratingImdb: nextImdb,
     ratingImdbVoteCount: film.ratingImdbVoteCount ?? prev.ratingImdbVoteCount,
+    ratingAwait: nextAwait,
     votes:
       Math.max(
         film.ratingImdbVoteCount ?? 0,
         film.ratingKinopoiskVoteCount ?? 0,
       ) || prev.votes,
     ratingFilmCritics: film.ratingFilmCritics ?? prev.ratingFilmCritics,
-    ratingAgeLimits: film.ratingAgeLimits ?? prev.ratingAgeLimits,
-    ratingMpaa: film.ratingMpaa ?? prev.ratingMpaa,
-    filmLength: film.filmLength ?? prev.filmLength,
-    countries:
-      film.countries && film.countries.length > 0
-        ? film.countries.slice(0, 3)
-        : prev.countries,
-    genres:
-      film.genres && film.genres.length > 0
-        ? film.genres.slice(0, 4)
-        : prev.genres,
+    ratingAgeLimits: nextAgeLimits,
+    ratingMpaa: nextMpaa,
+    filmLength: nextLength,
+    premiereRu: film.premiereRu || prev.premiereRu,
+    countries: nextCountries,
+    genres: nextGenres,
+    enriched: Boolean(fromFullDetail || prev.enriched),
   };
 
   const keys = Object.keys(store);
-  if (keys.length > 800) {
+  if (keys.length > 900) {
     for (let i = 0; i < 150; i++) {
       delete store[Number(keys[i])];
     }
@@ -218,6 +363,64 @@ export function saveCompactFilmMeta(film: Film): void {
   } catch {
     // ignore storage quota errors
   }
+
+  if (wasMissingCore) {
+    window.dispatchEvent(
+      new CustomEvent("cinemix-meta-updated", { detail: { filmId: id } }),
+    );
+  }
+}
+
+async function processHydrationQueue(): Promise<void> {
+  if (hydrationWorkerRunning) return;
+  hydrationWorkerRunning = true;
+  try {
+    while (hydrationQueue.length > 0) {
+      const nextId = hydrationQueue.shift();
+      if (!nextId) continue;
+      const existing = getCachedFilmMeta(nextId);
+      if (existing?.enriched) {
+        continue;
+      }
+      try {
+        await getFilm(nextId);
+      } catch {
+        attemptedHydrationIds.delete(nextId);
+      }
+    }
+  } finally {
+    hydrationWorkerRunning = false;
+  }
+}
+
+/**
+ * Queues a background metadata fetch for any film card missing year, genres, rating, duration,
+ * or age certification so cards in "Premieres", "For You", "Watch Later", "Favorites", and "Similars"
+ * self-populate automatically without requiring the user to click and navigate back.
+ */
+export function queueFilmMetaHydration(filmId: number, priority = false): void {
+  if (typeof window === "undefined" || !filmId || filmId <= 0) return;
+  const cached = getCachedFilmMeta(filmId);
+  if (cached?.enriched) {
+    return;
+  }
+  if (attemptedHydrationIds.has(filmId)) {
+    if (priority) {
+      const idx = hydrationQueue.indexOf(filmId);
+      if (idx > 0) {
+        hydrationQueue.splice(idx, 1);
+        hydrationQueue.unshift(filmId);
+      }
+    }
+    return;
+  }
+  attemptedHydrationIds.add(filmId);
+  if (priority) {
+    hydrationQueue.unshift(filmId);
+  } else {
+    hydrationQueue.push(filmId);
+  }
+  void processHydrationQueue();
 }
 
 // ─── API Key Rotation & Exhaustion Tracking ───────────────────────────────────
@@ -355,7 +558,6 @@ function setCachedApi<T>(path: string, data: T, ttlSeconds: number) {
     try {
       sessionStorage.setItem(CACHE_PREFIX + path, JSON.stringify(entry));
     } catch {
-      // Targeted LRU eviction of only CACHE_PREFIX keys (never sessionStorage.clear())
       evictOldestSessionCacheEntries(35);
       try {
         sessionStorage.setItem(CACHE_PREFIX + path, JSON.stringify(entry));
@@ -408,7 +610,6 @@ async function apiFetch<T>(path: string, revalidate = 3600): Promise<T> {
         headers: { "X-API-KEY": key, "Content-Type": "application/json" },
       });
 
-      // 402 = Daily quota exceeded for this key -> mark key exhausted for 24h and rotate
       if (res.status === 402) {
         markExhausted(key);
         lastError = new Error(
@@ -417,7 +618,6 @@ async function apiFetch<T>(path: string, revalidate = 3600): Promise<T> {
         continue;
       }
 
-      // 429 = Per-second rate limit exceeded -> backoff and retry WITHOUT blacklisting the key
       if (res.status === 429) {
         await sleep(320 * (attempt + 1));
         lastError = new Error("Rate limit reached, retrying…");
@@ -464,7 +664,10 @@ export function parseFilmLengthToMinutes(
   return undefined;
 }
 
-function normalizeFilmItem(f: Film & Record<string, unknown>): Film {
+function normalizeFilmItem(
+  f: Film & Record<string, unknown>,
+  fromFullDetail = false,
+): Film {
   const id = (f.kinopoiskId ?? f.filmId ?? 0) as number;
   const rawRatingStr =
     f.rating !== undefined && f.rating !== null && f.rating !== "null"
@@ -514,13 +717,13 @@ function normalizeFilmItem(f: Film & Record<string, unknown>): Film {
     premiereRu,
   };
 
-  saveCompactFilmMeta(normalized);
-  return normalized;
+  saveCompactFilmMeta(normalized, fromFullDetail);
+  return hydrateFilmWithCache(normalized);
 }
 
 function normalizeFilmsResponse(raw: Record<string, unknown>): FilmsResponse {
   const items = ((raw.items ?? raw.films ?? []) as (Film & Record<string, unknown>)[]);
-  const normalized = items.map(normalizeFilmItem);
+  const normalized = items.map((item) => normalizeFilmItem(item, false));
   const safeItems = sanitizeFilmsForSafeMode(normalized);
 
   return {
@@ -546,6 +749,9 @@ export async function getTopFilms(
   page = 1,
 ): Promise<FilmsResponse> {
   const resolvedType = COLLECTION_TYPE_MAP[type] ?? type;
+  if (resolvedType === "CLOSES_RELEASES") {
+    return getUpcomingPremieres();
+  }
   const raw = await apiFetch<Record<string, unknown>>(
     `/v2.2/films/collections?type=${encodeURIComponent(resolvedType)}&page=${page}`,
   );
@@ -565,7 +771,6 @@ export async function getFilmsByFilter(params: {
   imdbId?: string;
   page?: number;
 }): Promise<FilmsResponse> {
-  // Block Adult (28) and Erotic (25) genre queries when Safe Mode is enabled
   if (
     isSafeModeActive() &&
     (params.genres === 28 || params.genres === 25)
@@ -587,8 +792,7 @@ export async function getFilmsByFilter(params: {
 }
 
 /**
- * Curates Hollywood & Global hits for the Home page so Russian domestic titles
- * do not suppress top international movies and series.
+ * Curates Hollywood & Global hits for the Home page.
  */
 export async function getCuratedHomeSection(options: {
   type?: "FILM" | "TV_SERIES";
@@ -631,7 +835,6 @@ export async function getCuratedHomeSection(options: {
     return combined;
   }
 
-  // Genre or Series row: fetch by NUM_VOTE (Global blockbusters) + USA (countries=1) in parallel
   const [globalVotes, usaVotes] = await Promise.allSettled([
     getFilmsByFilter({
       type: options.type,
@@ -644,7 +847,7 @@ export async function getCuratedHomeSection(options: {
       ? getFilmsByFilter({
           type: options.type,
           genres: options.genreId,
-          countries: 1, // USA / Hollywood
+          countries: 1,
           order: "NUM_VOTE",
           ratingFrom: options.ratingFrom ?? 6.6,
           page: 1,
@@ -656,7 +859,6 @@ export async function getCuratedHomeSection(options: {
   const uItems =
     usaVotes.status === "fulfilled" && usaVotes.value ? usaVotes.value.items : [];
 
-  // Interleave USA blockbusters and Global high-vote hits
   const merged = deduplicateFilms([...uItems, ...gItems]);
   if (regionMode === "GLOBAL_FIRST") {
     const filtered = merged.filter((f) => !isRussianDomesticFilm(f));
@@ -754,7 +956,6 @@ function getFilmAgeTier(film: Film): AgeTierFilter | null {
   if (mpaa === "G" || mpaa === "PG" || ageRaw === 0 || ageRaw === 6) {
     return "FAMILY";
   }
-  // Infer from family/kids genres if no explicit age limit in list payload
   const genres = (film.genres ?? []).map((g) => g.genre.toLowerCase());
   if (
     genres.some((g) =>
@@ -779,7 +980,7 @@ export async function discoverFilms(
   const order: ExploreSortOrder = opts.order ?? "NUM_VOTE";
   const ratingSource: RatingSource = opts.ratingSource ?? "AUTO";
 
-  // 1. Handle Personalized "FOR_YOU" Taste-Match Lens
+  // 1. Handle Personalized "FOR_YOU" Taste-Match Lens (shared by Home "For You" row & Explore "For You" preset)
   if (opts.lens === "FOR_YOU") {
     return discoverTasteMatchedFilms(opts, page);
   }
@@ -832,13 +1033,12 @@ export async function discoverFilms(
   const minY = opts.yearFrom !== undefined ? opts.yearFrom : undefined;
   const maxY = opts.yearTo !== undefined ? opts.yearTo : undefined;
 
-  // Compute server-side window slice when browsing deep pages (page > 5) OR when ASC direction is active!
   let queryRatingFrom: number | undefined = opts.ratingFrom;
   let queryRatingTo: number | undefined = opts.ratingTo;
   let queryYearFrom: number | undefined = minY;
   let queryYearTo: number | undefined = maxY;
   let apiPage = ((page - 1) % 5) + 1;
-  const sliceIndex = Math.floor((page - 1) / 5); // 0 for pages 1..5, 1 for pages 6..10, 2 for pages 11..15, etc.
+  const sliceIndex = Math.floor((page - 1) / 5);
 
   if (order === "RANDOM") {
     const seed = (opts.randomSeed ?? 1) + page * 7;
@@ -853,7 +1053,6 @@ export async function discoverFilms(
     if (queryRatingFrom === undefined) queryRatingFrom = band[0];
     if (queryRatingTo === undefined) queryRatingTo = band[1];
   } else if (direction === "ASC") {
-    // True Ascending Window Inversion: start from the bottom of the user's selected range!
     if (
       order === "RATING" ||
       order === "IMDB_RATING" ||
@@ -873,7 +1072,6 @@ export async function discoverFilms(
       queryYearTo = Math.min(endCeil, queryYearFrom + decadeSpan);
     }
   } else if (sliceIndex > 0) {
-    // Deep Pagination Beyond Page 5 (Items 101 to 600+): shift rating or year window per 5-page bucket!
     if (order === "YEAR") {
       const topYear = maxY ?? currentYear;
       const bottomYear = minY ?? 1950;
@@ -881,7 +1079,6 @@ export async function discoverFilms(
       queryYearTo = Math.max(bottomYear + 2, topYear - sliceIndex * step);
       queryYearFrom = Math.max(bottomYear, queryYearTo - step * 2);
     } else {
-      // Shift rating window downward smoothly across buckets so pages 6..30 return fresh movies
       const topR = maxR;
       const ratingBands: [number, number][] = [
         [Math.max(minR, topR - 2.2), topR],
@@ -903,7 +1100,6 @@ export async function discoverFilms(
     }
   }
 
-  // 4. Fan out multi-genre / multi-country queries when needed
   const incGenres = (opts.includeGenres ?? []).filter(
     (id) => !isSafeModeActive() || (id !== 28 && id !== 25),
   );
@@ -934,7 +1130,6 @@ export async function discoverFilms(
   const queriesToRun: Parameters<typeof getFilmsByFilter>[0][] = [];
 
   if (incGenres.length > 1 && opts.genreMatchMode === "OR") {
-    // OR mode: fan out one query per selected genre (up to 4)
     for (const gId of incGenres.slice(0, 4)) {
       queriesToRun.push({
         type: baseType,
@@ -950,7 +1145,6 @@ export async function discoverFilms(
       });
     }
   } else if (incGenres.length > 1 && opts.genreMatchMode !== "OR") {
-    // AND mode: fetch 2 pages for the first 2 selected genres so intersection has a deep pool
     for (const gId of incGenres.slice(0, 2)) {
       queriesToRun.push({
         type: baseType,
@@ -1007,7 +1201,6 @@ export async function discoverFilms(
       keyword: opts.keyword,
       page: apiPage,
     });
-    // If client-side filters are active, prefetch the adjacent page so we always fill a full 20-card grid
     if (needsExtraClientFiltering && apiPage < 5) {
       queriesToRun.push({
         type: baseType,
@@ -1054,8 +1247,6 @@ export async function discoverFilms(
     opts.randomSeed,
   );
 
-  // Compute deep totalPages: if the API returned a full bucket (maxApiPages >= 5 or maxApiTotal >= 100),
-  // expose up to 25 virtual pages (500+ items) across our rating/decade slices!
   const canPartitionDeep =
     maxApiPages >= 5 || maxApiTotal >= 80 || page > 1;
   const effectiveTotalPages = canPartitionDeep
@@ -1072,41 +1263,86 @@ export async function discoverFilms(
   };
 }
 
-async function discoverTasteMatchedFilms(
-  opts: DiscoverFilmsOptions,
-  page: number,
+/**
+ * Unified "For You" Taste-Match Engine (used by both Home "For You" row and Explore "For You" preset).
+ * Utilises Favorites, Watch Later, and Recently Watched films — including their
+ * Sequels & Prequels (`getRelatedFilms`) and Similar Films (`getSimilarFilms`).
+ */
+export async function discoverTasteMatchedFilms(
+  opts: DiscoverFilmsOptions = {},
+  page = 1,
 ): Promise<FilmsResponse> {
   const favs = getList("favorites");
+  const watchLater = getList("watchlater");
   const history = getList("history");
-  const seedEntries = [...favs, ...history].slice(0, 4);
+
+  // Interleave seeds from Favorites, Watch Later, and Recently Watched so all 3 lists drive recommendations
+  const rawSeeds = [...favs, ...watchLater, ...history];
+  const seenSeedIds = new Set<number>();
+  const uniqueSeeds: typeof rawSeeds = [];
+  for (const entry of rawSeeds) {
+    if (!entry.film_id || seenSeedIds.has(entry.film_id)) continue;
+    seenSeedIds.add(entry.film_id);
+    uniqueSeeds.push(entry);
+    if (uniqueSeeds.length >= 6) break;
+  }
 
   const pool: Film[] = [];
 
-  if (seedEntries.length > 0) {
-    const similarCalls = await Promise.allSettled(
-      seedEntries.slice(0, 3).map((e) => getSimilarFilms(e.film_id)),
-    );
-    for (const sc of similarCalls) {
-      if (sc.status === "fulfilled" && sc.value.items) {
-        for (const sf of sc.value.items) {
-          const cachedMeta = getCachedFilmMeta(sf.filmId);
-          pool.push({
-            ...cachedMeta,
-            kinopoiskId: sf.filmId,
-            filmId: sf.filmId,
-            nameRu: sf.nameRu ?? cachedMeta?.nameRu,
-            nameEn: sf.nameEn ?? cachedMeta?.nameEn,
-            nameOriginal: sf.nameOriginal ?? cachedMeta?.nameOriginal,
-            posterUrl: sf.posterUrl || cachedMeta?.posterUrl || "",
-            posterUrlPreview:
-              sf.posterUrlPreview || cachedMeta?.posterUrlPreview || "",
-          });
+  if (uniqueSeeds.length > 0) {
+    // Fetch both Sequels/Prequels (`getRelatedFilms`) and Similar Films (`getSimilarFilms`) in parallel
+    const activeSeeds = uniqueSeeds.slice(0, 4);
+    const [relatedResults, similarResults] = await Promise.all([
+      Promise.allSettled(activeSeeds.map((s) => getRelatedFilms(s.film_id))),
+      Promise.allSettled(activeSeeds.map((s) => getSimilarFilms(s.film_id))),
+    ]);
+
+    // 1. Sequels & Prequels of Favorites, Watch Later, and Recently Watched
+    for (const rel of relatedResults) {
+      if (rel.status === "fulfilled" && Array.isArray(rel.value)) {
+        for (const rf of rel.value) {
+          pool.push(hydrateFilmWithCache(rf));
         }
       }
     }
+
+    // 2. Similar Films of Favorites, Watch Later, and Recently Watched
+    for (const sim of similarResults) {
+      if (sim.status === "fulfilled" && sim.value?.items) {
+        for (const sf of sim.value.items) {
+          pool.push(
+            hydrateFilmWithCache({
+              kinopoiskId: sf.filmId,
+              filmId: sf.filmId,
+              nameRu: sf.nameRu,
+              nameEn: sf.nameEn,
+              nameOriginal: sf.nameOriginal,
+              posterUrl: sf.posterUrl,
+              posterUrlPreview: sf.posterUrlPreview,
+            }),
+          );
+        }
+      }
+    }
+
+    // 3. Also include unwatched Watch Later & Favorite items so user's saved titles are part of the taste pool
+    for (const item of [...watchLater, ...favs].slice(0, 10)) {
+      pool.push(
+        hydrateFilmWithCache({
+          kinopoiskId: item.film_id,
+          filmId: item.film_id,
+          nameEn: item.film_name,
+          nameRu: item.film_name,
+          posterUrl: item.poster_url || "",
+          posterUrlPreview: item.poster_url || "",
+          year: item.year ?? undefined,
+          ratingKinopoisk: item.rating ?? undefined,
+        }),
+      );
+    }
   }
 
-  // Supplement with top global movies & series
+  // Supplement with top global movies & series so For You always has a deep multi-page catalog
   const supplement = await getFilmsByFilter({
     type: opts.type === "ALL" ? undefined : opts.type,
     countries: 1,
@@ -1119,12 +1355,22 @@ async function discoverTasteMatchedFilms(
 
   const filtered = applyClientDiscoveryFilters(
     deduplicateFilms(pool),
-    { ...opts, hideWatched: true },
+    { ...opts, hideWatched: opts.hideWatched ?? true },
     opts.ratingSource ?? "AUTO",
   );
 
+  const pageSlice = filtered.slice(0, 24);
+
+  // Proactively queue background metadata hydration for any card in the slice missing year or genres
+  for (const f of pageSlice) {
+    const fid = f.kinopoiskId ?? f.filmId;
+    if (fid && (!f.year || !f.genres || f.genres.length === 0)) {
+      queueFilmMetaHydration(fid, true);
+    }
+  }
+
   return {
-    items: filtered.slice(0, 24),
+    items: pageSlice,
     total: Math.max(filtered.length, 120),
     totalPages: 6,
   };
@@ -1145,7 +1391,6 @@ function applyClientDiscoveryFilters(
     ? new Set(getList("watchlater").map((e) => e.film_id))
     : null;
 
-  // Map genre IDs to lowercase Russian & English names for accurate multi-genre matching
   const genreIdToNames = new Map<number, string[]>();
   for (const g of opts.allGenresList ?? []) {
     const ru = g.genre.trim().toLowerCase();
@@ -1361,7 +1606,6 @@ function sortDiscoveryPool(
   const dirMult = direction === "ASC" ? 1 : -1;
 
   if (order === "RANDOM") {
-    // Deterministic Fisher-Yates shuffle based on randomSeed
     let s = randomSeed + 1337;
     for (let i = copy.length - 1; i > 0; i--) {
       s = (s * 16807) % 2147483647;
@@ -1403,7 +1647,6 @@ function sortDiscoveryPool(
     }
 
     if (order === "HIDDEN_GEMS") {
-      // High rating with moderate vote counts
       const scoreGem = (f: Film) => {
         const r = getEffectiveRating(f, ratingSource);
         const v = getEffectiveVotes(f);
@@ -1431,7 +1674,7 @@ function sortDiscoveryPool(
 
 export async function getFilm(id: number): Promise<Film> {
   const raw = await apiFetch<Film & Record<string, unknown>>(`/v2.2/films/${id}`);
-  return normalizeFilmItem(raw);
+  return normalizeFilmItem(raw, true);
 }
 
 export async function getFilmStaff(filmId: number): Promise<Staff[]> {
@@ -1458,7 +1701,9 @@ export async function getRelatedFilms(filmId: number): Promise<Film[]> {
   const items = await apiFetch<(Film & Record<string, unknown>)[]>(
     `/v2.1/films/${filmId}/sequels_and_prequels`,
   );
-  return sanitizeFilmsForSafeMode((items ?? []).map(normalizeFilmItem));
+  return sanitizeFilmsForSafeMode(
+    (items ?? []).map((item) => normalizeFilmItem(item, false)),
+  );
 }
 
 export async function getSimilarFilms(
@@ -1531,6 +1776,21 @@ export async function getFilmReviews(
   );
 }
 
+const PREMIERE_MONTH_NAMES = [
+  "JANUARY",
+  "FEBRUARY",
+  "MARCH",
+  "APRIL",
+  "MAY",
+  "JUNE",
+  "JULY",
+  "AUGUST",
+  "SEPTEMBER",
+  "OCTOBER",
+  "NOVEMBER",
+  "DECEMBER",
+] as const;
+
 export async function getPremieres(
   year: number,
   month: string,
@@ -1539,6 +1799,84 @@ export async function getPremieres(
     `/v2.2/films/premieres?year=${year}&month=${month}`,
   );
   return normalizeFilmsResponse(raw);
+}
+
+/**
+ * Fetches genuine upcoming premieres across the remaining days of the current month
+ * and the next 2 calendar months, strictly excluding old theatrical re-releases
+ * (film.year < currentYear) and already-released past dates.
+ */
+export async function getUpcomingPremieres(): Promise<FilmsResponse> {
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonthIdx = now.getMonth();
+  const yyyy = curYear;
+  const mm = String(curMonthIdx + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const todayStr = `${yyyy}-${mm}-${dd}`;
+
+  const targets: { year: number; month: string; isCurrentMonth: boolean }[] = [
+    {
+      year: curYear,
+      month: PREMIERE_MONTH_NAMES[curMonthIdx],
+      isCurrentMonth: true,
+    },
+    {
+      year: curMonthIdx + 1 > 11 ? curYear + 1 : curYear,
+      month: PREMIERE_MONTH_NAMES[(curMonthIdx + 1) % 12],
+      isCurrentMonth: false,
+    },
+    {
+      year: curMonthIdx + 2 > 11 ? curYear + 1 : curYear,
+      month: PREMIERE_MONTH_NAMES[(curMonthIdx + 2) % 12],
+      isCurrentMonth: false,
+    },
+  ];
+
+  const settled = await Promise.allSettled(
+    targets.map((t) => getPremieres(t.year, t.month)),
+  );
+
+  const upcomingPool: Film[] = [];
+  settled.forEach((res, idx) => {
+    if (res.status !== "fulfilled" || !res.value?.items) return;
+    const isCurrentMonth = targets[idx].isCurrentMonth;
+
+    for (const film of res.value.items) {
+      // 1. Strictly exclude old films getting theatrical re-releases
+      const filmYear = film.year ?? film.startYear;
+      if (filmYear && filmYear < curYear) continue;
+
+      // 2. Require a future premiere date (strictly > today for current month, >= today for upcoming months)
+      if (film.premiereRu) {
+        const pDate = film.premiereRu.slice(0, 10);
+        if (isCurrentMonth ? pDate <= todayStr : pDate < todayStr) {
+          continue;
+        }
+      } else if (isCurrentMonth) {
+        continue;
+      }
+
+      upcomingPool.push(film);
+    }
+  });
+
+  const unique = deduplicateFilms(upcomingPool);
+  unique.sort((a, b) => {
+    const dA = a.premiereRu
+      ? new Date(a.premiereRu).getTime() || Number.MAX_SAFE_INTEGER
+      : Number.MAX_SAFE_INTEGER;
+    const dB = b.premiereRu
+      ? new Date(b.premiereRu).getTime() || Number.MAX_SAFE_INTEGER
+      : Number.MAX_SAFE_INTEGER;
+    return dA - dB;
+  });
+
+  return {
+    items: unique,
+    total: unique.length,
+    totalPages: 1,
+  };
 }
 
 export async function getFilmAwards(filmId: number): Promise<AwardResponse> {

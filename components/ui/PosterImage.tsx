@@ -3,10 +3,11 @@ import React, { useState, useEffect, useRef } from "react";
 import { User, Film } from "lucide-react";
 import { FilmPosterFallback } from "@/components/posterFallback";
 
-interface PosterImageProps {
+export interface PosterImageProps {
   src?: string | null;
   alt: string;
   title?: string;
+  size?: "sm" | "md" | "lg";
   fallbackType?: "film" | "person" | "mini";
   priority?: boolean;
   className?: string;
@@ -15,15 +16,22 @@ interface PosterImageProps {
 
 /**
  * Converts full-size 2MB Kinopoisk poster URLs (/images/posters/kp/...) into
- * fast 20KB thumbnail URLs (/images/posters/kp_small/...) for cards & thumbnails.
+ * fast ~20KB thumbnail URLs (/images/posters/kp_small/...) for cards & thumbnails,
+ * while keeping full-resolution posters when `size="lg"` or `priority={true}` (without `size="sm"`).
  */
 function optimizePosterUrl(
   rawUrl?: string | null,
+  size?: "sm" | "md" | "lg",
   fallbackType?: "film" | "person" | "mini",
   priority?: boolean,
 ): string | null {
   if (!rawUrl) return null;
-  if (!priority && (fallbackType === "film" || fallbackType === "mini")) {
+  if (size === "lg") return rawUrl;
+  if (
+    size === "sm" ||
+    size === "md" ||
+    (!priority && (fallbackType === "film" || fallbackType === "mini"))
+  ) {
     return rawUrl.replace("/images/posters/kp/", "/images/posters/kp_small/");
   }
   return rawUrl;
@@ -33,17 +41,20 @@ export default function PosterImage({
   src,
   alt,
   title,
+  size,
   fallbackType = "film",
   priority = false,
   className = "w-full h-full relative overflow-hidden bg-[var(--surface)]",
   imgClassName = "w-full h-full object-cover block",
 }: PosterImageProps) {
-  const optimizedSrc = optimizePosterUrl(src, fallbackType, priority);
+  const optimizedSrc = optimizePosterUrl(src, size, fallbackType, priority);
+  const [activeSrc, setActiveSrc] = useState<string | null>(optimizedSrc);
   const [error, setError] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
+    setActiveSrc(optimizedSrc);
     setError(false);
     const el = imgRef.current;
     if (el && el.complete && el.naturalWidth > 0) {
@@ -53,7 +64,7 @@ export default function PosterImage({
     }
   }, [optimizedSrc]);
 
-  if (!optimizedSrc || error) {
+  if (!activeSrc || error) {
     if (fallbackType === "person") {
       return (
         <div
@@ -95,7 +106,7 @@ export default function PosterImage({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         ref={imgRef}
-        src={optimizedSrc}
+        src={activeSrc}
         alt={alt}
         loading={priority ? "eager" : "lazy"}
         decoding="async"
@@ -103,7 +114,11 @@ export default function PosterImage({
         draggable={false}
         onLoad={() => setLoaded(true)}
         onError={() => {
-          // If kp_small failed but original src differs, fall back cleanly
+          // If kp_small thumbnail failed to load, automatically retry once with full-res original src
+          if (src && activeSrc !== src) {
+            setActiveSrc(src);
+            return;
+          }
           setError(true);
         }}
         className={`${imgClassName} transition-opacity duration-300 ease-out ${

@@ -20,6 +20,7 @@ import {
   getSimilarFilms,
   isAdultContentFilm,
   isSafeModeActive,
+  hydrateFilmWithCache,
 } from "@/lib/kinopoisk";
 import { Film, Season, SimilarFilm } from "@/types/kinopoisk";
 import { getPreferences, hasApiKeys } from "@/lib/preferences";
@@ -41,12 +42,12 @@ import {
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useListStatus } from "@/hooks/useListStatus";
 import { useToast } from "@/lib/toast";
+import FilmCard from "@/components/FilmCard";
 import BackButton from "@/components/BackButton";
 import PageContainer from "@/components/ui/PageContainer";
 import SectionHeader from "@/components/ui/SectionHeader";
 import TabBar from "@/components/ui/TabBar";
 import TabPill from "@/components/ui/TabPill";
-import PosterImage from "@/components/ui/PosterImage";
 import EmptyState from "@/components/ui/EmptyState";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
 import ParentalGuideModal from "@/components/ParentalGuideModal";
@@ -103,33 +104,6 @@ function EpisodeRow({
   );
 }
 
-function SimilarCard({
-  item,
-  autoTranslate,
-}: {
-  item: SimilarFilm;
-  autoTranslate: boolean;
-}) {
-  const title = useFilmTitle(item, autoTranslate);
-  return (
-    <Link
-      href={`/film/${item.filmId}`}
-      className="no-underline flex-shrink-0 group w-[115px] sm:w-[140px]"
-    >
-      <div className="rounded-[10px] overflow-hidden border border-[var(--border)] group-hover:border-[rgba(229,9,20,0.35)] bg-[var(--bg-card)] aspect-[2/3] relative transition-colors">
-        <PosterImage
-          src={item.posterUrlPreview || item.posterUrl}
-          alt={title}
-          title={title}
-        />
-      </div>
-      <p className="text-[11px] sm:text-[12px] font-semibold text-[var(--text)] mt-1.5 truncate group-hover:text-white">
-        {title}
-      </p>
-    </Link>
-  );
-}
-
 export default function WatchPageClient({ filmId }: { filmId: string }) {
   const id = parseInt(filmId, 10);
   const { toast } = useToast();
@@ -170,7 +144,6 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     setLoading(true);
     setError(false);
 
-    // Restore last-selected season for this series
     try {
       const savedSeason = localStorage.getItem(`cinemix_last_season_${id}`);
       if (savedSeason !== null) {
@@ -293,7 +266,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
       <PageContainer className="pt-3 sm:pt-5">
         <div className="max-w-[960px] mx-auto">
           <div className="skeleton h-11 w-full rounded-[12px] mb-3" />
-          <div className="skeleton w-full h-[360px] sm:h-[460px] md:h-[520px] rounded-[16px]" />
+          <div className="skeleton w-full h-[320px] sm:h-[460px] md:h-[520px] rounded-[16px]" />
         </div>
       </PageContainer>
     );
@@ -313,7 +286,6 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     );
   }
 
-  // App-Wide Safe Mode Direct Route Gate
   if (isSafeModeActive() && isAdultContentFilm(film)) {
     return (
       <PageContainer className="flex items-center justify-center">
@@ -368,42 +340,40 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         }`}
       >
         {/* Top Cinema Control Bar */}
-        <div className="w-full flex flex-row items-center flex-wrap justify-between gap-2 sm:gap-3 mb-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] px-3.5 sm:px-4 py-2.5">
-          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-wrap">
+        <div className="w-full flex flex-row items-center flex-wrap justify-between gap-2 sm:gap-3 mb-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] px-3 sm:px-4 py-2.5">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <BackButton
               fallbackHref={`/film/${id}`}
               label="Film Details"
-              className="mb-0.5"
+              className="mb-0"
               iconOnlyOnPhone
             />
             <span className="text-[var(--border-hover)] hidden sm:inline">
               |
             </span>
-            <div className="min-w-0 flex items-center gap-2 flex-wrap">
+            <div className="min-w-0 flex items-center gap-2 flex-wrap flex-1">
               <Link
                 href={`/film/${id}`}
-                className="no-underline hover:underline text-white"
+                className="no-underline hover:underline text-white min-w-0"
               >
                 <h1 className="font-display tracking-[1.2px] text-[16px] sm:text-[20px] text-white leading-none m-0 truncate">
                   {name}
                 </h1>
               </Link>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
               {year && (
                 <span className="text-[11px] text-[var(--text-muted)]">
                   ({year})
                 </span>
               )}
               {film.filmLength && (
-                <span className="text-[11px] text-[var(--text-muted)]">
+                <span className="hidden sm:inline text-[11px] text-[var(--text-muted)]">
                   · {Math.floor(film.filmLength / 60)}h {film.filmLength % 60}m
                 </span>
               )}
               {rating && (
                 <span className="inline-flex items-center gap-1 text-[11px] sm:text-[12px] text-[#f5c518] font-display">
                   <Star
-                    className="mb-0.5 sm:mb-1"
+                    className="mb-0.5"
                     size={11}
                     fill="#f5c518"
                     stroke="#f5c518"
@@ -437,7 +407,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           </div>
 
           {/* Action controls */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
             <button
               type="button"
               onClick={() => setWideTheater((v) => !v)}
@@ -457,9 +427,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
               onClick={() => setLightsOff((v) => !v)}
               title="Toggle Cinema Lights-Off Mode (L)"
               className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
-                lightsOff
-                  ? "border-[rgba(245,197,24,0.5)] text-[#f5c518]"
-                  : ""
+                lightsOff ? "border-[rgba(245,197,24,0.5)] text-[#f5c518]" : ""
               }`}
             >
               {lightsOff ? <Sun size={14} /> : <Moon size={14} />}
@@ -510,7 +478,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         </div>
 
         {/* Theater Video Stage */}
-        <div className="w-full rounded-[16px] overflow-hidden shadow-[0_24px_80px_rgba(0,0,0,0.85)]">
+        <div className="w-full rounded-[14px] sm:rounded-[16px] overflow-hidden shadow-[0_24px_80px_rgba(0,0,0,0.85)]">
           <iframe
             key={id}
             src={playerUrl}
@@ -524,14 +492,14 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
             title={name}
             className={`w-full ${
               wideTheater
-                ? "h-[380px] sm:h-[500px] md:h-[640px]"
-                : "h-[340px] sm:h-[440px] md:h-[510px]"
+                ? "h-[340px] sm:h-[500px] md:h-[640px]"
+                : "h-[300px] sm:h-[440px] md:h-[510px]"
             } border-none block bg-[#1e1918] overflow-hidden transition-all duration-300`}
           />
         </div>
 
         {/* Synopsis + Genres below player */}
-        <div className="mt-5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-4 sm:p-6">
+        <div className="mt-4 sm:mt-5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-4 sm:p-6">
           <div className="flex flex-wrap gap-2 mb-3">
             {film.genres?.map((g) => (
               <Link
@@ -570,7 +538,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
               title="SEASONS & EPISODES"
               count={seasons.length}
               rightSlot={
-                <div className="relative w-[190px]">
+                <div className="relative w-[170px] sm:w-[190px]">
                   <Search
                     size={12}
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
@@ -624,16 +592,25 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           </div>
         )}
 
-        {/* Similar Films */}
+        {/* Similar Films (Uses hydrated FilmCard with year, genres, rating & long-press Quick-Peek) */}
         {similars.length > 0 && (
           <div className="mt-8">
             <SectionHeader title="SIMILAR FILMS" count={similars.length} />
             <div className="flex gap-3 overflow-x-auto pb-3 scrollbar-none">
-              {similars.slice(0, 12).map((sf) => (
-                <SimilarCard
+              {similars.slice(0, 14).map((sf) => (
+                <FilmCard
                   key={sf.filmId}
-                  item={sf}
-                  autoTranslate={autoTranslate}
+                  film={hydrateFilmWithCache({
+                    kinopoiskId: sf.filmId,
+                    filmId: sf.filmId,
+                    nameRu: sf.nameRu,
+                    nameEn: sf.nameEn,
+                    nameOriginal: sf.nameOriginal,
+                    posterUrl: sf.posterUrl,
+                    posterUrlPreview: sf.posterUrlPreview,
+                  })}
+                  variant="scroll"
+                  size="sm"
                 />
               ))}
             </div>

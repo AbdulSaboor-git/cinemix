@@ -1,14 +1,16 @@
 "use client";
 // components/HomeClient.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   getTopFilms,
   getPremieres,
+  getUpcomingPremieres,
   getCuratedHomeSection,
-  getSimilarFilms,
+  discoverTasteMatchedFilms,
   isRussianDomesticFilm,
   deduplicateFilms,
-  getCachedFilmMeta,
+  hydrateFilmWithCache,
+  queueFilmMetaHydration,
 } from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
 import HeroBanner from "@/components/HeroBanner";
@@ -19,10 +21,17 @@ import { getList } from "@/lib/userLists";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { SESSION_KEY } from "@/lib/session";
 
-const CURRENT_MONTH = new Date()
-  .toLocaleString("en-US", { month: "long" })
-  .toUpperCase();
-const CURRENT_YEAR = new Date().getFullYear();
+const NOW = new Date();
+const CURRENT_MONTH = NOW.toLocaleString("en-US", {
+  month: "long",
+}).toUpperCase();
+const CURRENT_YEAR = NOW.getFullYear();
+
+const NEXT_MONTH_DATE = new Date(CURRENT_YEAR, NOW.getMonth() + 1, 1);
+const NEXT_MONTH = NEXT_MONTH_DATE.toLocaleString("en-US", {
+  month: "long",
+}).toUpperCase();
+const NEXT_MONTH_YEAR = NEXT_MONTH_DATE.getFullYear();
 
 export default function HomeClient() {
   useDocumentTitle("Home");
@@ -38,13 +47,9 @@ export default function HomeClient() {
   const [horrorFilms, setHorrorFilms] = useState<Film[]>([]);
   const [premiereFilms, setPremiereFilms] = useState<Film[]>([]);
 
-  // Personalized rows
-  const [recentHistoryFilms, setRecentHistoryFilms] = useState<Film[]>([]);
+  // Personalized rows (Watch Later + unified "For You", no "Recently Watched")
   const [watchLaterFilms, setWatchLaterFilms] = useState<Film[]>([]);
-  const [becauseYouWatched, setBecauseYouWatched] = useState<{
-    seedTitle: string;
-    items: Film[];
-  } | null>(null);
+  const [forYouFilms, setForYouFilms] = useState<Film[]>([]);
 
   const [loaded, setLoaded] = useState(false);
   const [secondaryLoaded, setSecondaryLoaded] = useState(false);
@@ -53,58 +58,71 @@ export default function HomeClient() {
     null,
   );
 
-  // Sync personal lists (Continue Watching & Watch Later) reactively
-  useEffect(() => {
-    const syncLists = () => {
-      const hist = getList("history").slice(0, 15);
-      const wl = getList("watchlater").slice(0, 15);
+  // Sync Watch Later & For You recommendations reactively whenever user lists change
+  const syncPersonalRows = useCallback(() => {
+    const wl = getList("watchlater").slice(0, 15);
+    const hydratedWL = wl.map((e) => {
+      const item = hydrateFilmWithCache({
+        kinopoiskId: e.film_id,
+        filmId: e.film_id,
+        nameEn: e.film_name,
+        nameRu: e.film_name,
+        posterUrl: e.poster_url || "",
+        posterUrlPreview: e.poster_url || "",
+        year: e.year ?? undefined,
+        ratingKinopoisk: e.rating ?? undefined,
+      });
+      if (!item.year || !item.genres || item.genres.length === 0) {
+        queueFilmMetaHydration(e.film_id, true);
+      }
+      return item;
+    });
+    setWatchLaterFilms(hydratedWL);
 
-      setRecentHistoryFilms(
-        hist.map((e) => {
-          const cached = getCachedFilmMeta(e.film_id);
-          return {
-            ...cached,
-            kinopoiskId: e.film_id,
-            filmId: e.film_id,
-            nameEn: e.film_name || cached?.nameEn,
-            nameRu: e.film_name || cached?.nameRu,
-            posterUrl: e.poster_url || cached?.posterUrl || "",
-            posterUrlPreview: e.poster_url || cached?.posterUrlPreview || "",
-            year: e.year ?? cached?.year,
-            ratingKinopoisk: e.rating ?? cached?.ratingKinopoisk,
-          };
-        }),
-      );
-
-      setWatchLaterFilms(
-        wl.map((e) => {
-          const cached = getCachedFilmMeta(e.film_id);
-          return {
-            ...cached,
-            kinopoiskId: e.film_id,
-            filmId: e.film_id,
-            nameEn: e.film_name || cached?.nameEn,
-            nameRu: e.film_name || cached?.nameRu,
-            posterUrl: e.poster_url || cached?.posterUrl || "",
-            posterUrlPreview: e.poster_url || cached?.posterUrlPreview || "",
-            year: e.year ?? cached?.year,
-            ratingKinopoisk: e.rating ?? cached?.ratingKinopoisk,
-          };
-        }),
-      );
-    };
-
-    syncLists();
-    const onStorage = (e: StorageEvent) => {
-      if (!e.key || e.key === SESSION_KEY) syncLists();
-    };
-    window.addEventListener("cinemix-session-change", syncLists);
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.removeEventListener("cinemix-session-change", syncLists);
-      window.removeEventListener("storage", onStorage);
-    };
+    if (hasApiKeys()) {
+      discoverTasteMatchedFilms({ lens: "FOR_YOU", hideWatched: true }, 1)
+        .then((res) => {
+          if (res.items && res.items.length > 0) {
+            setForYouFilms(res.items.slice(0, 20));
+          }
+        })
+        .catch(() => {});
+    }
   }, []);
+
+  useEffect(() => {
+    syncPersonalRows();
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key || e.key === SESSION_KEY) syncPersonalRows();
+    };
+    const onMetaUpdated = () => {
+      const wl = getList("watchlater").slice(0, 15);
+      setWatchLaterFilms(
+        wl.map((e) =>
+          hydrateFilmWithCache({
+            kinopoiskId: e.film_id,
+            filmId: e.film_id,
+            nameEn: e.film_name,
+            nameRu: e.film_name,
+            posterUrl: e.poster_url || "",
+            posterUrlPreview: e.poster_url || "",
+            year: e.year ?? undefined,
+            ratingKinopoisk: e.rating ?? undefined,
+          }),
+        ),
+      );
+      setForYouFilms((prev) => prev.map((f) => hydrateFilmWithCache(f)));
+    };
+
+    window.addEventListener("cinemix-session-change", syncPersonalRows);
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("cinemix-meta-updated", onMetaUpdated);
+    return () => {
+      window.removeEventListener("cinemix-session-change", syncPersonalRows);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("cinemix-meta-updated", onMetaUpdated);
+    };
+  }, [syncPersonalRows]);
 
   useEffect(() => {
     if (!hasApiKeys()) {
@@ -143,34 +161,6 @@ export default function HomeClient() {
       }
       setLoaded(true);
 
-      // Personalized "Because You Watched / Loved" row
-      const seedEntry = getList("history")[0] ?? getList("favorites")[0];
-      if (seedEntry) {
-        getSimilarFilms(seedEntry.film_id)
-          .then((sim) => {
-            if (!mounted || !sim.items?.length) return;
-            const mapped: Film[] = sim.items.slice(0, 16).map((sf) => {
-              const cached = getCachedFilmMeta(sf.filmId);
-              return {
-                ...cached,
-                kinopoiskId: sf.filmId,
-                filmId: sf.filmId,
-                nameRu: sf.nameRu ?? cached?.nameRu,
-                nameEn: sf.nameEn ?? cached?.nameEn,
-                nameOriginal: sf.nameOriginal ?? cached?.nameOriginal,
-                posterUrl: sf.posterUrl || cached?.posterUrl || "",
-                posterUrlPreview:
-                  sf.posterUrlPreview || cached?.posterUrlPreview || "",
-              };
-            });
-            setBecauseYouWatched({
-              seedTitle: seedEntry.film_name,
-              items: mapped,
-            });
-          })
-          .catch(() => {});
-      }
-
       // Stage 2: Load remaining Hollywood/Global-curated rows progressively
       Promise.allSettled([
         s.premieres
@@ -200,7 +190,7 @@ export default function HomeClient() {
               ratingFrom: 6.8,
             })
           : Promise.resolve(null),
-        s.upcoming ? getTopFilms("CLOSES_RELEASES") : Promise.resolve(null),
+        s.upcoming ? getUpcomingPremieres() : Promise.resolve(null),
         s.comedy
           ? getCuratedHomeSection({
               type: "FILM",
@@ -227,14 +217,31 @@ export default function HomeClient() {
           horror,
         ]) => {
           if (!mounted) return;
+
+          let shownPremiereIds = new Set<number>();
           if (premieres.status === "fulfilled" && premieres.value) {
-            const pItems = premieres.value.items;
-            const filteredP =
+            // Exclude old theatrical re-releases from "New This Month"
+            const pItems = premieres.value.items.filter((f) => {
+              const yr = f.year ?? f.startYear;
+              return !yr || yr >= CURRENT_YEAR;
+            });
+            const globalP = pItems.filter((f) => !isRussianDomesticFilm(f));
+            const domesticP = pItems.filter((f) => isRussianDomesticFilm(f));
+            const finalP =
               regionMode === "GLOBAL_FIRST"
-                ? pItems.filter((f) => !isRussianDomesticFilm(f))
+                ? globalP.length >= 6
+                  ? globalP
+                  : [...globalP, ...domesticP]
                 : pItems;
-            setPremiereFilms(filteredP.length >= 6 ? filteredP : pItems);
+            setPremiereFilms(finalP);
+            shownPremiereIds = new Set(
+              finalP
+                .slice(0, 10)
+                .map((f) => f.kinopoiskId ?? f.filmId ?? 0)
+                .filter(Boolean),
+            );
           }
+
           if (series.status === "fulfilled" && series.value) {
             setSeriesFilms(series.value);
           }
@@ -247,14 +254,32 @@ export default function HomeClient() {
           if (scifi.status === "fulfilled" && scifi.value) {
             setScifiFilms(scifi.value);
           }
+
           if (upcoming.status === "fulfilled" && upcoming.value) {
-            const uItems = upcoming.value.items;
-            const filteredU =
+            const uItems = upcoming.value.items.filter((f) => {
+              const yr = f.year ?? f.startYear;
+              return !yr || yr >= CURRENT_YEAR;
+            });
+            const globalU = uItems.filter((f) => !isRussianDomesticFilm(f));
+            const domesticU = uItems.filter((f) => isRussianDomesticFilm(f));
+            const regionCuratedU =
               regionMode === "GLOBAL_FIRST"
-                ? uItems.filter((f) => !isRussianDomesticFilm(f))
+                ? globalU.length >= 6
+                  ? globalU
+                  : [...globalU, ...domesticU]
                 : uItems;
-            setAwaitFilms(filteredU.length >= 6 ? filteredU : uItems);
+
+            // Avoid duplicating the first cards already shown in "New This Month" when plenty of upcoming premieres exist
+            const deduplicatedAgainstCurrent = regionCuratedU.filter(
+              (f) => !shownPremiereIds.has(f.kinopoiskId ?? f.filmId ?? 0),
+            );
+            setAwaitFilms(
+              deduplicatedAgainstCurrent.length >= 8
+                ? deduplicatedAgainstCurrent
+                : regionCuratedU,
+            );
           }
+
           if (comedy.status === "fulfilled" && comedy.value) {
             setComedyFilms(comedy.value);
           }
@@ -288,17 +313,17 @@ export default function HomeClient() {
   const candidateSlides =
     heroWithCovers.length >= 5 ? heroWithCovers : heroPool;
 
-  const dayKey = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const dayKey = new Date().toISOString().slice(0, 10);
   let daySeed = 0;
   for (let i = 0; i < dayKey.length; i++) {
     daySeed = (daySeed * 31 + dayKey.charCodeAt(i)) % 1000003;
   }
   const rotatedCandidates = [...candidateSlides];
   if (rotatedCandidates.length > 5) {
-    let s = daySeed + 17;
+    let seed = daySeed + 17;
     for (let i = rotatedCandidates.length - 1; i > 0; i--) {
-      s = (s * 16807) % 2147483647;
-      const j = s % (i + 1);
+      seed = (seed * 16807) % 2147483647;
+      const j = seed % (i + 1);
       [rotatedCandidates[i], rotatedCandidates[j]] = [
         rotatedCandidates[j],
         rotatedCandidates[i],
@@ -323,12 +348,12 @@ export default function HomeClient() {
     <div className="fade-in">
       {heroSlides.length > 0 && <HeroBanner films={heroSlides} />}
 
-      <div className="relative z-[2] pt-6 sm:pt-8">
-        {recentHistoryFilms.length > 0 && (
+      <div className="relative z-[2] pt-5 sm:pt-8">
+        {forYouFilms.length > 0 && (
           <FilmRow
-            title="Recently Watched"
-            films={recentHistoryFilms}
-            href="/profile/history"
+            title="For You"
+            films={forYouFilms}
+            href="/explore?lens=FOR_YOU"
           />
         )}
 
@@ -337,14 +362,6 @@ export default function HomeClient() {
             title="From Your Watch Later"
             films={watchLaterFilms}
             href="/profile/watchlater"
-          />
-        )}
-
-        {becauseYouWatched && becauseYouWatched.items.length > 0 && (
-          <FilmRow
-            title={`Because You Watched “${becauseYouWatched.seedTitle}”`}
-            films={becauseYouWatched.items}
-            href="/explore?lens=FOR_YOU"
           />
         )}
 
@@ -386,7 +403,7 @@ export default function HomeClient() {
         )}
 
         {secondHero && (
-          <div className="my-6 sm:my-8">
+          <div className="my-5 sm:my-8">
             <HeroBanner film={secondHero} />
           </div>
         )}
@@ -414,7 +431,7 @@ export default function HomeClient() {
         )}
 
         {thirdHero && (
-          <div className="my-6 sm:my-8">
+          <div className="my-5 sm:my-8">
             <HeroBanner film={thirdHero} />
           </div>
         )}
@@ -430,7 +447,7 @@ export default function HomeClient() {
           <FilmRow
             title="Coming Soon"
             films={awaitFilms.slice(0, 20)}
-            href="/explore?order=YEAR"
+            href={`/premieres?year=${NEXT_MONTH_YEAR}&month=${NEXT_MONTH}`}
           />
         )}
         {s.top250 && top250Films.length > 20 && (
@@ -444,11 +461,11 @@ export default function HomeClient() {
         {!secondaryLoaded && (
           <div className="px-[var(--page-x)] py-4">
             <div className="skeleton h-[20px] w-[160px] rounded-[6px] mb-4" />
-            <div className="flex gap-[14px] overflow-x-auto pb-2 scrollbar-none">
+            <div className="flex gap-[12px] sm:gap-[14px] overflow-x-auto pb-2 scrollbar-none">
               {Array.from({ length: 6 }).map((_, j) => (
                 <div
                   key={j}
-                  className="skeleton flex-shrink-0 rounded-[12px] w-[130px] h-[195px] sm:w-[175px] sm:h-[263px]"
+                  className="skeleton flex-shrink-0 rounded-[12px] w-[126px] h-[189px] sm:w-[175px] sm:h-[263px]"
                 />
               ))}
             </div>
@@ -462,16 +479,16 @@ export default function HomeClient() {
 function HomeSkeleton() {
   return (
     <div className="min-h-screen animate-pulse">
-      <div className="skeleton w-full h-[360px] sm:h-[480px] md:h-[600px] lg:h-[800px]" />
-      <div className="flex flex-col gap-10 sm:gap-14 px-[var(--page-x)] py-8 sm:py-12">
+      <div className="skeleton w-full h-[350px] sm:h-[480px] md:h-[600px] lg:h-[760px]" />
+      <div className="flex flex-col gap-8 sm:gap-14 px-[var(--page-x)] py-6 sm:py-12">
         {[0, 1, 2].map((i) => (
           <div key={i}>
-            <div className="skeleton h-[18px] sm:h-[20px] w-[140px] sm:w-[160px] rounded-[6px] mb-4 sm:mb-5" />
+            <div className="skeleton h-[18px] sm:h-[20px] w-[140px] sm:w-[160px] rounded-[6px] mb-3.5 sm:mb-5" />
             <div className="flex gap-[10px] sm:gap-[14px] overflow-x-auto pb-2 scrollbar-hide">
               {Array.from({ length: 7 }).map((_, j) => (
                 <div
                   key={j}
-                  className="skeleton flex-shrink-0 rounded-[10px] sm:rounded-[12px] w-[130px] h-[195px] sm:w-[175px] sm:h-[263px]"
+                  className="skeleton flex-shrink-0 rounded-[10px] sm:rounded-[12px] w-[126px] h-[189px] sm:w-[175px] sm:h-[263px]"
                 />
               ))}
             </div>

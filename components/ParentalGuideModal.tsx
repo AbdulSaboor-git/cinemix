@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   ShieldAlert,
   Eye,
@@ -121,6 +121,11 @@ export default function ParentalGuideModal({
   const autoTranslate = useAutoTranslate();
   const filmTitle = useFilmTitle(film, autoTranslate);
   const year = film.year || film.startYear;
+  const filmId = film.kinopoiskId ?? film.filmId ?? 0;
+  const imdbId = film.imdbId ?? "";
+
+  const filmRef = useRef(film);
+  filmRef.current = film;
 
   const [guide, setGuide] = useState<ParentalGuideData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -130,12 +135,13 @@ export default function ParentalGuideModal({
   >("ALL");
   const [certsExpanded, setCertsExpanded] = useState(false);
 
+  // Depend on primitive filmId/imdbId rather than the film object reference so parent re-renders never loop
   useEffect(() => {
     if (!open) return;
     let mounted = true;
     setLoading(true);
 
-    getParentalGuide(film)
+    getParentalGuide(filmRef.current)
       .then((data) => {
         if (mounted) {
           setGuide(data);
@@ -149,7 +155,7 @@ export default function ParentalGuideModal({
     return () => {
       mounted = false;
     };
-  }, [open, film]);
+  }, [open, filmId, imdbId]);
 
   const totalSpoilers =
     guide?.categories.reduce(
@@ -447,7 +453,6 @@ function CategoryDetailCard({
 
   return (
     <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[10px] p-3.5 sm:p-4">
-      {/* Category Header */}
       <div className="flex items-center justify-between gap-2 flex-wrap mb-2.5">
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-7 h-7 rounded-[6px] bg-[var(--bg-card)] border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] flex-shrink-0">
@@ -472,7 +477,6 @@ function CategoryDetailCard({
         </div>
       </div>
 
-      {/* Community Vote Distribution Bar */}
       {hasVoteBreakdown && (
         <div className="mb-3">
           <div className="h-[4px] w-full bg-[var(--bg-card)] rounded-full overflow-hidden flex">
@@ -522,7 +526,6 @@ function CategoryDetailCard({
         </div>
       )}
 
-      {/* Scene Descriptions */}
       {visibleItems.length > 0 ? (
         <div className="flex flex-col gap-2">
           {visibleItems.map((item) => (
@@ -550,7 +553,6 @@ function CategoryDetailCard({
         </p>
       )}
 
-      {/* Actions Row: Expand Items & Category Spoiler Toggle */}
       {(activeItems.length > 4 ||
         (!spoilersVisible && spoilerItems.length > 0) ||
         (localSpoilers && !globalShowSpoilers && spoilerItems.length > 0)) && (

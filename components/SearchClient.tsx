@@ -38,7 +38,6 @@ export default function SearchClient({
   const [mediaFilter, setMediaFilter] = useState<"ALL" | "FILM" | "SERIES">(
     "ALL",
   );
-  const [excludeRu, setExcludeRu] = useState(false);
   const [hideUnrated, setHideUnrated] = useState(false);
   const [sortBy, setSortBy] = useState<"RELEVANCE" | "RATING" | "YEAR">(
     "RELEVANCE",
@@ -67,13 +66,8 @@ export default function SearchClient({
       return;
     }
     setSearch(query);
-    const prefs = getPreferences();
-    if (prefs.contentRegionMode === "GLOBAL_FIRST") {
-      setExcludeRu(false);
-    }
   }, [query]);
 
-  // Outside pointerdown listener replaces fragile 250ms onBlur timeout
   useEffect(() => {
     if (!sugVisible) return;
     const onPointerDown = (e: PointerEvent) => {
@@ -103,6 +97,11 @@ export default function SearchClient({
   }, [query, page]);
 
   const displayedFilms = useMemo(() => {
+    const regionMode =
+      typeof window !== "undefined"
+        ? (getPreferences().contentRegionMode ?? "GLOBAL_FIRST")
+        : "GLOBAL_FIRST";
+
     const filtered = films.filter((f) => {
       if (mediaFilter === "FILM" && f.type && f.type !== "FILM") return false;
       if (
@@ -114,7 +113,6 @@ export default function SearchClient({
       ) {
         return false;
       }
-      if (excludeRu && isRussianDomesticFilm(f)) return false;
       if (hideUnrated) {
         const r = f.ratingImdb ?? f.ratingKinopoisk ?? f.rating;
         if (!r || Number(r) <= 0) return false;
@@ -122,20 +120,26 @@ export default function SearchClient({
       return true;
     });
 
+    const regionFiltered =
+      regionMode === "GLOBAL_FIRST"
+        ? filtered.filter((f) => !isRussianDomesticFilm(f))
+        : filtered;
+    const basePool = regionFiltered.length > 0 ? regionFiltered : filtered;
+
     if (sortBy === "RATING") {
-      return [...filtered].sort((a, b) => {
+      return [...basePool].sort((a, b) => {
         const rA = a.ratingImdb ?? a.ratingKinopoisk ?? Number(a.rating || 0);
         const rB = b.ratingImdb ?? b.ratingKinopoisk ?? Number(b.rating || 0);
         return rB - rA;
       });
     }
     if (sortBy === "YEAR") {
-      return [...filtered].sort(
+      return [...basePool].sort(
         (a, b) => Number(b.year || 0) - Number(a.year || 0),
       );
     }
-    return filtered;
-  }, [films, mediaFilter, excludeRu, hideUnrated, sortBy]);
+    return basePool;
+  }, [films, mediaFilter, hideUnrated, sortBy]);
 
   if (noKey) return <NoKeyBanner />;
 
@@ -159,7 +163,7 @@ export default function SearchClient({
   return (
     <PageContainer>
       {/* Search box */}
-      <form onSubmit={handleSubmit} className="mb-6 sm:mb-8">
+      <form onSubmit={handleSubmit} className="mb-5 sm:mb-8">
         <div ref={wrapperRef} className="relative w-full max-w-[640px]">
           <input
             ref={inputRef}
@@ -232,14 +236,14 @@ export default function SearchClient({
 
       {/* Post-Search Filter & Sort Bar */}
       {query && !loading && films.length > 0 && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 sm:mb-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-3">
           <div className="flex items-center gap-2 flex-wrap">
             <TabBar>
               <TabPill
                 active={mediaFilter === "ALL"}
                 onClick={() => setMediaFilter("ALL")}
               >
-                All ({films.length})
+                All ({displayedFilms.length})
               </TabPill>
               <TabPill
                 active={mediaFilter === "FILM"}
@@ -254,18 +258,6 @@ export default function SearchClient({
                 Series
               </TabPill>
             </TabBar>
-
-            <button
-              type="button"
-              onClick={() => setExcludeRu((v) => !v)}
-              className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border cursor-pointer ${
-                excludeRu
-                  ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
-                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
-              }`}
-            >
-              Exclude Russian
-            </button>
 
             <button
               type="button"
@@ -322,7 +314,7 @@ export default function SearchClient({
         <div className="film-grid">
           {displayedFilms.map((film, i) => {
             const id = film.kinopoiskId ?? film.filmId ?? i;
-            return <FilmCard key={id} film={film} />;
+            return <FilmCard key={id} film={film} priority={i < 6} />;
           })}
         </div>
       )}

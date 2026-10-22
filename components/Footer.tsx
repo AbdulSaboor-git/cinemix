@@ -5,7 +5,7 @@ import Logo from "./logo";
 export default function Footer() {
   const year = new Date().getFullYear();
   return (
-    <footer className="border-t border-[var(--border)] bg-[var(--bg-card)] mt-auto pb-[72px] md:pb-0">
+    <footer className="hidden md:block border-t border-[var(--border)] bg-[var(--bg-card)] mt-auto">
       <div className="max-w-[1440px] mx-auto px-4 sm:px-[var(--page-x)] py-10 sm:py-12">
         <div className="flex flex-col gap-8 sm:gap-10 sm:flex-row sm:justify-between">
           {/* Logo */}

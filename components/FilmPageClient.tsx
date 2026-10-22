@@ -35,6 +35,7 @@ import {
   getFilmDistributions,
   isAdultContentFilm,
   isSafeModeActive,
+  hydrateFilmWithCache,
 } from "@/lib/kinopoisk";
 import {
   Film,
@@ -125,7 +126,6 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
         setFilm(f);
         setLoading(false);
 
-        // If Safe Mode blocks this film, skip auxiliary fetches
         if (isSafeModeActive() && isAdultContentFilm(f)) {
           return;
         }
@@ -199,14 +199,13 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
   if (loading) return <LoadingSkeleton />;
   if (error || !film) return <ErrorState />;
 
-  // App-Wide Safe Mode Direct URL Gate
   if (isSafeModeActive() && isAdultContentFilm(film)) {
     return (
       <PageContainer className="flex items-center justify-center">
         <EmptyState
           icon={<Lock size={44} stroke="var(--accent)" strokeWidth={1.6} />}
           title="Safe Mode Content Restricted"
-          description="This title is flagged as adult or erotic content and is hidden because Safe Mode is enabled in your preferences."
+          description="This title is hidden because Safe Mode is enabled in your preferences."
           actionLabel="Back to Home"
           actionHref="/"
         />
@@ -290,35 +289,6 @@ function StaffInfoRow({
   );
 }
 
-function SimilarFilmItem({
-  sf,
-  autoTranslate,
-}: {
-  sf: SimilarFilm;
-  autoTranslate: boolean;
-}) {
-  const sfName = useFilmTitle(sf, autoTranslate);
-  return (
-    <Link
-      href={`/film/${sf.filmId}`}
-      className="no-underline flex-shrink-0 group"
-    >
-      <div className="w-[110px] sm:w-[130px] md:w-[150px] cursor-pointer">
-        <div className="rounded-[10px] overflow-hidden border border-[var(--border)] group-hover:border-[rgba(229,9,20,0.35)] bg-[var(--bg-card)] aspect-[2/3] relative transition-colors">
-          <PosterImage
-            src={sf.posterUrlPreview || sf.posterUrl}
-            alt={sfName}
-            title={sfName}
-          />
-        </div>
-        <p className="text-[11px] sm:text-[12px] font-semibold text-[var(--text)] mt-[6px] overflow-hidden text-ellipsis whitespace-nowrap group-hover:text-white">
-          {sfName}
-        </p>
-      </div>
-    </Link>
-  );
-}
-
 function FilmDetail({
   film,
   staff,
@@ -359,18 +329,16 @@ function FilmDetail({
     name ? `${name}${displayYear ? ` (${displayYear})` : ""}` : "Film",
   );
 
-  // Cast & Crew department state
   const [activeStaffDept, setActiveStaffDept] = useState<string>("ACTOR");
   const [castExpanded, setCastExpanded] = useState(false);
 
-  // Trivia & Reviews state
   const [reviewsExpanded, setReviewsExpanded] = useState(false);
   const [reviewFilter, setReviewFilter] = useState<
     "ALL" | "POSITIVE" | "NEGATIVE" | "NEUTRAL"
   >("ALL");
-  const [reviewSort, setReviewSort] = useState<"NEWEST" | "HELPFUL" | "CRITICAL">(
-    "NEWEST",
-  );
+  const [reviewSort, setReviewSort] = useState<
+    "NEWEST" | "HELPFUL" | "CRITICAL"
+  >("NEWEST");
   const [factsExpanded, setFactsExpanded] = useState(false);
   const [showSpoilers, setShowSpoilers] = useState(false);
   const [activeTab, setActiveTab] = useState<"facts" | "bloopers">("facts");
@@ -436,7 +404,6 @@ function FilmDetail({
     ? filteredFactItems
     : filteredFactItems.slice(0, 4);
 
-  // Filter and sort audience reviews
   const processedReviews = useMemo(() => {
     const filtered = reviews.filter((r) => {
       if (reviewFilter === "ALL") return true;
@@ -492,10 +459,10 @@ function FilmDetail({
       <BackButton />
 
       {/* ── Hero ── */}
-      <div className="flex flex-col md:flex-row gap-6 md:gap-10 lg:gap-12 md:items-start">
+      <div className="flex flex-col md:flex-row gap-5 md:gap-10 lg:gap-12 md:items-start">
         {/* Poster column */}
         <div className="w-full md:w-[260px] flex-shrink-0">
-          <div className="w-[150px] sm:w-[180px] md:w-full mx-auto md:mx-0 mb-5 md:mb-0">
+          <div className="w-[144px] sm:w-[180px] md:w-full mx-auto md:mx-0 mb-4 md:mb-0">
             <div className="rounded-[var(--radius-lg)] overflow-hidden border border-[var(--border)] shadow-[0_8px_40px_rgba(0,0,0,0.6)] aspect-[2/3] relative">
               <PosterImage
                 src={film.posterUrlPreview || film.posterUrl}
@@ -507,7 +474,7 @@ function FilmDetail({
           </div>
 
           {/* Ratings */}
-          <div className="flex flex-row flex-wrap md:flex-col gap-[8px] sm:gap-[10px] mt-5 justify-center md:justify-start">
+          <div className="flex flex-row flex-wrap md:flex-col gap-[8px] sm:gap-[10px] mt-4 justify-center md:justify-start">
             {ratings.map((r) => (
               <RatingBadge
                 key={r.label}
@@ -559,11 +526,11 @@ function FilmDetail({
 
         {/* Info column */}
         <div className="flex-1 min-w-0">
-          <h1 className="font-display leading-[1.05] tracking-[1px] text-white mb-2 text-[clamp(24px,6vw,52px)]">
+          <h1 className="font-display leading-[1.05] tracking-[1px] text-white mb-2.5 text-[clamp(24px,6vw,52px)] text-center md:text-left">
             {name}
           </h1>
 
-          <div className="flex flex-wrap gap-[6px] sm:gap-2 mb-4">
+          <div className="flex flex-wrap gap-[6px] sm:gap-2 mb-3.5 justify-center md:justify-start">
             {displayYear && primaryYear ? (
               <Link
                 href={`/explore?yearFrom=${primaryYear}&yearTo=${primaryYear}`}
@@ -641,7 +608,7 @@ function FilmDetail({
               )}
           </div>
 
-          <div className="flex flex-wrap gap-[6px] sm:gap-2 mb-5">
+          <div className="flex flex-wrap gap-[6px] sm:gap-2 mb-5 justify-center md:justify-start">
             {film.genres?.map((g) => (
               <Link
                 key={g.genre}
@@ -655,48 +622,50 @@ function FilmDetail({
             ))}
           </div>
 
-          {/* ── Primary Action Row (Watch Now, In Favorites, Watch Later) ── */}
-          <div className="flex flex-wrap items-center gap-2.5 mb-6">
+          {/* ── Native Android Action Row on Mobile / Inline on Desktop ── */}
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 mb-6">
             <Link href={`/watch/${filmId}`} className="no-underline">
               <button
                 type="button"
-                className="btn btn-primary px-5 sm:px-6 py-[10px] text-[13px] sm:text-[14px]"
+                className="btn btn-primary w-full sm:w-auto justify-center px-6 py-3 sm:py-[10px] text-[14px] rounded-[10px] sm:rounded-[var(--radius)]"
               >
-                <Play size={14} fill="white" stroke="white" />
+                <Play size={15} fill="white" stroke="white" />
                 Watch Now
               </button>
             </Link>
 
-            <button
-              type="button"
-              onClick={handleFav}
-              className={`flex items-center gap-[7px] rounded-[var(--radius)] px-4 py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 ${
-                isFav
-                  ? "bg-[rgba(229,9,20,0.15)] border-[rgba(229,9,20,0.5)] text-[var(--accent)] shadow-[0_0_14px_rgba(229,9,20,0.2)]"
-                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)]"
-              }`}
-            >
-              <Heart
-                size={14}
-                fill={isFav ? "var(--accent)" : "none"}
-                stroke="currentColor"
-                strokeWidth={2}
-              />
-              {isFav ? "In Favorites" : "Add to Favorites"}
-            </button>
+            <div className="grid grid-cols-2 sm:flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleFav}
+                className={`flex items-center justify-center gap-[7px] rounded-[10px] sm:rounded-[var(--radius)] px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 ${
+                  isFav
+                    ? "bg-[rgba(229,9,20,0.15)] border-[rgba(229,9,20,0.5)] text-[var(--accent)] shadow-[0_0_14px_rgba(229,9,20,0.2)]"
+                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)]"
+                }`}
+              >
+                <Heart
+                  size={14}
+                  fill={isFav ? "var(--accent)" : "none"}
+                  stroke="currentColor"
+                  strokeWidth={2}
+                />
+                {isFav ? "In Favorites" : "Favorite"}
+              </button>
 
-            <button
-              type="button"
-              onClick={handleWL}
-              className={`flex items-center gap-[7px] rounded-[var(--radius)] px-4 py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 ${
-                isWL
-                  ? "bg-[rgba(96,165,250,0.12)] border-[rgba(96,165,250,0.4)] text-[#60a5fa]"
-                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(96,165,250,0.4)] hover:text-[#60a5fa]"
-              }`}
-            >
-              <Clock size={14} stroke="currentColor" strokeWidth={2} />
-              {isWL ? "In Watch Later" : "Watch Later"}
-            </button>
+              <button
+                type="button"
+                onClick={handleWL}
+                className={`flex items-center justify-center gap-[7px] rounded-[10px] sm:rounded-[var(--radius)] px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 ${
+                  isWL
+                    ? "bg-[rgba(96,165,250,0.12)] border-[rgba(96,165,250,0.4)] text-[#60a5fa]"
+                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(96,165,250,0.4)] hover:text-[#60a5fa]"
+                }`}
+              >
+                <Clock size={14} stroke="currentColor" strokeWidth={2} />
+                {isWL ? "In Watch Later" : "Watch Later"}
+              </button>
+            </div>
           </div>
 
           {/* Box office — mobile */}
@@ -765,7 +734,7 @@ function FilmDetail({
         <SeasonsSection seasons={seasons} autoTranslate={autoTranslate} />
       )}
 
-      {/* ── Cast & Crew (with Department Tabs & Expand All) ── */}
+      {/* ── Cast & Crew ── */}
       {staff.length > 0 && (
         <div className="mt-10 md:mt-12">
           <SectionHeader title="CAST & CREW" count={deptList.length} />
@@ -873,7 +842,7 @@ function FilmDetail({
         </div>
       )}
 
-      {/* ── Audience Reviews (with Sentiment Filter & Sort Bar) ── */}
+      {/* ── Audience Reviews ── */}
       {reviews.length > 0 && (
         <div className="mt-10 md:mt-12">
           <SectionHeader
@@ -958,23 +927,32 @@ function FilmDetail({
         />
       )}
 
-      {/* ── Similar films ── */}
+      {/* ── Similar films (uses full hydrated FilmCard with year, genres, rating & long-press Quick-Peek) ── */}
       {similars.length > 0 && (
         <div className="mt-10 md:mt-12">
           <SectionHeader title="YOU MAY ALSO LIKE" count={similars.length} />
           <div className="flex gap-3 overflow-x-auto pb-3 scrollbar-none">
-            {similars.slice(0, 12).map((sf) => (
-              <SimilarFilmItem
+            {similars.slice(0, 14).map((sf) => (
+              <FilmCard
                 key={sf.filmId}
-                sf={sf}
-                autoTranslate={autoTranslate}
+                film={hydrateFilmWithCache({
+                  kinopoiskId: sf.filmId,
+                  filmId: sf.filmId,
+                  nameRu: sf.nameRu,
+                  nameEn: sf.nameEn,
+                  nameOriginal: sf.nameOriginal,
+                  posterUrl: sf.posterUrl,
+                  posterUrlPreview: sf.posterUrlPreview,
+                })}
+                variant="scroll"
+                size="sm"
               />
             ))}
           </div>
         </div>
       )}
 
-      {/* ── Related ── */}
+      {/* ── Related (Sequels & Prequels) ── */}
       {related.length > 0 && (
         <div className="mt-10 md:mt-12">
           <SectionHeader title="SEQUELS & PREQUELS" count={related.length} />
@@ -1360,9 +1338,7 @@ function GallerySection({
           </div>
           {currentList.length > 12 && (
             <ExpandBtn onClick={() => setExpanded((v) => !v)}>
-              {expanded
-                ? "Show less"
-                : `Show all ${currentList.length} images`}
+              {expanded ? "Show less" : `Show all ${currentList.length} images`}
             </ExpandBtn>
           )}
         </>
@@ -1639,8 +1615,7 @@ function DistributionsSection({
     .filter((d) => d.date && formatDateSafe(d.date))
     .sort(
       (a, b) =>
-        (new Date(a.date!).getTime() || 0) -
-        (new Date(b.date!).getTime() || 0),
+        (new Date(a.date!).getTime() || 0) - (new Date(b.date!).getTime() || 0),
     );
   const visible = expanded ? sorted : sorted.slice(0, 6);
 
@@ -1812,7 +1787,7 @@ function LoadingSkeleton() {
     <PageContainer>
       <div className="skeleton h-6 w-20 rounded-[6px] mb-6" />
       <div className="flex flex-col md:flex-row gap-8 md:gap-12">
-        <div className="skeleton w-[150px] sm:w-[180px] md:w-[260px] flex-shrink-0 rounded-[12px] aspect-[2/3] mx-auto md:mx-0" />
+        <div className="skeleton w-[144px] sm:w-[180px] md:w-[260px] flex-shrink-0 rounded-[12px] aspect-[2/3] mx-auto md:mx-0" />
         <div className="flex-1 min-w-[240px] flex flex-col gap-4">
           <div className="skeleton h-9 sm:h-12 w-[70%] rounded-[8px]" />
           <div className="skeleton h-4 sm:h-5 w-[40%] rounded-[8px]" />

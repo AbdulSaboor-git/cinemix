@@ -58,7 +58,7 @@ export default function Navbar() {
   } = useSearchSuggestions();
 
   useEffect(() => {
-    const handler = () => setScrolled(window.scrollY > 20);
+    const handler = () => setScrolled(window.scrollY > 12);
     window.addEventListener("scroll", handler, { passive: true });
     return () => window.removeEventListener("scroll", handler);
   }, []);
@@ -75,7 +75,6 @@ export default function Navbar() {
     }
   }, [searchOpen]);
 
-  // Outside pointerdown listener replaces fragile 200ms onBlur timeout so mobile taps never get swallowed
   useEffect(() => {
     if (!sugVisible) return;
     const onPointerDown = (e: PointerEvent) => {
@@ -90,7 +89,6 @@ export default function Navbar() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [sugVisible, setSugVisible]);
 
-  // Global keyboard shortcut: "/" or Ctrl+K / Cmd+K focuses search
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -141,10 +139,12 @@ export default function Navbar() {
 
   return (
     <>
-      {/* ── Main Nav ── */}
+      {/* ── Top App Bar ── */}
       <nav
-        className={`fixed top-0 left-0 right-0 z-[200] flex items-center gap-3 transition-all duration-300 px-4 md:px-[var(--page-x)] h-[var(--nav-height)] bg-gradient-to-br from-black/85 to-black/35 backdrop-blur-[20px] ${
-          scrolled ? "shadow-[0_1px_0_var(--border)]" : "shadow-none"
+        className={`fixed top-0 left-0 right-0 z-[200] flex items-center gap-3 transition-all duration-300 px-3.5 md:px-[var(--page-x)] h-[var(--nav-height)] select-none ${
+          scrolled
+            ? "bg-[#080808]/92 backdrop-blur-[22px] shadow-[0_1px_0_var(--border)]"
+            : "bg-gradient-to-b from-black/90 via-black/60 to-transparent backdrop-blur-[12px]"
         }`}
       >
         <Logo />
@@ -167,7 +167,7 @@ export default function Navbar() {
           ))}
         </div>
 
-        {/* Mobile: push icons to right */}
+        {/* Mobile spacer */}
         <div className="flex-1 md:hidden" />
 
         {/* Desktop search */}
@@ -180,7 +180,7 @@ export default function Navbar() {
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onFocus={() => search.trim().length >= 2 && setSugVisible(true)}
-                placeholder="Search films, series… (/)"
+                placeholder="Search films, series… "
                 className="bg-[rgba(255,255,255,0.07)] border border-[var(--border)] rounded-[20px] py-[7px] pl-9 pr-8 text-[var(--text)] text-[13px] outline-none placeholder:text-[var(--text-muted)] transition-[width,border-color,background] duration-300 w-[200px] focus:w-[270px] focus:border-[rgba(229,9,20,0.5)] focus:bg-[rgba(255,255,255,0.1)]"
               />
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 w-[13px] h-[13px]" />
@@ -215,18 +215,15 @@ export default function Navbar() {
 
         {/* Desktop Random Roulette + Profile + Preferences */}
         <div className="hidden md:flex items-center gap-1 ml-1">
-          <Link
+          {/* <Link
             href="/explore?order=RANDOM"
             className="no-underline"
             title="Random Film Roulette"
           >
-            <NavIconBtn
-              active={false}
-              aria-label="Random Film Roulette"
-            >
+            <NavIconBtn active={false} aria-label="Random Film Roulette">
               <Shuffle width={18} />
             </NavIconBtn>
-          </Link>
+          </Link> */}
           <Link
             href="/preferences"
             className="no-underline"
@@ -249,14 +246,14 @@ export default function Navbar() {
           </Link>
         </div>
 
-        {/* Mobile top-right: search + preferences */}
-        <div className="flex lg:hidden items-center gap-[2px]">
+        {/* Mobile App Bar Actions: Search + Preferences */}
+        <div className="flex lg:hidden items-center gap-1">
           <NavIconBtn
             onClick={() => setSearchOpen((v) => !v)}
             active={searchOpen}
             aria-label="Search"
           >
-            <Search width={20} />
+            {searchOpen ? <X width={19} /> : <Search width={19} />}
           </NavIconBtn>
 
           <Link href="/preferences" className="md:hidden no-underline">
@@ -264,17 +261,17 @@ export default function Navbar() {
               active={pathname === "/preferences"}
               aria-label="Preferences"
             >
-              <Settings width={20} />
+              <Settings width={19} />
             </NavIconBtn>
           </Link>
         </div>
       </nav>
 
-      {/* ── Mobile search bar ── */}
+      {/* ── Mobile Search Drawer ── */}
       {searchOpen && (
         <div
           ref={mobileSearchRef}
-          className="lg:hidden fixed left-0 right-0 z-[190] bg-[rgba(8,8,8,0.98)] backdrop-blur-[20px] shadow-[0_1px_0_var(--border)] px-4 py-3 slide-down"
+          className="lg:hidden fixed left-0 right-0 z-[190] bg-[#0b0b0df5] backdrop-blur-[24px] shadow-[0_8px_32px_rgba(0,0,0,0.75)] border-b border-[var(--border)] px-3.5 py-2.5 slide-down"
           style={{ top: "var(--nav-height)" }}
         >
           <form onSubmit={handleSubmit}>
@@ -285,9 +282,9 @@ export default function Navbar() {
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 placeholder="Search films, series, actors…"
-                className="pl-10 pr-9 text-[15px] py-3 input"
+                className="pl-10 pr-9 text-[14px] py-2.5 rounded-full input"
               />
-              <Search className="absolute left-[14px] top-1/2 -translate-y-1/2 opacity-40 pointer-events-none w-4 h-4" />
+              <Search className="absolute left-[14px] top-1/2 -translate-y-1/2 opacity-45 pointer-events-none w-4 h-4" />
               {search && (
                 <button
                   type="button"
@@ -321,10 +318,10 @@ export default function Navbar() {
         </div>
       )}
 
-      {/* ── Mobile Bottom Nav ── */}
+      {/* ── Native Android Material-Style Bottom Navigation Bar (Mobile < md) ── */}
       <div
-        className="md:hidden fixed bottom-0 left-0 right-0 z-[200] flex items-center justify-around px-2 py-2 bg-black/60 backdrop-blur-[24px] border-t border-[var(--border)] safe-bottom"
-        style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
+        className="md:hidden fixed bottom-0 left-0 right-0 z-[200] flex items-center justify-around px-1 pt-1.5 bg-[#0a0a0cf2] backdrop-blur-[28px] border-t border-white/[0.08] select-none [-webkit-touch-callout:none]"
+        style={{ paddingBottom: "max(6px, env(safe-area-inset-bottom))" }}
       >
         {BOTTOM_NAV_LINKS.map(({ href, label, Icon }) => {
           const active = isActive(href);
@@ -333,23 +330,32 @@ export default function Navbar() {
               key={href}
               href={href}
               aria-label={label}
-              className="no-underline flex-1 flex justify-center"
+              className="no-underline flex-1 flex flex-col items-center justify-center py-0.5 active:scale-90 transition-transform duration-150"
             >
               <div
-                className={`relative flex items-center justify-center w-11 h-11 rounded-[12px] transition-all duration-200 ${
+                className={`flex items-center justify-center w-12 h-7 rounded-full transition-all duration-200 ${
                   active
-                    ? "bg-[rgba(229,9,20,0.15)] text-[rgb(229,9,20)]"
-                    : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                    ? "bg-[rgba(229,9,20,0.2)] text-[var(--accent)]"
+                    : "text-[var(--text-muted)]"
                 }`}
               >
                 <Icon
-                  size={22}
-                  strokeWidth={active ? 2.4 : 1.8}
+                  size={19}
+                  strokeWidth={active ? 2.4 : 1.9}
                   className={
-                    active ? "drop-shadow-[0_0_6px_rgba(229,9,20,0.5)]" : ""
+                    active ? "drop-shadow-[0_0_8px_rgba(229,9,20,0.5)]" : ""
                   }
                 />
               </div>
+              <span
+                className={`text-[10px] mt-0.5 leading-tight tracking-[0.2px] transition-colors ${
+                  active
+                    ? "font-bold text-white"
+                    : "font-medium text-[var(--text-muted)]"
+                }`}
+              >
+                {label}
+              </span>
             </Link>
           );
         })}
@@ -369,10 +375,10 @@ function NavIconBtn({
       type="button"
       onClick={onClick}
       {...props}
-      className={`w-9 h-9 rounded-[8px] flex items-center justify-center cursor-pointer transition-all duration-[180ms] text-[var(--text)] ${
+      className={`w-9 h-9 rounded-full md:rounded-[8px] flex items-center justify-center cursor-pointer transition-all duration-[160ms] text-[var(--text)] active:scale-90 ${
         active
           ? "bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.3)] text-white"
-          : "bg-transparent border border-transparent hover:bg-[rgba(255,255,255,0.08)]"
+          : "bg-transparent border border-transparent hover:bg-[rgba(255,255,255,0.08)] active:bg-[rgba(255,255,255,0.12)]"
       }`}
     >
       {children}
