@@ -502,17 +502,17 @@ function PremiereCard({
                   .join(", ")}
               </p>
             )}
+            {durationMins !== undefined && durationMins > 0 && (
+              <span className="text-[11px] text-[var(--text-muted)]">
+                {Math.floor(durationMins / 60)}h {durationMins % 60}m
+              </span>
+            )}
           </div>
 
           <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
             {safePremiereDate && (
               <span className="text-[11px] text-[var(--accent)] font-semibold">
                 {safePremiereDate}
-              </span>
-            )}
-            {durationMins !== undefined && durationMins > 0 && (
-              <span className="text-[11px] text-[var(--text-muted)]">
-                {Math.floor(durationMins / 60)}h {durationMins % 60}m
               </span>
             )}
             {displayRating !== undefined && displayRating > 0 ? (

@@ -333,29 +333,6 @@ export default function Top250Client({
             ? "The highest-rated television series of all time, ranked by audience score."
             : "The greatest films of all time, ranked by audience score."
         }
-        rightSlot={
-          !loading && total > 0 ? (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] sm:text-[12px] text-[var(--text-muted)] bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-1.5 rounded-full">
-                Watched:{" "}
-                <strong className="text-[#4ade80]">{watchedOnPageCount}</strong>{" "}
-                / {films.length}
-              </span>
-              <button
-                type="button"
-                onClick={() => setHideWatched((v) => !v)}
-                className={`px-3 py-1.5 rounded-full text-[11px] sm:text-[12px] font-semibold border cursor-pointer inline-flex items-center gap-1.5 ${
-                  hideWatched
-                    ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
-                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
-                }`}
-              >
-                <EyeOff size={12} />
-                {hideWatched ? "Unwatched Only" : "Hide Watched"}
-              </button>
-            </div>
-          ) : null
-        }
       />
 
       <TabBar className="mb-5 sm:mb-6">

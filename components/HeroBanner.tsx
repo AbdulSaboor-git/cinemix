@@ -368,42 +368,43 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
                 Details
               </span>
             </Link>
+            <div className="hidden md:inline-flex flex gap-2.5 sm:gap-3 flex-wrap items-center">
+              <button
+                type="button"
+                onClick={handleFav}
+                title={isFav ? "In Favorites" : "Add to Favorites"}
+                className={`btn btn-secondary px-3.5 py-[11px] text-[13px] ${
+                  isFav
+                    ? "!border-[rgba(229,9,20,0.6)] !bg-[rgba(229,9,20,0.2)] !text-white"
+                    : ""
+                }`}
+              >
+                <Heart
+                  size={14}
+                  fill={isFav ? "var(--accent)" : "none"}
+                  stroke={isFav ? "var(--accent)" : "currentColor"}
+                />
+                <span className="hidden md:inline">
+                  {isFav ? "In Favorites" : "Favorite"}
+                </span>
+              </button>
 
-            <button
-              type="button"
-              onClick={handleFav}
-              title={isFav ? "In Favorites" : "Add to Favorites"}
-              className={`hidden sm:inline-flex btn btn-secondary px-3.5 py-[11px] text-[13px] ${
-                isFav
-                  ? "!border-[rgba(229,9,20,0.6)] !bg-[rgba(229,9,20,0.2)] !text-white"
-                  : ""
-              }`}
-            >
-              <Heart
-                size={14}
-                fill={isFav ? "var(--accent)" : "none"}
-                stroke={isFav ? "var(--accent)" : "currentColor"}
-              />
-              <span className="hidden md:inline">
-                {isFav ? "In Favorites" : "Favorite"}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleWL}
-              title={isWL ? "In Watch Later" : "Save to Watch Later"}
-              className={`hidden sm:inline-flex btn btn-secondary px-3.5 py-[11px] text-[13px] ${
-                isWL
-                  ? "!border-[rgba(96,165,250,0.6)] !bg-[rgba(96,165,250,0.18)] !text-[#60a5fa]"
-                  : ""
-              }`}
-            >
-              <Clock size={14} />
-              <span className="hidden md:inline">
-                {isWL ? "In Watch Later" : "Watch Later"}
-              </span>
-            </button>
+              <button
+                type="button"
+                onClick={handleWL}
+                title={isWL ? "In Watch Later" : "Save to Watch Later"}
+                className={`hidden md:inline-flex btn btn-secondary px-3.5 py-[11px] text-[13px] ${
+                  isWL
+                    ? "!border-[rgba(96,165,250,0.6)] !bg-[rgba(96,165,250,0.18)] !text-[#60a5fa]"
+                    : ""
+                }`}
+              >
+                <Clock size={14} />
+                <span className="hidden md:inline">
+                  {isWL ? "In Watch Later" : "Watch Later"}
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
