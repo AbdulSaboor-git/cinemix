@@ -31,7 +31,7 @@ export default function PageHeader({
           {eyebrow && <span>{eyebrow}</span>}
         </div>
       )}
-      <div className="flex items-end justify-between flex-wrap gap-2 sm:gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-3">
         <h1
           suppressHydrationWarning
           className="font-display uppercase leading-none tracking-[1.5px] sm:tracking-[2px] text-[var(--text)] text-[clamp(28px,5vw,56px)] m-0"

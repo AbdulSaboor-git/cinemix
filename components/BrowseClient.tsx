@@ -1134,7 +1134,15 @@ export default function BrowseClient(props: ExploreSearchParams) {
       const en = translateCountry(c.country, true).toLowerCase();
       return c.country.toLowerCase().includes(q) || en.includes(q);
     });
-    return list.slice(0, 48);
+    return list
+      .sort((a, b) => {
+        const aName = translateCountry(a.country, true).toLowerCase();
+        const bName = translateCountry(b.country, true).toLowerCase();
+        return aName.localeCompare(bName);
+      })
+      .filter((c) => {
+        return c.country !== "";
+      });
   }, [countries, countrySearch]);
 
   if (noKey) return <NoKeyBanner />;
@@ -1632,22 +1640,24 @@ export default function BrowseClient(props: ExploreSearchParams) {
       {/* TAB 1: MULTI-GENRE MATRIX */}
       {activeStudioTab === "GENRES" && (
         <div className="flex flex-wrap gap-2">
-          {genres.map((g) => {
-            const isInc = draft.includeGenres.includes(g.id);
-            const isExc = draft.excludeGenres.includes(g.id);
-            const status = isInc ? "INCLUDED" : isExc ? "EXCLUDED" : "NONE";
-            const label = translateGenre(g.genre, autoTranslate) || g.genre;
-            return (
-              <FilterTagPill
-                key={g.id}
-                label={label}
-                status={status}
-                tapMode={tapMode}
-                onToggleInclude={() => toggleDraftGenreInclude(g.id)}
-                onToggleExclude={() => toggleDraftGenreExclude(g.id)}
-              />
-            );
-          })}
+          {genres
+            .filter((g) => g.genre.trim() !== "")
+            .map((g) => {
+              const isInc = draft.includeGenres.includes(g.id);
+              const isExc = draft.excludeGenres.includes(g.id);
+              const status = isInc ? "INCLUDED" : isExc ? "EXCLUDED" : "NONE";
+              const label = translateGenre(g.genre, autoTranslate) || g.genre;
+              return (
+                <FilterTagPill
+                  key={g.id}
+                  label={label}
+                  status={status}
+                  tapMode={tapMode}
+                  onToggleInclude={() => toggleDraftGenreInclude(g.id)}
+                  onToggleExclude={() => toggleDraftGenreExclude(g.id)}
+                />
+              );
+            })}
         </div>
       )}
 
@@ -2075,7 +2085,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
             type="button"
             onClick={handleSurpriseMe}
             disabled={films.length === 0}
-            className="btn btn-primary py-2 px-3.5 text-[12px] disabled:opacity-40"
+            className="btn btn-primary py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] disabled:opacity-40"
           >
             <Shuffle size={13} />
             Surprise Me
@@ -2168,11 +2178,14 @@ export default function BrowseClient(props: ExploreSearchParams) {
 
         {/* Row 2: Custom Saved Presets on a Separate Line with Identical Active/Toggle Behavior (Requirement 6) */}
         {savedPresets.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-[var(--border)]">
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-              <span className="text-[10px] font-bold uppercase tracking-[1px] text-[var(--text-muted)] flex-shrink-0 mr-1">
+          <div className="mt-1.5 md:mt-2 pb-2 border-b border-[var(--border)]">
+            <span className="text-[11px] mb-1.5 font-bold uppercase tracking-[1.4px] text-[var(--text-muted)] flex items-center gap-1.5">
+              Saved Presets
+            </span>
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+              {/* <span className="text-[10px] font-bold uppercase tracking-[1px] text-[var(--text-muted)] flex-shrink-0 mr-1">
                 Saved:
-              </span>
+              </span> */}
               {savedPresets.map((preset) => {
                 const selected = isSavedPresetSelected(preset);
                 return (
