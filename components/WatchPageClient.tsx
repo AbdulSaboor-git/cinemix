@@ -118,9 +118,8 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   const [loading, setLoading] = useState(!isNaN(id));
   const [error, setError] = useState(isNaN(id));
 
-  // Cinema Controls: Wide Theater & Lights-Off Mode
+  // Cinema Controls: Wide Theater
   const [wideTheater, setWideTheater] = useState(false);
-  const [lightsOff, setLightsOff] = useState(false);
   const [parentalOpen, setParentalOpen] = useState(false);
 
   const { isFav, isWL } = useListStatus(isNaN(id) ? 0 : id);
@@ -188,22 +187,18 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     };
   }, [id]);
 
-  // Keyboard shortcuts: W for Wide Theater, L for Lights-Off
+  // Keyboard shortcuts: W for Wide Theater
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (e.key === "w" || e.key === "W") {
         setWideTheater((v) => !v);
-      } else if (e.key === "l" || e.key === "L") {
-        setLightsOff((v) => !v);
-      } else if (e.key === "Escape" && lightsOff) {
-        setLightsOff(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightsOff]);
+  }, []);
 
   // Accurate 10-second (1000ms interval) watch history tracker
   useEffect(() => {
@@ -226,7 +221,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
             "Unknown",
           poster_url: film.posterUrlPreview || film.posterUrl || null,
           year: film.year ?? film.startYear ?? null,
-          rating: film.ratingKinopoisk ?? film.ratingImdb ?? null,
+          rating: film.ratingImdb ?? film.ratingKinopoisk ?? null,
         });
         clearInterval(timer);
       }
@@ -300,7 +295,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     );
   }
 
-  const rating = film.ratingKinopoisk ?? film.ratingImdb;
+  const rating = film.ratingImdb ?? film.ratingKinopoisk;
   const year = film.year || film.startYear;
   const playerUrl = `${PLAYER_BASE_URL}?id=${id}`;
 
@@ -309,7 +304,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     film_name: name,
     poster_url: film.posterUrlPreview || film.posterUrl || null,
     year: film.year ?? film.startYear ?? null,
-    rating: film.ratingKinopoisk ?? film.ratingImdb ?? null,
+    rating: film.ratingImdb ?? film.ratingKinopoisk ?? null,
   };
 
   const handleFav = () => {
@@ -324,20 +319,10 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
   return (
     <PageContainer className="pt-3 sm:pt-5 relative">
-      {/* Cinema Lights-Off Dim Overlay */}
-      {lightsOff && (
-        <div
-          className="fixed inset-0 bg-black/85 z-[90] transition-opacity"
-          onClick={() => setLightsOff(false)}
-        />
-      )}
-
       <div
         className={`${
           wideTheater ? "max-w-[1280px]" : "max-w-[960px]"
-        } mx-auto transition-all duration-300 relative ${
-          lightsOff ? "z-[95]" : ""
-        }`}
+        } mx-auto transition-all duration-300 relative`}
       >
         {/* Top Cinema Control Bar */}
         <div className="w-full flex flex-row items-center flex-wrap justify-between gap-2 sm:gap-3 mb-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] px-3 sm:px-4 py-2.5">
@@ -356,7 +341,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                 href={`/film/${id}`}
                 className="no-underline hover:underline text-white min-w-0"
               >
-                <h1 className="font-display tracking-[1.2px] text-[16px] sm:text-[20px] text-white leading-none m-0 truncate">
+                <h1 className="font-display tracking-[1.2px] text-[16px] sm:text-[20px] text-white leading-none m-0 line-clamp-2">
                   {name}
                 </h1>
               </Link>
@@ -408,33 +393,25 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
           {/* Action controls */}
           <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-            <button
-              type="button"
-              onClick={() => setWideTheater((v) => !v)}
-              title="Toggle Wide Theater Mode (W)"
-              className={`btn btn-ghost py-1.5 px-2.5 text-[12px] hidden md:inline-flex ${
-                wideTheater
-                  ? "border-[rgba(229,9,20,0.5)] text-[var(--accent)]"
-                  : ""
-              }`}
-            >
-              {wideTheater ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-              <span>{wideTheater ? "Standard" : "Wide"}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setLightsOff((v) => !v)}
-              title="Toggle Cinema Lights-Off Mode (L)"
-              className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
-                lightsOff ? "border-[rgba(245,197,24,0.5)] text-[#f5c518]" : ""
-              }`}
-            >
-              {lightsOff ? <Sun size={14} /> : <Moon size={14} />}
-              <span className="hidden sm:inline">
-                {lightsOff ? "Lights On" : "Lights Off"}
-              </span>
-            </button>
+            <div className="hidden md:inline-flex">
+              <button
+                type="button"
+                onClick={() => setWideTheater((v) => !v)}
+                title="Toggle Wide Theater Mode (W)"
+                className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
+                  wideTheater
+                    ? "border-[rgba(229,9,20,0.5)] text-[var(--accent)]"
+                    : ""
+                }`}
+              >
+                {wideTheater ? (
+                  <Minimize2 size={14} />
+                ) : (
+                  <Maximize2 size={14} />
+                )}
+                <span>{wideTheater ? "Standard" : "Wide"}</span>
+              </button>
+            </div>
 
             {!film.ratingAgeLimits && !film.ratingMpaa && (
               <button
