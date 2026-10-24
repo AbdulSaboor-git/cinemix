@@ -411,7 +411,7 @@ export default function PersonClient({ personId }: { personId: string }) {
             />
 
             {/* Info */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 w-full md:w-auto">
               {professionLabel && (
                 <p className="text-[11px] text-center md:text-left sm:text-[12px] text-[var(--accent)] uppercase tracking-[1.5px] font-semibold mb-1 sm:mb-2">
                   {professionLabel}
@@ -848,7 +848,7 @@ function FilmEntry({
           alt={name}
           title={name}
           fallbackType="mini"
-          className="w-[48px] h-[72px] rounded-[7px] overflow-hidden bg-[var(--surface)] relative border border-white/5"
+          className="w-[64px] rounded-[7px] hidden sm:block overflow-hidden bg-[var(--surface)] relative border border-white/5"
         />
       </Link>
 

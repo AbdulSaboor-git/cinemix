@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import { User, Film } from "lucide-react";
+import { User } from "lucide-react";
 import { FilmPosterFallback } from "@/components/posterFallback";
 
 export interface PosterImageProps {
@@ -81,10 +81,8 @@ export default function PosterImage({
     }
     if (fallbackType === "mini") {
       return (
-        <div
-          className={`${className} flex items-center justify-center bg-[var(--surface)]`}
-        >
-          <Film size={13} stroke="var(--text-muted)" strokeWidth={2} />
+        <div className={className}>
+          <FilmPosterFallback title={title || alt} compact />
         </div>
       );
     }

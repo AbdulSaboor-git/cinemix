@@ -1,24 +1,40 @@
 "use client";
 import { Film } from "lucide-react";
 
-export function FilmPosterFallback({ title }: { title?: string }) {
+export function FilmPosterFallback({
+  title,
+  compact = false,
+}: {
+  title?: string;
+  compact?: boolean;
+}) {
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-3 text-center bg-gradient-to-br from-[#1a1a2e] to-[#16213e]">
+    <div className="relative w-full h-full min-w-0 overflow-hidden flex flex-col items-center justify-center text-center bg-[radial-gradient(ellipse_at_50%_35%,rgba(229,9,20,0.14),transparent_55%),linear-gradient(145deg,#1b1b25,#101014_70%)]">
+      <div
+        aria-hidden="true"
+        className={`absolute border border-white/[0.07] ${
+          compact ? "inset-[6%] rounded-[4px]" : "inset-[5%] rounded-[8px]"
+        }`}
+      />
       <Film
-        size={34}
+        size={compact ? 16 : 34}
         stroke="var(--accent)"
         strokeWidth={1.5}
-        className="opacity-80 flex-shrink-0"
+        className={`relative flex-shrink-0 opacity-75 ${
+          compact ? "mb-1" : "mb-3"
+        }`}
       />
-
-      {title && (
-        <p className="text-[10px] text-[var(--text-dim)] font-medium leading-[1.3] line-clamp-2">
+      {!compact && title && (
+        <p className="relative max-w-full px-3 text-[10px] text-[var(--text-dim)] font-medium leading-[1.3] line-clamp-2">
           {title}
         </p>
       )}
-
-      <span className="text-[9px] text-[var(--text-muted)]">
-        No preview available
+      <span
+        className={`relative font-semibold tracking-[0.12em] text-[var(--text-muted)] ${
+          compact ? "text-[5px]" : "mt-2 text-[8px]"
+        }`}
+      >
+        NO POSTER
       </span>
     </div>
   );
