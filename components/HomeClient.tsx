@@ -377,7 +377,6 @@ export default function HomeClient() {
             title="Top 250 — All Time Greats"
             films={top250Films.slice(0, 20)}
             href="/top250"
-            showIndex
           />
         )}
         {s.premieres && premiereFilms.length > 0 && (

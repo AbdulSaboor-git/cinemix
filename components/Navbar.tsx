@@ -156,7 +156,7 @@ export default function Navbar() {
               key={href}
               type="button"
               onClick={() => router.push(href)}
-              className={`px-3.5 cursor-pointer py-1.5 rounded-md text-[13px] font-medium transition-all duration-180 ${
+              className={`px-3.5 cursor-pointer active:scale-90 py-1.5 rounded-md text-[13px] font-medium transition-all duration-180 ${
                 isActive(href)
                   ? "text-white bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.25)]"
                   : "text-[var(--text-dim)] border border-transparent hover:text-white hover:bg-[rgba(255,255,255,0.06)]"

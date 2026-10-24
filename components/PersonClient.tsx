@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
   Star,
@@ -13,6 +13,7 @@ import {
   Film as FilmIcon,
   Tv,
   SlidersHorizontal,
+  ArrowUpDown,
 } from "lucide-react";
 import {
   getPerson,
@@ -36,6 +37,7 @@ import {
   translateCountry,
   isRussian,
   formatDateSafe,
+  translateText,
 } from "@/lib/translate";
 import { hasApiKeys } from "@/lib/preferences";
 import { toggleFavorite, toggleWatchLater } from "@/lib/userLists";
@@ -49,6 +51,12 @@ import TabPill from "@/components/ui/TabPill";
 import PosterImage from "@/components/ui/PosterImage";
 import EmptyState from "@/components/ui/EmptyState";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
+import { useRouter } from "next/navigation";
+import {
+  FilmLongPressPortal,
+  useFilmLongPress,
+  useHydratedFilm,
+} from "./FilmCard";
 
 const PROF_LABELS: Record<string, string> = {
   ACTOR: "Actor",
@@ -391,7 +399,7 @@ export default function PersonClient({ personId }: { personId: string }) {
         <div className="max-w-[1440px] mx-auto px-4 sm:px-[var(--page-x)] py-6 sm:py-10">
           <BackButton />
 
-          <div className="flex gap-5 sm:gap-[clamp(20px,4vw,40px)] items-start">
+          <div className="flex flex-col md:flex-row gap-3 sm:gap-5 sm:gap-[clamp(20px,4vw,40px)] items-center md:items-start">
             {/* Photo */}
             <PosterImage
               src={person.posterUrl}
@@ -399,17 +407,17 @@ export default function PersonClient({ personId }: { personId: string }) {
               title={name}
               fallbackType="person"
               priority
-              className="rounded-[var(--radius-lg)] overflow-hidden border border-[var(--border)] shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex-shrink-0 w-[95px] sm:w-[140px] md:w-[200px] aspect-[2/3] relative bg-[var(--surface)]"
+              className="rounded-[var(--radius-lg)] overflow-hidden border border-[var(--border)] shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex-shrink-0 w-[120px] sm:w-[140px] md:w-[200px] aspect-[2/3] relative bg-[var(--surface)]"
             />
 
             {/* Info */}
             <div className="flex-1 min-w-0">
               {professionLabel && (
-                <p className="text-[11px] sm:text-[12px] text-[var(--accent)] uppercase tracking-[1.5px] font-semibold mb-1 sm:mb-2">
+                <p className="text-[11px] text-center md:text-left sm:text-[12px] text-[var(--accent)] uppercase tracking-[1.5px] font-semibold mb-1 sm:mb-2">
                   {professionLabel}
                 </p>
               )}
-              <h1 className="font-display leading-none tracking-[1px] sm:tracking-[2px] mb-2 sm:mb-4 text-[clamp(22px,5vw,64px)]">
+              <h1 className="font-display  text-center md:text-left leading-none tracking-[1px] sm:tracking-[2px] mb-4 text-[clamp(22px,5vw,64px)]">
                 {name}
               </h1>
 
@@ -423,9 +431,6 @@ export default function PersonClient({ personId }: { personId: string }) {
                 {formattedBirthday && (
                   <InfoItem label="Born" value={formattedBirthday} />
                 )}
-                {person.birthplace && (
-                  <TranslatedInfoItem label="From" value={person.birthplace} />
-                )}
                 {person.age !== undefined &&
                   person.age > 0 &&
                   !person.death && (
@@ -437,17 +442,17 @@ export default function PersonClient({ personId }: { personId: string }) {
                 {formattedDeath && (
                   <InfoItem label="Died" value={formattedDeath} />
                 )}
-                {person.deathplace && (
-                  <TranslatedInfoItem
-                    label="Died in"
-                    value={person.deathplace}
-                  />
-                )}
                 {person.hasAwards !== undefined && person.hasAwards > 0 && (
                   <InfoItem label="Awards" value={`${person.hasAwards}`} />
                 )}
                 <InfoItem label="Credits" value={String(allFilms.length)} />
               </div>
+              {person.birthplace && (
+                <TranslatedInfoItem label="From" value={person.birthplace} />
+              )}
+              {person.deathplace && (
+                <TranslatedInfoItem label="Died in" value={person.deathplace} />
+              )}
 
               {person.spouses && person.spouses.length > 0 && (
                 <div className="mt-2">
@@ -536,10 +541,10 @@ export default function PersonClient({ personId }: { personId: string }) {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-3">
           <div className="flex items-center gap-2 flex-wrap">
             {/* Search within credits */}
-            <div className="relative flex-1 sm:flex-initial sm:w-[240px]">
+            <div className="w-full relative flex-1 sm:flex-initial sm:w-[280px]">
               <Search
                 size={13}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
+                className="absolute  left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
               />
               <input
                 type="text"
@@ -552,7 +557,6 @@ export default function PersonClient({ personId }: { personId: string }) {
                 className="input w-full pl-8 pr-3 py-1.5 text-[12px] rounded-[8px]"
               />
             </div>
-
             {/* Main Roles Only Toggle */}
             <button
               type="button"
@@ -567,26 +571,25 @@ export default function PersonClient({ personId }: { personId: string }) {
               }`}
             >
               <Sparkles size={12} />
-              Main Roles Only
+              Main Roles
             </button>
           </div>
 
           <div className="flex items-center gap-2">
-            <SlidersHorizontal size={13} className="text-[var(--text-muted)]" />
+            <ArrowUpDown size={16} className="text-[var(--text-muted)]" />
             <select
               value={creditSort}
               onChange={(e) => {
                 setCreditSort(e.target.value as CreditSortMode);
                 setFilmPage(1);
               }}
-              className="select text-[12px] py-1.5 px-3 rounded-[8px]"
+              className="select text-[12px] w-full md:w-auto py-1.5 px-3 rounded-[8px]"
               aria-label="Sort credits by"
             >
               <option value="RATING">Sort: Highest Rated</option>
               <option value="YEAR_DESC">Sort: Newest Release Year</option>
               <option value="YEAR_ASC">Sort: Oldest Release Year</option>
               <option value="VOTES">Sort: Most Popular (Votes)</option>
-              <option value="TITLE">Sort: Title (A–Z)</option>
             </select>
           </div>
         </div>
@@ -727,6 +730,31 @@ function FilmEntry({
   autoTranslate: boolean;
   onOpenParentalGuide: (meta?: CompactFilmMeta) => void;
 }) {
+  const entryRef = useRef<HTMLDivElement>(null);
+  const popupFilm = useMemo<Film>(
+    () => ({
+      ...meta,
+      filmId: film.filmId,
+      kinopoiskId: meta?.kinopoiskId ?? film.filmId,
+      nameRu: film.nameRu ?? meta?.nameRu,
+      nameEn: film.nameEn ?? meta?.nameEn,
+      rating: film.rating ?? meta?.rating,
+      posterUrl: meta?.posterUrl ?? meta?.posterUrlPreview ?? "",
+      posterUrlPreview: meta?.posterUrlPreview ?? meta?.posterUrl ?? "",
+    }),
+    [film, meta],
+  );
+  const hydratedFilm = useHydratedFilm(popupFilm, entryRef);
+  const {
+    popupOpen,
+    popupEntered,
+    originDelta,
+    closePopup,
+    setPopupOpen,
+    setPopupEntered,
+    historyPushedRef,
+    bindLongPress,
+  } = useFilmLongPress(film.filmId, entryRef);
   const { toast } = useToast();
   const { isFav, isWL } = useListStatus(film.filmId);
 
@@ -787,8 +815,29 @@ function FilmEntry({
     rating: imdbRating ?? kpRating ?? null,
   };
 
+  const router = useRouter();
+
   return (
-    <div className="flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)]/60 transition-all duration-[180ms] hover:bg-[var(--bg-card)] hover:border-[var(--border-hover)] group">
+    <div
+      ref={entryRef}
+      onClick={() => {
+        if (popupOpen) return;
+        router.push(`/film/${film.filmId}`);
+      }}
+      className={`cursor-pointer flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3 rounded-[12px] border border-[var(--border)] bg-[var(--bg-card)]/60 transition-all duration-[180ms] hover:bg-[var(--bg-card)] hover:border-[var(--border-hover)] group select-none [-webkit-touch-callout:none] ${
+        popupOpen ? "opacity-0 scale-95 pointer-events-none" : ""
+      }`}
+      onTouchStart={bindLongPress.onTouchStart}
+      onTouchMove={bindLongPress.onTouchMove}
+      onTouchEnd={bindLongPress.onTouchEnd}
+      onTouchCancel={bindLongPress.onTouchCancel}
+      onMouseDown={bindLongPress.onMouseDown}
+      onMouseMove={bindLongPress.onMouseMove}
+      onMouseUp={bindLongPress.onMouseUp}
+      onMouseLeave={bindLongPress.onMouseLeave}
+      onClickCapture={popupOpen ? undefined : bindLongPress.onClickCapture}
+      onContextMenu={bindLongPress.onContextMenu}
+    >
       {/* Mini Poster */}
       <Link
         href={`/film/${film.filmId}`}
@@ -799,7 +848,7 @@ function FilmEntry({
           alt={name}
           title={name}
           fallbackType="mini"
-          className="w-[42px] sm:w-[48px] h-[63px] sm:h-[72px] rounded-[7px] overflow-hidden bg-[var(--surface)] relative border border-white/5"
+          className="w-[48px] h-[72px] rounded-[7px] overflow-hidden bg-[var(--surface)] relative border border-white/5"
         />
       </Link>
 
@@ -811,14 +860,14 @@ function FilmEntry({
             href={`/film/${film.filmId}`}
             className="no-underline text-[var(--text)] group-hover:text-white"
           >
-            <p className="text-[14px] sm:text-[15px] font-bold m-0 truncate max-w-[260px] sm:max-w-[420px]">
+            <p className="text-[14px] sm:text-[15px] font-bold m-0 line-clamp-2 max-w-[260px] sm:max-w-[420px]">
               {name}
             </p>
           </Link>
 
           {/* Release Year Badge */}
           {yearDisplay && (
-            <span className="text-[11px] font-semibold text-[#f5c518] bg-[rgba(245,197,24,0.12)] border border-[rgba(245,197,24,0.3)] rounded-[5px] px-1.5 py-[1px] flex-shrink-0">
+            <span className="text-[10px] md:text-[11px] font-semibold text-(--text-muted)">
               {yearDisplay}
             </span>
           )}
@@ -893,22 +942,16 @@ function FilmEntry({
         <div className="flex flex-col items-end gap-0.5">
           <div className="flex items-center gap-2">
             {imdbRating && imdbRating > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[rgba(245,197,24,0.14)] border border-[rgba(245,197,24,0.35)] text-[#f5c518] text-[11px] sm:text-[12px] font-bold">
-                <Star size={10} fill="#f5c518" stroke="#f5c518" />
-                IMDb {imdbRating.toFixed(1)}
-              </span>
-            )}
-            {kpRating && kpRating > 0 && (
               <div className="flex items-center gap-1">
                 <Star size={11} fill="#f5c518" stroke="#f5c518" />
                 <span className="font-display text-[15px] sm:text-[17px] text-[#f5c518]">
-                  {kpRating.toFixed(1)}
+                  {imdbRating.toFixed(1)}
                 </span>
               </div>
             )}
           </div>
           {votesLabel && (
-            <span className="text-[10px] text-[var(--text-muted)]">
+            <span className="hidden md:inline-flex text-[10px] text-[var(--text-muted)]">
               {votesLabel} votes
             </span>
           )}
@@ -918,7 +961,9 @@ function FilmEntry({
         <div className="hidden sm:flex items-center gap-1">
           <button
             type="button"
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               const added = toggleFavorite(filmEntryPayload);
               toast.success(
                 added ? "Added to Favorites" : "Removed from Favorites",
@@ -939,7 +984,9 @@ function FilmEntry({
           </button>
           <button
             type="button"
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               const added = toggleWatchLater(filmEntryPayload);
               toast.info(
                 added ? "Saved to Watch Later" : "Removed from Watch Later",
@@ -964,6 +1011,17 @@ function FilmEntry({
           <ChevronRight size={16} strokeWidth={2} />
         </Link>
       </div>
+
+      <FilmLongPressPortal
+        film={hydratedFilm}
+        popupOpen={popupOpen}
+        popupEntered={popupEntered}
+        originDelta={originDelta}
+        closePopup={closePopup}
+        setPopupOpen={setPopupOpen}
+        setPopupEntered={setPopupEntered}
+        historyPushedRef={historyPushedRef}
+      />
     </div>
   );
 }
@@ -985,9 +1043,9 @@ function LoadingSkeleton() {
   return (
     <PageContainer>
       <div className="skeleton h-[22px] w-20 rounded-[6px] mb-5 sm:mb-6" />
-      <div className="flex gap-5 sm:gap-10">
-        <div className="skeleton w-[95px] sm:w-[200px] flex-shrink-0 rounded-[12px] aspect-[2/3]" />
-        <div className="flex-1 flex flex-col gap-3 sm:gap-4">
+      <div className="flex flex-col md:flex-row items-center md:items-start gap-5 sm:gap-10">
+        <div className="skeleton w-[120px] sm:w-[200px] flex-shrink-0 rounded-[12px] aspect-[2/3]" />
+        <div className="flex-1 flex flex-col items-center md:items-start gap-3 sm:gap-4">
           <div className="skeleton h-9 sm:h-12 w-[60%] rounded-[8px]" />
           <div className="skeleton h-4 sm:h-5 w-[40%] rounded-[8px]" />
           <div className="flex gap-3 sm:gap-6 mt-3 sm:mt-4">

@@ -303,6 +303,9 @@ export const RELATION_MAP: Record<string, string> = {
   "ЖЕНА": "wife",
   "ЖЕНA": "wife",
   "МУЖ": "husband",
+  "СУПРУГА": "wife",
+  "СУПРУГ": "husband",
+  "СУПРУГ(A)": "spouse",
 };
 
 export function translateRelation(ru: string): string {

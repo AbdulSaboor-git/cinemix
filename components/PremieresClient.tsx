@@ -372,7 +372,7 @@ export default function PremieresClient({
   );
 }
 
-function PremiereCard({
+export function PremiereCard({
   film: rawFilm,
   index,
   autoTranslate,
@@ -419,11 +419,34 @@ function PremiereCard({
       ? `${Math.round(film.ratingAwait)}%`
       : null;
 
+  const genresText =
+    film.genres && film.genres.length > 0
+      ? film.genres
+          .slice(0, 2)
+          .map((g) => translateGenre(g.genre, autoTranslate))
+          .join(" · ")
+      : "";
+
+  const countriesText =
+    film.countries && film.countries.length > 0
+      ? film.countries
+          .slice(0, 2)
+          .map((c) => translateCountry(c.country, autoTranslate))
+          .join(", ")
+      : "";
+
+  const formattedDuration =
+    durationMins !== undefined && durationMins > 0
+      ? durationMins >= 60
+        ? `${Math.floor(durationMins / 60)}h ${durationMins % 60}m`
+        : `${durationMins}m`
+      : null;
+
   return (
     <>
       <div
         ref={cardRef}
-        className={`flex gap-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-3 hover:border-[rgba(229,9,20,0.3)] active:bg-[var(--bg-elevated)] transition-all duration-200 h-full group select-none [-webkit-touch-callout:none] ${
+        className={`flex items-stretch gap-2.5 sm:gap-3.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-2.5 sm:p-3 hover:border-[rgba(229,9,20,0.3)] active:bg-[var(--bg-elevated)] transition-all duration-200 h-full w-full min-w-0 group select-none [-webkit-touch-callout:none] ${
           popupOpen ? "opacity-0 scale-95 pointer-events-none" : ""
         }`}
         onTouchStart={bindLongPress.onTouchStart}
@@ -438,10 +461,10 @@ function PremiereCard({
         onContextMenu={bindLongPress.onContextMenu}
       >
         {/* Poster */}
-        <div className="no-underline flex-shrink-0">
+        <div className="no-underline shrink-0 self-start">
           <div
             ref={posterWrapRef}
-            className="w-[72px] sm:w-[80px] rounded-[8px] overflow-hidden aspect-[2/3] relative bg-[var(--surface)]"
+            className="w-[70px] xs:w-[76px] sm:w-[84px] rounded-[8px] overflow-hidden aspect-[2/3] relative bg-[var(--surface)] shadow-sm ring-1 ring-white/5"
           >
             <PosterImage
               src={film.posterUrlPreview || film.posterUrl}
@@ -454,12 +477,14 @@ function PremiereCard({
           </div>
         </div>
 
-        {/* Info */}
-        <div className="flex-1 min-w-0 flex flex-col justify-between py-[2px]">
-          <div>
-            <div className="flex items-start justify-between gap-2 mb-1">
+        {/* Info Column */}
+        <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5 gap-2">
+          {/* Upper Metadata Stack */}
+          <div className="flex flex-col gap-1 sm:gap-1.5 min-w-0">
+            {/* Title + Age Certification Row */}
+            <div className="flex items-start justify-between gap-1.5 sm:gap-2 min-w-0">
               <div className="no-underline min-w-0 flex-1">
-                <p className="font-semibold text-[var(--text)] text-[13px] sm:text-[14px] leading-[1.3] m-0 group-hover:text-white transition-colors line-clamp-2">
+                <p className="font-semibold text-[var(--text)] text-[13px] sm:text-[14px] leading-[1.3] m-0 group-hover:text-white transition-colors line-clamp-2 break-words">
                   {name}
                 </p>
               </div>
@@ -468,61 +493,82 @@ function PremiereCard({
               {ageCert && (
                 <button
                   type="button"
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     onOpenParentalGuide(film);
                   }}
                   title="View Parental Guide"
-                  className={`flex-shrink-0 text-[10px] font-bold rounded-[5px] px-1.5 py-[2px] border cursor-pointer inline-flex items-center gap-1 transition-colors ${
+                  aria-label={`Parental Guide: ${ageCert.label}`}
+                  className={`shrink-0 text-[10px] sm:text-[11px] leading-none font-bold rounded-[5px] px-1.5 py-1 min-h-[22px] border cursor-pointer inline-flex items-center gap-1 transition-colors ${
                     ageCert.isMature
                       ? "bg-[rgba(229,9,20,0.15)] border-[rgba(229,9,20,0.45)] text-[var(--accent)] hover:bg-[rgba(229,9,20,0.25)]"
                       : "bg-[var(--bg-elevated)] border-[var(--border-hover)] text-[var(--text)] hover:border-white"
                   }`}
                 >
-                  <ShieldAlert size={9} />
-                  {ageCert.label}
+                  <ShieldAlert size={10} className="shrink-0" />
+                  <span>{ageCert.label}</span>
                 </button>
               )}
             </div>
 
-            {film.genres && film.genres.length > 0 && (
-              <p className="text-[11px] text-[var(--text-muted)] capitalize mb-1 truncate m-0">
-                {film.genres
-                  .slice(0, 2)
-                  .map((g) => translateGenre(g.genre, autoTranslate))
-                  .join(" · ")}
+            {/* Genres */}
+            {genresText && (
+              <p className="text-[11px] sm:text-[12px] leading-snug text-[var(--text-muted)] capitalize truncate m-0">
+                {genresText}
               </p>
             )}
-            {film.countries && film.countries.length > 0 && (
-              <p className="text-[11px] text-[var(--text-muted)] truncate m-0">
-                {film.countries
-                  .slice(0, 2)
-                  .map((c) => translateCountry(c.country, autoTranslate))
-                  .join(", ")}
-              </p>
-            )}
-            {durationMins !== undefined && durationMins > 0 && (
-              <span className="text-[11px] text-[var(--text-muted)]">
-                {Math.floor(durationMins / 60)}h {durationMins % 60}m
-              </span>
+
+            {/* Country + Duration Inline Row (saves vertical space on mobile) */}
+            {(countriesText || formattedDuration) && (
+              <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 text-[11px] leading-snug text-[var(--text-muted)] min-w-0">
+                {countriesText && (
+                  <span className="truncate max-w-full">{countriesText}</span>
+                )}
+                {countriesText && formattedDuration && (
+                  <span className="opacity-50 select-none" aria-hidden="true">
+                    ·
+                  </span>
+                )}
+                {formattedDuration && (
+                  <span className="shrink-0 whitespace-nowrap">
+                    {formattedDuration}
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
-          <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
-            {safePremiereDate && (
-              <span className="text-[11px] text-[var(--accent)] font-semibold">
+          {/* Bottom Footer Row: Premiere Date & Rating */}
+          <div className="flex items-center justify-between gap-2 pt-1.5 mt-auto border-t border-white/[0.05] min-w-0">
+            {safePremiereDate ? (
+              <span className="text-[11px] sm:text-[12px] leading-none text-[var(--accent)] font-semibold whitespace-nowrap truncate">
                 {safePremiereDate}
               </span>
+            ) : (
+              <span />
             )}
+
             {displayRating !== undefined && displayRating > 0 ? (
-              <span className="inline-flex items-center gap-1 text-[12px] text-[#f5c518] font-bold font-display">
-                <Star size={10} fill="#f5c518" stroke="#f5c518" />
+              <span className="inline-flex items-center gap-1 text-[11px] sm:text-[12px] leading-none text-[#f5c518] font-bold font-display whitespace-nowrap shrink-0 ml-auto">
+                <Star
+                  size={11}
+                  fill="#f5c518"
+                  stroke="#f5c518"
+                  className="shrink-0"
+                />
                 {displayRating.toFixed(1)}
               </span>
             ) : awaitRating ? (
-              <span className="inline-flex items-center gap-1 text-[11px] text-[#f5c518] font-bold font-display">
-                <Star size={10} fill="#f5c518" stroke="#f5c518" />
+              <span className="inline-flex items-center gap-1 text-[11px] leading-none text-[#f5c518] font-bold font-display whitespace-nowrap shrink-0 ml-auto">
+                <Star
+                  size={10}
+                  fill="#f5c518"
+                  stroke="#f5c518"
+                  className="shrink-0"
+                />
                 {awaitRating}
               </span>
             ) : null}

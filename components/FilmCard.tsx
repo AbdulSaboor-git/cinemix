@@ -413,7 +413,7 @@ export function FilmLongPressPortal({
 
   const { isFav, isWL, mounted } = useListStatus(id);
   const { toast } = useToast();
-  const [parentalOpen, setParentalOpen] = useState(false);
+  // const [parentalOpen, setParentalOpen] = useState(false);
 
   const posterUrl = hydrated.posterUrlPreview || hydrated.posterUrl || null;
   const hiResPosterUrl =
@@ -527,15 +527,8 @@ export function FilmLongPressPortal({
 
                 {/* Top-Left MPAA / Age Certification Badge (Requirement 4) */}
                 <div className="absolute top-3 left-3 z-10">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setParentalOpen(true);
-                    }}
-                    title="View Parental Guide"
-                    className={`rounded-lg px-2.5 py-1 backdrop-blur-md border flex items-center gap-1.5 shadow-lg cursor-pointer transition-transform active:scale-95 ${
+                  <div
+                    className={`rounded-lg px-2.5 py-1 backdrop-blur-md border flex items-center gap-1.5 shadow-lg transition-transform ${
                       certBadge?.isMature
                         ? "bg-[rgba(229,9,20,0.88)] border-white/25 text-white"
                         : "bg-black/80 border-white/25 text-white"
@@ -545,7 +538,7 @@ export function FilmLongPressPortal({
                     <span className="text-[11px] font-bold tracking-[0.5px]">
                       {certBadge ? certBadge.label : "PG Guide"}
                     </span>
-                  </button>
+                  </div>
                 </div>
 
                 {/* Top-Right Rating Badge */}
@@ -696,13 +689,13 @@ export function FilmLongPressPortal({
           document.body,
         )}
 
-      {parentalOpen && (
+      {/* {parentalOpen && (
         <ParentalGuideModal
           open={parentalOpen}
           onClose={() => setParentalOpen(false)}
           film={hydrated}
         />
-      )}
+      )} */}
     </>
   );
 }

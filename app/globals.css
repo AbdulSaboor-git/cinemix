@@ -24,6 +24,16 @@
   --page-x: clamp(16px, 4vw, 48px);
 }
 
+@layer base {
+  button {
+    transition: transform 100ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  button:active {
+    transform: scale(0.9);
+  }
+}
+
 .font-body {
   font-family: var(--font-dm);
 }
