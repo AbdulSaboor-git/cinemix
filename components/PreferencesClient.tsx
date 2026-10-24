@@ -197,7 +197,7 @@ function KeyField({
 }
 
 const HOME_SECTION_LABELS: Record<string, string> = {
-  popular: "Popular Films",
+  // popular: "Popular Films",
   top250: "Top 250",
   series: "Top Series",
   action: "Action",
@@ -484,9 +484,6 @@ export default function PreferencesClient() {
           <div className={row}>
             <div className="min-w-0 flex-1">
               <p className={lbl}>Enable watch history</p>
-              <p className={hint}>
-                Films are added after 10+ seconds of playback.
-              </p>
             </div>
             <Toggle
               checked={prefs.historyEnabled ?? true}
@@ -496,9 +493,6 @@ export default function PreferencesClient() {
           <div className={rowLast}>
             <div className="min-w-0 flex-1">
               <p className={lbl}>Clear history</p>
-              <p className={hint}>
-                Remove all entries from your watch history.
-              </p>
             </div>
             <div className="flex-shrink-0">
               <ConfirmButton
@@ -526,10 +520,6 @@ export default function PreferencesClient() {
           <div className={row}>
             <div>
               <p className={lbl}>Search suggestions</p>
-              <p className={hint}>
-                Show instant film suggestions as you type. Disabling saves API
-                calls.
-              </p>
             </div>
             <Toggle
               checked={prefs.searchSuggestionsEnabled}
@@ -543,9 +533,6 @@ export default function PreferencesClient() {
               <div className={row}>
                 <div className="min-w-0 flex-1">
                   <p className={lbl}>Suggestion delay</p>
-                  <p className={hint}>
-                    Wait before firing a request after you stop typing.
-                  </p>
                 </div>
                 <div className="flex items-center gap-[8px] sm:gap-[10px] flex-shrink-0">
                   <input
@@ -569,10 +556,7 @@ export default function PreferencesClient() {
               </div>
               <div className={rowLast}>
                 <div>
-                  <p className={lbl}>Results shown</p>
-                  <p className={hint}>
-                    How many suggestions appear in the dropdown.
-                  </p>
+                  <p className={lbl}>Suggestions shown</p>
                 </div>
                 <div className="flex gap-[5px] sm:gap-[6px] flex-shrink-0">
                   {[3, 4, 6, 8].map((n) => (
@@ -605,11 +589,7 @@ export default function PreferencesClient() {
         <div className="py-2">
           <div className={row}>
             <div className="min-w-0 flex-1">
-              <p className={lbl}>Auto-translate content</p>
-              <p className={hint}>
-                Automatically translate foreign titles, synopses, trivia,
-                awards, and reviews into English.
-              </p>
+              <p className={lbl}>Auto-translate content to English</p>
             </div>
             <Toggle
               checked={prefs.autoTranslateEnabled}
@@ -619,7 +599,7 @@ export default function PreferencesClient() {
             />
           </div>
 
-          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
+          {/* <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
             <p className={`${lbl} mb-2`}>Catalog Priority</p>
             <div className="flex gap-[5px] sm:gap-[6px] flex-wrap">
               {(
@@ -643,13 +623,10 @@ export default function PreferencesClient() {
                 </button>
               ))}
             </div>
-          </div>
+          </div> */}
 
           <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
             <p className={`${lbl} mb-1`}>Default Explore sort</p>
-            <p className={`${hint} mb-3`}>
-              Which order the Explore page loads with by default.
-            </p>
             <div className="flex gap-[5px] sm:gap-[6px] flex-wrap">
               {(["NUM_VOTE", "RATING", "YEAR"] as const).map((o) => {
                 const label =
@@ -676,9 +653,6 @@ export default function PreferencesClient() {
 
           <div className="px-4 sm:px-6 py-3 sm:py-4">
             <p className={`${lbl} mb-1`}>Default Explore type</p>
-            <p className={`${hint} mb-3`}>
-              Which content type the Explore page shows by default.
-            </p>
             <div className="flex gap-[5px] sm:gap-[6px] flex-wrap">
               {(
                 ["ALL", "FILM", "TV_SERIES", "TV_SHOW", "MINI_SERIES"] as const
@@ -720,8 +694,7 @@ export default function PreferencesClient() {
           <div>
             <SectionTitle>Home Page Sections</SectionTitle>
             <p className={`${hint} !mt-0`}>
-              Each section is a separate API call. Disable rows you don&apos;t
-              need.
+              Disable Home Page rows you don&apos;t need.
             </p>
           </div>
         </div>
@@ -752,34 +725,25 @@ export default function PreferencesClient() {
           <div>
             <SectionTitle>Film Page Sections</SectionTitle>
             <p className={`${hint} !mt-0`}>
-              Each toggle below is a separate API call. Disable sections you
-              don&apos;t need to save your daily quota.
+              Disable sections you don&apos;t need.
             </p>
           </div>
         </div>
         <div className="py-2">
           {(
             [
-              ["cast", "Cast & Crew", "Actors, directors, writers — 1 call"],
-              ["awards", "Awards", "Oscar wins, nominations — 1 call"],
-              ["gallery", "Gallery", "Film stills and images — 1 call"],
-              ["facts", "Trivia & Spoilers", "Facts and bloopers — 1 call"],
-              ["boxOffice", "Box Office", "Budget and revenue — 1 call"],
-              [
-                "similars",
-                "You May Also Like",
-                "Similar film recommendations — 1 call",
-              ],
-              [
-                "sequels",
-                "Sequels & Prequels",
-                "Related films in the series — 1 call",
-              ],
-              ["reviews", "Audience Reviews", "User-written reviews — 1 call"],
+              ["cast", "Cast & Crew", "Actors, directors, writers"],
+              ["awards", "Awards", "Oscar wins, nominations"],
+              ["gallery", "Gallery", "Film stills and images"],
+              ["facts", "Trivia & Spoilers", "Facts and bloopers"],
+              ["boxOffice", "Box Office", "Budget and revenue"],
+              ["similars", "You May Also Like", "Similar film recommendations"],
+              ["sequels", "Sequels & Prequels", "Related films in the series"],
+              ["reviews", "Audience Reviews", "User-written reviews"],
               [
                 "distributions",
                 "Release Dates",
-                "Country-by-country release info — 1 call",
+                "Country-by-country release info",
               ],
               [
                 "parentalGuide",
@@ -791,7 +755,7 @@ export default function PreferencesClient() {
             <div key={key} className={i === arr.length - 1 ? rowLast : row}>
               <div>
                 <p className={lbl}>{label}</p>
-                <p className={hint}>{hint_}</p>
+                {/* <p className={hint}>{hint_}</p> */}
               </div>
               <Toggle
                 checked={prefs.filmSections[key] ?? true}
