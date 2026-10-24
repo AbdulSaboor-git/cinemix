@@ -597,7 +597,7 @@ export function FilmLongPressPortal({
                         "cubic-bezier(0.22, 1, 0.36, 1)",
                       transitionDelay: popupEntered ? "100ms" : "0ms",
                     }}
-                    className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl border backdrop-blur-xl font-semibold text-[12px] active:scale-95 transition-all duration-300 cursor-pointer ${
+                    className={`flex items-center justify-center gap-2 py-3 px-3 rounded-[10px] border backdrop-blur-xl font-semibold text-[12px] active:scale-95 transition-all duration-300 cursor-pointer ${
                       popupEntered
                         ? "opacity-100 translate-y-0 scale-100"
                         : "opacity-0 -translate-y-3 scale-90"
@@ -627,7 +627,7 @@ export function FilmLongPressPortal({
                         "cubic-bezier(0.22, 1, 0.36, 1)",
                       transitionDelay: popupEntered ? "140ms" : "0ms",
                     }}
-                    className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl border backdrop-blur-xl font-semibold text-[12px] active:scale-95 transition-all duration-300 cursor-pointer ${
+                    className={`flex items-center justify-center gap-2 py-3 px-3 rounded-[10px] border backdrop-blur-xl font-semibold text-[12px] active:scale-95 transition-all duration-300 cursor-pointer ${
                       popupEntered
                         ? "opacity-100 translate-y-0 scale-100"
                         : "opacity-0 -translate-y-3 scale-90"
@@ -674,7 +674,7 @@ export function FilmLongPressPortal({
                     transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
                     transitionDelay: popupEntered ? "180ms" : "0ms",
                   }}
-                  className={`flex items-center justify-center gap-2 w-full py-3 px-4 rounded-2xl bg-[var(--accent,#e50914)] text-white font-semibold text-[13px] no-underline shadow-[0_10px_28px_rgba(229,9,20,0.45)] border border-white/15 active:scale-95 transition-all duration-300 ${
+                  className={`flex items-center justify-center gap-2 w-full py-3 px-4 rounded-[10px] bg-[var(--accent,#e50914)] text-white font-semibold text-[13px] no-underline shadow-[0_10px_28px_rgba(229,9,20,0.45)] border border-white/15 active:scale-95 transition-all duration-300 ${
                     popupEntered
                       ? "opacity-100 translate-y-0 scale-100"
                       : "opacity-0 -translate-y-3 scale-90"

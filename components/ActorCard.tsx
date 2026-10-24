@@ -28,6 +28,7 @@ export default function ActorCard({ actor }: { actor: Staff }) {
           alt={name}
           title={name}
           fallbackType="person"
+          priority
           className="w-full aspect-[2/3] relative overflow-hidden bg-[var(--surface)]"
         />
         <div className="p-[8px_6px] sm:p-[10px_8px]">

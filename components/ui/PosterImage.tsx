@@ -1,7 +1,9 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import { User } from "lucide-react";
-import { FilmPosterFallback } from "@/components/posterFallback";
+import {
+  FilmPosterFallback,
+  sanitizePosterUrl,
+} from "@/components/posterFallback";
 
 export interface PosterImageProps {
   src?: string | null;
@@ -14,27 +16,23 @@ export interface PosterImageProps {
   imgClassName?: string;
 }
 
-/**
- * Converts full-size 2MB Kinopoisk poster URLs (/images/posters/kp/...) into
- * fast ~20KB thumbnail URLs (/images/posters/kp_small/...) for cards & thumbnails,
- * while keeping full-resolution posters when `size="lg"` or `priority={true}` (without `size="sm"`).
- */
 function optimizePosterUrl(
   rawUrl?: string | null,
   size?: "sm" | "md" | "lg",
   fallbackType?: "film" | "person" | "mini",
   priority?: boolean,
 ): string | null {
-  if (!rawUrl) return null;
-  if (size === "lg") return rawUrl;
+  const cleanUrl = sanitizePosterUrl(rawUrl);
+  if (!cleanUrl) return null;
+  if (size === "lg") return cleanUrl;
   if (
     size === "sm" ||
     size === "md" ||
     (!priority && (fallbackType === "film" || fallbackType === "mini"))
   ) {
-    return rawUrl.replace("/images/posters/kp/", "/images/posters/kp_small/");
+    return cleanUrl.replace("/images/posters/kp/", "/images/posters/kp_small/");
   }
-  return rawUrl;
+  return cleanUrl;
 }
 
 export default function PosterImage({
@@ -47,6 +45,7 @@ export default function PosterImage({
   className = "w-full h-full relative overflow-hidden bg-[var(--surface)]",
   imgClassName = "w-full h-full object-cover block",
 }: PosterImageProps) {
+  const cleanOriginalSrc = sanitizePosterUrl(src);
   const optimizedSrc = optimizePosterUrl(src, size, fallbackType, priority);
   const [activeSrc, setActiveSrc] = useState<string | null>(optimizedSrc);
   const [error, setError] = useState(false);
@@ -57,7 +56,7 @@ export default function PosterImage({
     setActiveSrc(optimizedSrc);
     setError(false);
     const el = imgRef.current;
-    if (el && el.complete && el.naturalWidth > 0) {
+    if (el && el.complete && el.naturalWidth > 1) {
       setLoaded(true);
     } else {
       setLoaded(false);
@@ -65,30 +64,13 @@ export default function PosterImage({
   }, [optimizedSrc]);
 
   if (!activeSrc || error) {
-    if (fallbackType === "person") {
-      return (
-        <div
-          className={`${className} flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-[#1a1a2e] to-[#16213e]`}
-        >
-          <User size={28} stroke="var(--text-muted)" strokeWidth={1.5} />
-          {(title || alt) && (
-            <span className="text-[10px] text-[var(--text-muted)] px-2 text-center leading-tight line-clamp-2">
-              {title || alt}
-            </span>
-          )}
-        </div>
-      );
-    }
-    if (fallbackType === "mini") {
-      return (
-        <div className={className}>
-          <FilmPosterFallback title={title || alt} compact />
-        </div>
-      );
-    }
     return (
       <div className={className}>
-        <FilmPosterFallback title={title || alt} />
+        <FilmPosterFallback
+          title={title || alt}
+          variant={fallbackType}
+          compact={fallbackType === "mini"}
+        />
       </div>
     );
   }
@@ -110,11 +92,22 @@ export default function PosterImage({
         decoding="async"
         fetchPriority={priority ? "high" : "auto"}
         draggable={false}
-        onLoad={() => setLoaded(true)}
+        onLoad={(e) => {
+          const img = e.currentTarget;
+          // Catch 1x1 spacer pixels or redirected no-poster URLs
+          if (
+            img.naturalWidth <= 1 ||
+            img.naturalHeight <= 1 ||
+            !sanitizePosterUrl(img.currentSrc)
+          ) {
+            setError(true);
+            return;
+          }
+          setLoaded(true);
+        }}
         onError={() => {
-          // If kp_small thumbnail failed to load, automatically retry once with full-res original src
-          if (src && activeSrc !== src) {
-            setActiveSrc(src);
+          if (cleanOriginalSrc && activeSrc !== cleanOriginalSrc) {
+            setActiveSrc(cleanOriginalSrc);
             return;
           }
           setError(true);

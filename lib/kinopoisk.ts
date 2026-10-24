@@ -25,6 +25,7 @@ import {
 import { getApiKeys, getPreferences } from "@/lib/preferences";
 import { getList } from "@/lib/userLists";
 import { translateCountry, translateGenre, isRussian } from "@/lib/translate";
+import { sanitizePosterUrl } from "@/components/posterFallback";
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
@@ -675,6 +676,8 @@ function normalizeFilmItem(
       : "";
   const isPercentage = rawRatingStr.endsWith("%");
   const numericRating = rawRatingStr ? parseFloat(rawRatingStr) : undefined;
+  const posterUrl = sanitizePosterUrl(f.posterUrl as string | undefined) || "";
+  const posterUrlPreview = sanitizePosterUrl(f.posterUrlPreview as string | undefined) || posterUrl;
 
   const ratingKinopoisk =
     typeof f.ratingKinopoisk === "number" && f.ratingKinopoisk > 0
@@ -710,6 +713,8 @@ function normalizeFilmItem(
     ...f,
     kinopoiskId: id,
     filmId: f.filmId ?? id,
+    posterUrlPreview,
+    posterUrl,
     ratingKinopoisk,
     ratingAwait,
     rating: f.ratingImdb ?? ratingKinopoisk,
