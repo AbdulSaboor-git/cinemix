@@ -239,7 +239,7 @@ export default function ProfileClient() {
   const initial = displayName[0].toUpperCase();
 
   return (
-    <PageContainer variant="narrow" className="pb-28">
+    <PageContainer variant="narrow" className="sm:pb-28">
       {/* ── Avatar + Name ── */}
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-5 sm:p-6 mb-4 flex items-center gap-4 sm:gap-5">
         <div className="relative flex-shrink-0">

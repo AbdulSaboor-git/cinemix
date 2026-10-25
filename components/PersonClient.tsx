@@ -393,10 +393,10 @@ export default function PersonClient({ personId }: { personId: string }) {
   const formattedDeath = formatDateSafe(person.death);
 
   return (
-    <div className="min-h-screen pb-20">
+    <div className="min-h-screen">
       {/* Hero */}
       <div className="bg-gradient-to-b from-[var(--bg-card)] to-[var(--bg)] border-b border-[var(--border)] mb-8 sm:mb-10">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-[var(--page-x)] py-6 sm:py-10">
+        <PageContainer className="">
           <BackButton />
 
           <div className="flex flex-col md:flex-row gap-3 sm:gap-5 sm:gap-[clamp(20px,4vw,40px)] items-center md:items-start">
@@ -487,11 +487,11 @@ export default function PersonClient({ personId }: { personId: string }) {
               )}
             </div>
           </div>
-        </div>
+        </PageContainer>
       </div>
 
       {/* Filmography */}
-      <div className="max-w-[1440px] mx-auto px-4 sm:px-[var(--page-x)]">
+      <PageContainer className="min-h-0 py-0">
         <SectionHeader
           title="FILMOGRAPHY & CREDITS"
           count={filteredAndSortedFilms.length}
@@ -661,7 +661,7 @@ export default function PersonClient({ personId }: { personId: string }) {
             </button>
           </div>
         )}
-      </div>
+      </PageContainer>
 
       {parentalModalFilm && (
         <ParentalGuideModal

@@ -319,7 +319,7 @@ export default function UserListPage({ type }: { type: ListType }) {
   const listTitle = userName ? `${userName}'s ${cfg.label}` : cfg.label;
 
   return (
-    <PageContainer variant="narrow" className="pb-28">
+    <PageContainer variant="narrow" className="sm:pb-28">
       <BackButton fallbackHref="/profile" />
 
       <div className="mb-5 pb-4 border-b border-[var(--border)] flex justify-between items-center gap-3 flex-wrap">

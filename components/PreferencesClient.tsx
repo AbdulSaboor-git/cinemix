@@ -320,7 +320,7 @@ export default function PreferencesClient() {
     }`;
 
   return (
-    <PageContainer variant="narrow" className="pb-24">
+    <PageContainer variant="narrow" className="sm:pb-24">
       {/* ── Sticky Save Bar ── */}
       <div className="sticky top-[var(--nav-height)] z-[100] -mx-4 sm:-mx-[var(--page-x)] px-4 sm:px-[var(--page-x)] py-[10px] mb-5 sm:mb-6 bg-[#080808e6] backdrop-blur-[20px] border-b border-[var(--border)] transition-all duration-300">
         <div className="flex items-center justify-between gap-3">

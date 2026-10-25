@@ -258,9 +258,9 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
   if (loading) {
     return (
-      <PageContainer className="pt-3 sm:pt-5">
+      <PageContainer className="">
         <div className="max-w-[960px] mx-auto">
-          <div className="skeleton h-11 w-full rounded-[12px] mb-3" />
+          <div className="skeleton h-12 w-full rounded-[12px] mb-3" />
           <div className="skeleton w-full h-[320px] sm:h-[460px] md:h-[520px] rounded-[16px]" />
         </div>
       </PageContainer>
@@ -318,7 +318,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   };
 
   return (
-    <PageContainer className="pt-3 sm:pt-5 relative">
+    <PageContainer className="relative">
       <div
         className={`${
           wideTheater ? "max-w-[1280px]" : "max-w-[960px]"
