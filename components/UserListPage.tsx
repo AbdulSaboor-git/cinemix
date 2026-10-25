@@ -385,7 +385,7 @@ export default function UserListPage({ type }: { type: ListType }) {
           </div>
 
           <div className="flex items-center gap-2">
-            <ArrowUpDown size={18} />
+            {/* <ArrowUpDown size={18} /> */}
 
             <select
               value={sortBy}

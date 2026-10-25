@@ -688,10 +688,10 @@ export default function PersonClient({ personId }: { personId: string }) {
             </div>
 
             <div className="flex items-center gap-2">
-              <ArrowUpDown
+              {/* <ArrowUpDown
                 size={16}
                 className="shrink-0 text-[var(--text-muted)]"
-              />
+              /> */}
               <select
                 value={creditSort}
                 onChange={(e) => {
@@ -701,10 +701,10 @@ export default function PersonClient({ personId }: { personId: string }) {
                 className="select min-w-0 flex-1 text-[12px] py-1.5 px-3 rounded-[8px] sm:flex-initial"
                 aria-label="Sort credits by"
               >
-                <option value="RATING">Sort: Highest Rated</option>
-                <option value="YEAR_DESC">Sort: Newest Release Year</option>
-                <option value="YEAR_ASC">Sort: Oldest Release Year</option>
-                <option value="VOTES">Sort: Most Popular (Votes)</option>
+                <option value="RATING">Highest Rated</option>
+                <option value="YEAR_DESC">Newest Release Year</option>
+                <option value="YEAR_ASC">Oldest Release Year</option>
+                <option value="VOTES">Most Popular (Votes)</option>
               </select>
             </div>
           </div>

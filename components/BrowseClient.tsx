@@ -2332,7 +2332,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
             >
               {SORT_ORDERS.map((o) => (
                 <option key={o.value} value={o.value}>
-                  Sort: {o.label}
+                  {o.label}
                 </option>
               ))}
             </select>
