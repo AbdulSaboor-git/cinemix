@@ -679,7 +679,7 @@ export default function PersonClient({ personId }: { personId: string }) {
                 className={`w-full justify-center px-3 py-2 rounded-[8px] text-[12px] font-semibold border cursor-pointer transition-all inline-flex items-center gap-1.5 sm:w-auto sm:py-1.5 ${
                   mainRolesOnly
                     ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
-                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
+                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-white hover:text-white"
                 }`}
               >
                 <Sparkles size={12} />
@@ -698,7 +698,7 @@ export default function PersonClient({ personId }: { personId: string }) {
                   setCreditSort(e.target.value as CreditSortMode);
                   setFilmPage(1);
                 }}
-                className="select min-w-0 flex-1 text-[12px] py-1.5 px-3 rounded-[8px] sm:flex-initial"
+                className="select min-w-0 text-center text-white sm:text-left flex-1 text-[12px] py-1.5 px-3 rounded-[8px] sm:flex-initial"
                 aria-label="Sort credits by"
               >
                 <option value="RATING">Highest Rated</option>

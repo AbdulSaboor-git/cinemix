@@ -1421,7 +1421,12 @@ function applyClientDiscoveryFilters(
     if (favSet && favSet.has(id)) return false;
     if (wlSet && wlSet.has(id)) return false;
 
-    // 3. Excluded Media Types
+    // 3. Selected Media Type
+    if (opts.type && opts.type !== "ALL" && film.type !== opts.type) {
+      return false;
+    }
+
+    // 4. Excluded Media Types
     if (
       opts.excludeTypes &&
       opts.excludeTypes.length > 0 &&
@@ -1431,7 +1436,7 @@ function applyClientDiscoveryFilters(
       return false;
     }
 
-    // 4. Silent Regional Priority (from Preferences) unless user explicitly included Russia/USSR in Countries filter
+    // 5. Silent Regional Priority (from Preferences) unless user explicitly included Russia/USSR in Countries filter
     const userExplicitlyIncludedRussia = (opts.includeCountries ?? []).some((cId) => {
       const names = countryIdToNames.get(cId) ?? [];
       return names.some((n) => RUSSIAN_COUNTRIES.has(n));
@@ -1458,7 +1463,7 @@ function applyClientDiscoveryFilters(
     );
     const allFilmGenres = new Set([...filmGenreNames, ...filmGenreEnNames]);
 
-    // 5. Multi-Genre Include (AND mode when >1 genre selected)
+    // 6. Multi-Genre Include (AND mode when >1 genre selected)
     if (
       opts.includeGenres &&
       opts.includeGenres.length > 1 &&
@@ -1474,7 +1479,7 @@ function applyClientDiscoveryFilters(
       if (!matchesAll) return false;
     }
 
-    // 6. Negative Genre Exclusions
+    // 7. Negative Genre Exclusions
     if (
       opts.excludeGenres &&
       opts.excludeGenres.length > 0 &&
@@ -1489,7 +1494,7 @@ function applyClientDiscoveryFilters(
       if (hasExcludedGenre) return false;
     }
 
-    // 7. Country Include / Exclude
+    // 8. Country Include / Exclude
     const filmCountryNames = (film.countries ?? []).map((c) =>
       c.country.trim().toLowerCase(),
     );
@@ -1515,12 +1520,12 @@ function applyClientDiscoveryFilters(
       if (hasExcludedCountry) return false;
     }
 
-    // 8. Require IMDb Score
+    // 9. Require IMDb Score
     if (opts.requireImdb && (!film.ratingImdb || film.ratingImdb <= 0)) {
       return false;
     }
 
-    // 9. Exact Rating Band Check
+    // 10. Exact Rating Band Check
     const effRating = getEffectiveRating(film, ratingSource);
     if (effRating > 0) {
       if (opts.ratingFrom !== undefined && effRating < opts.ratingFrom - 0.1) {
@@ -1531,21 +1536,21 @@ function applyClientDiscoveryFilters(
       }
     }
 
-    // 10. Vote Confidence ("Anti-Fluke" / Cult Filter)
+    // 11. Vote Confidence ("Anti-Fluke" / Cult Filter)
     const votes = getEffectiveVotes(film);
     if (opts.minVotes !== undefined && opts.minVotes !== 0 && votes > 0) {
       if (opts.minVotes > 0 && votes < opts.minVotes) return false;
       if (opts.minVotes < 0 && votes > Math.abs(opts.minVotes)) return false;
     }
 
-    // 11. Year Range Check
+    // 12. Year Range Check
     const yr = film.year ?? film.startYear;
     if (yr) {
       if (opts.yearFrom !== undefined && yr < opts.yearFrom) return false;
       if (opts.yearTo !== undefined && yr > opts.yearTo) return false;
     }
 
-    // 12. Runtime Bucket Filter
+    // 13. Runtime Bucket Filter
     if (
       opts.runtimeBucket &&
       opts.runtimeBucket !== "ANY" &&
@@ -1567,7 +1572,7 @@ function applyClientDiscoveryFilters(
       }
     }
 
-    // 13. Age Suitability Tiers (Include & Exclude)
+    // 14. Age Suitability Tiers (Include & Exclude)
     const tier = getFilmAgeTier(film);
     if (
       opts.includeAgeTiers &&
@@ -1586,7 +1591,7 @@ function applyClientDiscoveryFilters(
       return false;
     }
 
-    // 14. Series Completion Status
+    // 15. Series Completion Status
     if (opts.seriesStatus && opts.seriesStatus !== "ALL") {
       if (opts.seriesStatus === "COMPLETED" && film.completed === false) {
         return false;

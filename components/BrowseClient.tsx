@@ -485,7 +485,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
   }, [mobileSheetOpen]);
 
   // Applied URL parameters
-  const type = (props.type || prefType || "ALL") as
+  const activeLens = props.lens;
+  const type = (
+    props.type || (activeLens === "FOR_YOU" ? "ALL" : prefType || "ALL")
+  ) as
     | "ALL"
     | "FILM"
     | "TV_SERIES"
@@ -534,7 +537,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const seriesStatus: SeriesStatusFilter =
     (props.status as SeriesStatusFilter) || "ALL";
   const collectionPreset = props.collection as CollectionType | undefined;
-  const activeLens = props.lens;
   const hideWatched = props.hideWatched === "1";
   const hideFavorites = props.hideFavorites === "1";
   const hideWatchLater = props.hideWatchLater === "1";
