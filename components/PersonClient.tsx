@@ -19,6 +19,7 @@ import {
   getPerson,
   getFilm,
   getCachedFilmMeta,
+  hydrateFilmWithCache,
   CompactFilmMeta,
 } from "@/lib/kinopoisk";
 import { PersonDetail, PersonFilm, Film } from "@/types/kinopoisk";
@@ -88,6 +89,23 @@ const PROF_ORDER = [
 const FILMOGRAPHY_PAGE_SIZE = 20;
 
 type CreditSortMode = "RATING" | "YEAR_DESC" | "YEAR_ASC" | "VOTES" | "TITLE";
+type CreditMediaFilter = "ALL" | "MOVIES" | "SERIES";
+
+function getCreditMediaType(
+  meta?: CompactFilmMeta,
+): Exclude<CreditMediaFilter, "ALL"> | null {
+  if (!meta) return null;
+  if (
+    meta.serial ||
+    meta.type === "TV_SHOW" ||
+    meta.type === "TV_SERIES" ||
+    meta.type === "MINI_SERIES"
+  ) {
+    return "SERIES";
+  }
+  if (meta.type === "FILM" || meta.type === "VIDEO") return "MOVIES";
+  return null;
+}
 
 function formatAgeCert(
   ratingMpaa?: string,
@@ -153,9 +171,17 @@ export default function PersonClient({ personId }: { personId: string }) {
   const [mainRolesOnly, setMainRolesOnly] = useState(false);
   const [creditSearch, setCreditSearch] = useState("");
   const [creditSort, setCreditSort] = useState<CreditSortMode>("RATING");
+  const [creditMediaFilter, setCreditMediaFilter] =
+    useState<CreditMediaFilter>("ALL");
+  const [mediaTypeProgress, setMediaTypeProgress] = useState({
+    completed: 0,
+    total: 0,
+  });
+  const [mediaTypeLookupFailed, setMediaTypeLookupFailed] = useState(0);
 
   // Enriched film metadata map (filmId -> CompactFilmMeta) for year, PG/18+ age rating, runtime, poster, IMDb score, votes, genres
   const [metaMap, setMetaMap] = useState<Record<number, CompactFilmMeta>>({});
+  const enrichedFilmIdsRef = useRef(new Set<number>());
   const [parentalModalFilm, setParentalModalFilm] = useState<Film | null>(null);
 
   const rawName =
@@ -221,23 +247,76 @@ export default function PersonClient({ personId }: { personId: string }) {
 
   const resolvedActiveProf = activeProf ?? (availableProfs[0] || "ALL");
 
-  // Deduplicate, filter, and sort credits
-  const filteredAndSortedFilms = useMemo(() => {
+  const professionFilms = useMemo(() => {
     const baseList =
       resolvedActiveProf === "ALL"
         ? allFilms
         : profGroups[resolvedActiveProf] || [];
 
     const seen = new Set<number>();
-    const deduped: PersonFilm[] = [];
-    for (const f of baseList) {
-      if (!f.filmId || seen.has(f.filmId)) continue;
-      seen.add(f.filmId);
-      deduped.push(f);
+    return baseList.filter((film) => {
+      if (!film.filmId || seen.has(film.filmId)) return false;
+      seen.add(film.filmId);
+      return true;
+    });
+  }, [allFilms, profGroups, resolvedActiveProf]);
+
+  useEffect(() => {
+    if (creditMediaFilter === "ALL") {
+      setMediaTypeProgress({ completed: 0, total: 0 });
+      setMediaTypeLookupFailed(0);
+      return;
     }
 
+    let cancelled = false;
+    const unresolvedFilms = professionFilms.filter(
+      (film) => !getCreditMediaType(getCachedFilmMeta(film.filmId)),
+    );
+    let completed = 0;
+    let failed = 0;
+
+    setMediaTypeProgress({ completed: 0, total: unresolvedFilms.length });
+    setMediaTypeLookupFailed(0);
+
+    if (unresolvedFilms.length === 0) return;
+
+    void Promise.all(
+      unresolvedFilms.map(async (film) => {
+        if (cancelled) return;
+        try {
+          const details = await getFilm(film.filmId);
+          const meta = getCachedFilmMeta(film.filmId) ?? details;
+          setMetaMap((prev) => ({ ...prev, [film.filmId]: meta }));
+        } catch {
+          failed += 1;
+        } finally {
+          completed += 1;
+          if (!cancelled) {
+            setMediaTypeProgress({
+              completed,
+              total: unresolvedFilms.length,
+            });
+            setMediaTypeLookupFailed(failed);
+          }
+        }
+      }),
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [creditMediaFilter, professionFilms]);
+
+  // Deduplicate, filter, and sort credits
+  const filteredAndSortedFilms = useMemo(() => {
     const q = creditSearch.trim().toLowerCase();
-    const afterFilter = deduped.filter((f) => {
+    const afterFilter = professionFilms.filter((f) => {
+      if (
+        creditMediaFilter !== "ALL" &&
+        getCreditMediaType(metaMap[f.filmId]) !== creditMediaFilter
+      ) {
+        return false;
+      }
       if (mainRolesOnly && !f.general) return false;
       if (q) {
         const nEn = (f.nameEn || "").toLowerCase();
@@ -287,9 +366,8 @@ export default function PersonClient({ personId }: { personId: string }) {
       return rB - rA;
     });
   }, [
-    allFilms,
-    profGroups,
-    resolvedActiveProf,
+    professionFilms,
+    creditMediaFilter,
     mainRolesOnly,
     creditSearch,
     creditSort,
@@ -321,6 +399,7 @@ export default function PersonClient({ personId }: { personId: string }) {
       .slice(0, 20)
       .map((f) => f.filmId)
       .filter((fid) => {
+        if (enrichedFilmIdsRef.current.has(fid)) return false;
         const existing = getCachedFilmMeta(fid);
         return (
           !existing ||
@@ -349,11 +428,11 @@ export default function PersonClient({ personId }: { personId: string }) {
     (async () => {
       for (const fid of toFetch) {
         if (cancelled) break;
+        enrichedFilmIdsRef.current.add(fid);
         try {
           await getFilm(fid);
-          if (cancelled) break;
           const updatedMeta = getCachedFilmMeta(fid);
-          if (updatedMeta) {
+          if (!cancelled && updatedMeta) {
             setMetaMap((prev) => ({ ...prev, [fid]: updatedMeta }));
           }
         } catch {
@@ -396,7 +475,7 @@ export default function PersonClient({ personId }: { personId: string }) {
     <div className="min-h-screen">
       {/* Hero */}
       <div className="bg-gradient-to-b from-[var(--bg-card)] to-[var(--bg)] border-b border-[var(--border)] mb-8 sm:mb-10">
-        <PageContainer className="">
+        <PageContainer variant="compact">
           <BackButton />
 
           <div className="flex flex-col md:flex-row gap-3 sm:gap-5 sm:gap-[clamp(20px,4vw,40px)] items-center md:items-start">
@@ -538,64 +617,120 @@ export default function PersonClient({ personId }: { personId: string }) {
         </TabBar>
 
         {/* Filmography Filter & Sort Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Search within credits */}
-            <div className="w-full relative flex-1 sm:flex-initial sm:w-[280px]">
-              <Search
-                size={13}
-                className="absolute  left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
-              />
-              <input
-                type="text"
-                value={creditSearch}
-                onChange={(e) => {
-                  setCreditSearch(e.target.value);
+        <div className="flex flex-col gap-3 mb-5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-3">
+          <div
+            className="grid grid-cols-3 gap-1.5 sm:flex sm:w-fit"
+            role="group"
+            aria-label="Filter credits by type"
+          >
+            {(
+              [
+                ["ALL", "All"],
+                ["MOVIES", "Movies"],
+                ["SERIES", "Series"],
+              ] as const
+            ).map(([filter, label]) => (
+              <button
+                key={filter}
+                type="button"
+                aria-pressed={creditMediaFilter === filter}
+                onClick={() => {
+                  setCreditMediaFilter(filter);
                   setFilmPage(1);
+                  setShowAllFilms(false);
                 }}
-                placeholder="Search title, role, or year…"
-                className="input w-full pl-8 pr-3 py-1.5 text-[12px] rounded-[8px]"
-              />
-            </div>
-            {/* Main Roles Only Toggle */}
-            <button
-              type="button"
-              onClick={() => {
-                setMainRolesOnly((v) => !v);
-                setFilmPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border cursor-pointer transition-all inline-flex items-center gap-1.5 ${
-                mainRolesOnly
-                  ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
-                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
-              }`}
-            >
-              <Sparkles size={12} />
-              Main Roles
-            </button>
+                className={`min-w-0 rounded-[8px] border px-2.5 py-2 text-[12px] font-semibold transition-colors cursor-pointer sm:px-3 ${
+                  creditMediaFilter === filter
+                    ? "bg-[var(--accent)] text-white border-[var(--accent)]"
+                    : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border-[var(--border)] hover:text-white"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
-          <div className="flex items-center gap-2">
-            <ArrowUpDown size={16} className="text-[var(--text-muted)]" />
-            <select
-              value={creditSort}
-              onChange={(e) => {
-                setCreditSort(e.target.value as CreditSortMode);
-                setFilmPage(1);
-              }}
-              className="select text-[12px] w-full md:w-auto py-1.5 px-3 rounded-[8px]"
-              aria-label="Sort credits by"
-            >
-              <option value="RATING">Sort: Highest Rated</option>
-              <option value="YEAR_DESC">Sort: Newest Release Year</option>
-              <option value="YEAR_ASC">Sort: Oldest Release Year</option>
-              <option value="VOTES">Sort: Most Popular (Votes)</option>
-            </select>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              {/* Search within credits */}
+              <div className="relative w-full sm:w-[280px]">
+                <Search
+                  size={13}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
+                />
+                <input
+                  type="text"
+                  value={creditSearch}
+                  onChange={(e) => {
+                    setCreditSearch(e.target.value);
+                    setFilmPage(1);
+                  }}
+                  placeholder="Search title, role, or year…"
+                  className="input w-full pl-8 pr-3 py-1.5 text-[12px] rounded-[8px]"
+                />
+              </div>
+              {/* Main Roles Only Toggle */}
+              <button
+                type="button"
+                onClick={() => {
+                  setMainRolesOnly((v) => !v);
+                  setFilmPage(1);
+                }}
+                className={`w-full justify-center px-3 py-2 rounded-[8px] text-[12px] font-semibold border cursor-pointer transition-all inline-flex items-center gap-1.5 sm:w-auto sm:py-1.5 ${
+                  mainRolesOnly
+                    ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
+                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
+                }`}
+              >
+                <Sparkles size={12} />
+                Main Roles
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <ArrowUpDown
+                size={16}
+                className="shrink-0 text-[var(--text-muted)]"
+              />
+              <select
+                value={creditSort}
+                onChange={(e) => {
+                  setCreditSort(e.target.value as CreditSortMode);
+                  setFilmPage(1);
+                }}
+                className="select min-w-0 flex-1 text-[12px] py-1.5 px-3 rounded-[8px] sm:flex-initial"
+                aria-label="Sort credits by"
+              >
+                <option value="RATING">Sort: Highest Rated</option>
+                <option value="YEAR_DESC">Sort: Newest Release Year</option>
+                <option value="YEAR_ASC">Sort: Oldest Release Year</option>
+                <option value="VOTES">Sort: Most Popular (Votes)</option>
+              </select>
+            </div>
           </div>
         </div>
 
         {/* Credits List */}
-        {displayedFilms.length === 0 ? (
+        {creditMediaFilter !== "ALL" &&
+          mediaTypeProgress.completed < mediaTypeProgress.total &&
+          displayedFilms.length > 0 && (
+            <p
+              className="mb-3 text-[12px] text-[var(--text-muted)]"
+              role="status"
+            >
+              Finding more matching credits…
+            </p>
+          )}
+        {displayedFilms.length === 0 &&
+        creditMediaFilter !== "ALL" &&
+        mediaTypeProgress.completed < mediaTypeProgress.total ? (
+          <p
+            className="py-8 text-center text-[13px] text-[var(--text-muted)]"
+            role="status"
+          >
+            Finding matching credits…
+          </p>
+        ) : displayedFilms.length === 0 ? (
           <p className="text-[var(--text-muted)] text-[14px] sm:text-[15px] py-8 text-center">
             No credits match your current filter.
           </p>
@@ -607,23 +742,19 @@ export default function PersonClient({ personId }: { personId: string }) {
                 film={film}
                 meta={metaMap[film.filmId]}
                 autoTranslate={autoTranslate}
-                onOpenParentalGuide={(meta) =>
-                  setParentalModalFilm({
-                    kinopoiskId: film.filmId,
-                    filmId: film.filmId,
-                    nameRu: film.nameRu,
-                    nameEn: film.nameEn,
-                    year: meta?.year,
-                    ratingMpaa: meta?.ratingMpaa,
-                    ratingAgeLimits: meta?.ratingAgeLimits,
-                    posterUrl: meta?.posterUrl || meta?.posterUrlPreview || "",
-                    posterUrlPreview: meta?.posterUrlPreview || "",
-                  })
-                }
+                onOpenParentalGuide={setParentalModalFilm}
               />
             ))}
           </div>
         )}
+        {creditMediaFilter !== "ALL" &&
+          mediaTypeProgress.completed === mediaTypeProgress.total &&
+          mediaTypeLookupFailed > 0 && (
+            <p className="mt-3 text-center text-[12px] text-[var(--text-muted)]">
+              Could not determine the type of {mediaTypeLookupFailed}{" "}
+              {mediaTypeLookupFailed === 1 ? "credit" : "credits"}.
+            </p>
+          )}
 
         {filmTotalPages > 1 && (
           <div className="flex items-center gap-2 mt-6 flex-wrap">
@@ -728,7 +859,7 @@ function FilmEntry({
   film: PersonFilm;
   meta?: CompactFilmMeta;
   autoTranslate: boolean;
-  onOpenParentalGuide: (meta?: CompactFilmMeta) => void;
+  onOpenParentalGuide: (film: Film) => void;
 }) {
   const entryRef = useRef<HTMLDivElement>(null);
   const popupFilm = useMemo<Film>(
@@ -879,7 +1010,7 @@ function FilmEntry({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                onOpenParentalGuide(meta);
+                onOpenParentalGuide(hydrateFilmWithCache(popupFilm));
               }}
               title="Click to inspect Parental Guide & Content Advisories"
               className={`text-[10px] font-bold rounded-[5px] px-1.5 py-[1px] border cursor-pointer inline-flex items-center gap-1 flex-shrink-0 transition-colors ${
