@@ -507,17 +507,6 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                     {film.ratingAgeLimits.replace("age", "")}+
                   </button>
                 )}
-                {film.ratingMpaa && (
-                  <button
-                    type="button"
-                    onClick={() => setParentalOpen(true)}
-                    title="View Parental Guide"
-                    className="tag tag-dim text-[10px] sm:text-[11px] cursor-pointer hover:border-[var(--border-hover)] inline-flex items-center gap-1"
-                  >
-                    <ShieldAlert size={11} />
-                    {film.ratingMpaa.toUpperCase()}
-                  </button>
-                )}
               </div>
             </div>
 
@@ -588,10 +577,10 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
           {/* Remapped KinoDivBox Server Buttons (Alloha, Collaps, HDVB, VeoVeo, VideoSeeD, Kodik, Trailer) */}
           {kdbServers.length > 0 && (
-            <div className="flex items-center gap-1.5 sm:gap-2 pt-2 pb-0.5 border-t border-[var(--border)] overflow-x-auto scrollbar-none">
+            <div className="flex items-center overflow-x-auto scrollbar-none w-full gap-1.5 sm:gap-2 pt-2 pb-0.5 border-t border-[var(--border)]">
               <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[1px] text-[var(--text-muted)] flex-shrink-0 mr-1">
                 <Server size={12} className="text-[var(--accent)]" />
-                <span className="hidden sm:inline">Server</span>
+                <span className="">Server</span>
               </span>
               {kdbServers.map((srv) => (
                 <button
@@ -604,8 +593,14 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                       : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border-[var(--border)] hover:border-[var(--border-hover)] hover:text-white"
                   }`}
                 >
-                  {srv.isTrailer && <FilmIcon size={11} />}
-                  <span>{srv.name}</span>
+                  {srv.isTrailer ? (
+                    <div className="flex items-center gap-1">
+                      <FilmIcon size={11} />
+                      {srv.name}
+                    </div>
+                  ) : (
+                    <span>{srv.index + 1}</span>
+                  )}
                 </button>
               ))}
             </div>
