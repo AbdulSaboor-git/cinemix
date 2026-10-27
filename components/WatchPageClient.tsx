@@ -587,7 +587,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                   key={srv.id}
                   type="button"
                   onClick={() => handleSelectKdbServer(srv)}
-                  className={`flex-shrink-0 px-2.5 sm:px-3 py-1 rounded-[7px] text-[11px] sm:text-[12px] font-semibold cursor-pointer transition-all duration-150 inline-flex items-center gap-1.5 border  ${
+                  className={`flex-shrink-0 px-3 sm:px-6 py-1 rounded-[7px] text-[11px] sm:text-[12px] font-semibold cursor-pointer transition-all duration-150 inline-flex items-center gap-1.5 border  ${
                     srv.active
                       ? "bg-[var(--accent)] text-white border-[var(--accent)] shadow-[0_0_14px_rgba(229,9,20,0.35)]"
                       : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border-[var(--border)] hover:border-[var(--border-hover)] hover:text-white"
@@ -629,8 +629,8 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
             title={name}
             className={`w-full ${
               wideTheater
-                ? "h-[340px] sm:h-[500px] md:h-[640px]"
-                : "h-[300px] sm:h-[440px] md:h-[510px]"
+                ? "h-[340px] sm:h-[500px] md:h-[440px] lg:h-[540px]"
+                : "h-[200px] sm:h-[340px] md:h-[410px] lg:h-[500px]"
             } border-none block bg-[#1e1918] overflow-hidden transition-all duration-300`}
           />
         </div>
