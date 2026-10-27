@@ -13,6 +13,12 @@ import {
   Lock,
   Server,
   Film as FilmIcon,
+  Calendar,
+  CalendarCheck,
+  CalendarCheckIcon,
+  Clock3Icon,
+  PlayIcon,
+  PlayCircleIcon,
 } from "lucide-react";
 import {
   getFilm,
@@ -65,6 +71,12 @@ interface KinoDivBoxServer {
   active: boolean;
 }
 
+interface SavedServerSelection {
+  id: string;
+  index: number;
+  rawName: string;
+}
+
 const DEFAULT_KDB_SERVERS: KinoDivBoxServer[] = [
   { index: 0, id: "alloha", name: "Alloha", rawName: "Alloha", active: true },
   {
@@ -93,6 +105,60 @@ const DEFAULT_KDB_SERVERS: KinoDivBoxServer[] = [
     active: false,
   },
 ];
+
+function getServerStorageKey(filmId: number | string) {
+  return `cinemix_last_server_${filmId}`;
+}
+
+function readSavedServer(filmId: number | string): SavedServerSelection | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(getServerStorageKey(filmId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SavedServerSelection>;
+    if (
+      typeof parsed?.id === "string" &&
+      typeof parsed?.index === "number" &&
+      typeof parsed?.rawName === "string"
+    ) {
+      return {
+        id: parsed.id,
+        index: parsed.index,
+        rawName: parsed.rawName,
+      };
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return null;
+}
+
+function applySavedServerToList(
+  servers: KinoDivBoxServer[],
+  saved: SavedServerSelection | null,
+): { list: KinoDivBoxServer[]; matched: KinoDivBoxServer | null } {
+  if (!saved || servers.length === 0) {
+    return { list: servers, matched: null };
+  }
+  const matched =
+    servers.find(
+      (s) =>
+        s.id === saved.id ||
+        s.rawName === saved.rawName ||
+        s.index === saved.index,
+    ) ?? null;
+
+  if (!matched) {
+    return { list: servers, matched: null };
+  }
+
+  const list = servers.map((item) => ({
+    ...item,
+    active: item.id === matched.id && item.index === matched.index,
+  }));
+
+  return { list, matched };
+}
 
 function EpisodeRow({
   epNumber,
@@ -123,13 +189,13 @@ function EpisodeRow({
   );
 
   return (
-    <div className="flex items-start gap-3 border border-[var(--border)] bg-[var(--bg-card)] rounded-[8px] px-3 sm:px-4 py-2.5 sm:py-3">
+    <div className="flex items-start gap-3 border border-[var(--border)] bg-[var(--bg-card)] rounded-[10px] px-3.5 sm:px-4 py-2.5 sm:py-3 transition-colors hover:border-[var(--border-hover)]">
       <span className="font-display text-[var(--text-muted)] flex-shrink-0 text-[15px] sm:text-[18px] w-6 sm:w-8 pt-0.5">
         {epNumber}
       </span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <p className="font-semibold text-[var(--text)] text-[12px] sm:text-[13px] truncate">
+          <p className="font-semibold text-[var(--text)] text-[12px] sm:text-[13px] truncate m-0">
             {epTitle && epTitle !== "Unknown" ? epTitle : `Episode ${epNumber}`}
           </p>
           {safeDate && (
@@ -139,7 +205,7 @@ function EpisodeRow({
           )}
         </div>
         {translatedSynopsis && (
-          <p className="text-[11px] sm:text-[12px] text-[var(--text-muted)] mt-1 line-clamp-2">
+          <p className="text-[11px] sm:text-[12px] text-[var(--text-muted)] mt-1 mb-0 line-clamp-2 leading-relaxed">
             {translatedSynopsis}
           </p>
         )}
@@ -168,8 +234,11 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   const [parentalOpen, setParentalOpen] = useState(false);
   const [kdbServers, setKdbServers] =
     useState<KinoDivBoxServer[]>(DEFAULT_KDB_SERVERS);
+
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const lastServersSigRef = useRef<string>("");
+  const savedServerRef = useRef<SavedServerSelection | null>(null);
+  const needsIframeServerSyncRef = useRef<boolean>(false);
 
   const { isFav, isWL } = useListStatus(isNaN(id) ? 0 : id);
 
@@ -182,11 +251,32 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   const latestNameRef = useRef(name);
   latestNameRef.current = name;
 
-  // Reset server buttons to default and reset episode pagination when switching films
+  const postServerSelectToIframe = useCallback(
+    (srv: { index: number; id: string; rawName: string }) => {
+      iframeRef.current?.contentWindow?.postMessage(
+        {
+          type: "CINEMIX_KDB_SELECT",
+          index: srv.index,
+          id: srv.id,
+          name: srv.rawName,
+        },
+        "*",
+      );
+    },
+    [],
+  );
+
+  // Restore saved server selection (or reset to default) and reset episode pagination when switching films
   useEffect(() => {
-    setKdbServers(DEFAULT_KDB_SERVERS);
-    lastServersSigRef.current = "";
+    const saved = !isNaN(id) ? readSavedServer(id) : null;
+    savedServerRef.current = saved;
+    needsIframeServerSyncRef.current = Boolean(saved);
+
+    const { list } = applySavedServerToList(DEFAULT_KDB_SERVERS, saved);
+    setKdbServers(list);
+    lastServersSigRef.current = JSON.stringify(list);
     setVisibleEpCount(EPISODES_PAGE_SIZE);
+    setEpisodeQuery("");
   }, [id]);
 
   // Listen for extracted/synced server buttons from the /api/kinodivbox bridge
@@ -198,38 +288,74 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         const incoming = Array.isArray(e.data.servers)
           ? (e.data.servers as KinoDivBoxServer[])
           : [];
-        if (incoming.length > 0) {
-          const sig = JSON.stringify(incoming);
-          if (sig !== lastServersSigRef.current) {
-            lastServersSigRef.current = sig;
-            setKdbServers(incoming);
+        if (incoming.length === 0) return;
+
+        let nextServers = incoming;
+        const saved = savedServerRef.current;
+
+        // If a saved server exists from before refresh, keep it active and instruct the iframe to select it
+        if (saved) {
+          const { list, matched } = applySavedServerToList(incoming, saved);
+          if (matched) {
+            nextServers = list;
+            const incomingActive = incoming.find((s) => s.active);
+            const alreadySyncedInIframe =
+              incomingActive &&
+              (incomingActive.id === matched.id ||
+                incomingActive.index === matched.index);
+
+            if (needsIframeServerSyncRef.current || !alreadySyncedInIframe) {
+              needsIframeServerSyncRef.current = false;
+              postServerSelectToIframe(matched);
+            }
           }
+        }
+
+        const sig = JSON.stringify(nextServers);
+        if (sig !== lastServersSigRef.current) {
+          lastServersSigRef.current = sig;
+          setKdbServers(nextServers);
         }
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [id]);
+  }, [id, postServerSelectToIframe]);
 
-  const handleSelectKdbServer = useCallback((srv: KinoDivBoxServer) => {
-    setKdbServers((prev) => {
-      const next = prev.map((item) => ({
-        ...item,
-        active: item.id === srv.id || item.rawName === srv.rawName,
-      }));
-      lastServersSigRef.current = JSON.stringify(next);
-      return next;
-    });
-    iframeRef.current?.contentWindow?.postMessage(
-      {
-        type: "CINEMIX_KDB_SELECT",
-        index: srv.index,
+  const handleSelectKdbServer = useCallback(
+    (srv: KinoDivBoxServer) => {
+      const selection: SavedServerSelection = {
         id: srv.id,
-        name: srv.rawName,
-      },
-      "*",
-    );
-  }, []);
+        index: srv.index,
+        rawName: srv.rawName,
+      };
+      savedServerRef.current = selection;
+      needsIframeServerSyncRef.current = false;
+
+      if (!isNaN(id)) {
+        try {
+          localStorage.setItem(
+            getServerStorageKey(id),
+            JSON.stringify(selection),
+          );
+        } catch {
+          // ignore storage quota errors
+        }
+      }
+
+      setKdbServers((prev) => {
+        const next = prev.map((item) => ({
+          ...item,
+          active: item.id === srv.id || item.rawName === srv.rawName,
+        }));
+        lastServersSigRef.current = JSON.stringify(next);
+        return next;
+      });
+
+      postServerSelectToIframe(srv);
+    },
+    [id, postServerSelectToIframe],
+  );
 
   useEffect(() => {
     if (!hasApiKeys()) {
@@ -248,6 +374,8 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
       if (savedSeason !== null) {
         const parsed = parseInt(savedSeason, 10);
         if (!isNaN(parsed) && parsed >= 0) setActiveSeason(parsed);
+      } else {
+        setActiveSeason(0);
       }
     } catch {
       // ignore
@@ -386,10 +514,12 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
   if (loading) {
     return (
-      <PageContainer className="">
-        <div className="max-w-[960px] mx-auto">
-          <div className="skeleton h-12 w-full rounded-[12px] mb-3" />
-          <div className="skeleton w-full h-[320px] sm:h-[460px] md:h-[520px] rounded-[16px]" />
+      <PageContainer>
+        <div className="max-w-[960px] mx-auto flex flex-col gap-3">
+          <div className="skeleton h-[96px] sm:h-[88px] w-full rounded-[14px]" />
+          <div className="skeleton w-full aspect-video sm:aspect-auto sm:h-[340px] md:h-[410px] lg:h-[500px] rounded-[14px] sm:rounded-[16px]" />
+          <div className="skeleton sm:hidden h-[46px] w-full rounded-[12px]" />
+          <div className="skeleton h-[120px] w-full rounded-[14px] mt-1" />
         </div>
       </PageContainer>
     );
@@ -423,8 +553,25 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     );
   }
 
-  const rating = film.ratingImdb ?? film.ratingKinopoisk;
+  const rawRating = film.ratingImdb ?? film.ratingKinopoisk;
+  const rating =
+    typeof rawRating === "number" && rawRating > 0 ? rawRating : null;
+  const ratingSource = film.ratingImdb
+    ? "IMDb"
+    : film.ratingKinopoisk
+      ? "KP"
+      : "Score";
   const year = film.year || film.startYear;
+  const durationText =
+    film.filmLength && film.filmLength > 0
+      ? `${Math.floor(film.filmLength / 60)}h ${film.filmLength % 60}m`
+      : null;
+  const ageRatingText = film.ratingAgeLimits
+    ? `${film.ratingAgeLimits.replace(/^age/i, "")}+`
+    : film.ratingMpaa
+      ? film.ratingMpaa.toUpperCase()
+      : null;
+
   const playerUrl = `${PLAYER_PROXY_URL}?id=${id}`;
 
   const filmEntry = {
@@ -432,7 +579,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     film_name: name,
     poster_url: film.posterUrlPreview || film.posterUrl || null,
     year: film.year ?? film.startYear ?? null,
-    rating: film.ratingImdb ?? film.ratingKinopoisk ?? null,
+    rating: rating,
   };
 
   const handleFav = () => {
@@ -452,72 +599,77 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           wideTheater ? "max-w-[1280px]" : "max-w-[960px]"
         } mx-auto transition-all duration-300 relative`}
       >
-        {/* Top Cinema Control Bar */}
-        <div className="w-full flex flex-col gap-2.5 mb-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] px-3 sm:px-4 py-2.5">
-          <div className="w-full flex flex-row items-center flex-wrap justify-between gap-2 sm:gap-3">
-            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-              <BackButton
-                fallbackHref={`/film/${id}`}
-                label="Film Details"
-                className="mb-0"
-                iconOnlyOnPhone
-              />
-              <span className="text-[var(--border-hover)] hidden sm:inline">
+        {/* ── Top Header & Cinema Control Card ── */}
+        <div className="w-full flex flex-col gap-2.5 mb-2.5 sm:mb-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[14px] sm:rounded-[12px] p-3 sm:px-4 sm:py-2.5 shadow-[0_8px_28px_rgba(0,0,0,0.4)]">
+          {/* Header Row: Back + Title/Year on left, Action buttons on right */}
+          <div className="w-full flex items-center sm:items-center justify-between gap-2.5 sm:gap-3">
+            <div className="flex items-start sm:items-center gap-2 sm:gap-3 min-w-0 flex-1">
+              <div className="pt-0.5 sm:pt-0 flex-shrink-0">
+                <BackButton
+                  fallbackHref={`/film/${id}`}
+                  label="Film Details"
+                  className="mb-0"
+                  iconOnlyOnPhone
+                />
+              </div>
+              <span className="text-[var(--border-hover)] hidden sm:inline select-none">
                 |
               </span>
-              <div className="min-w-0 flex items-center gap-2 flex-wrap flex-1">
-                <Link
-                  href={`/film/${id}`}
-                  className="no-underline hover:underline text-white min-w-0"
-                >
-                  <h1 className="font-display tracking-[1.2px] text-[16px] sm:text-[20px] text-white leading-none m-0 line-clamp-2">
+
+              {/* Title + Metadata */}
+              <div className="min-w-0 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 sm:flex-wrap flex-1">
+                <div className="flex items-baseline gap-1.5 flex-wrap min-w-0">
+                  <h1 className="font-display tracking-[1.1px] text-[17px] sm:text-[20px] text-white line-clamp-2">
                     {name}
                   </h1>
-                </Link>
-                {year && (
-                  <span className="text-[11px] text-[var(--text-muted)]">
-                    ({year})
-                  </span>
-                )}
-                {film.filmLength && (
-                  <span className="hidden sm:inline text-[11px] text-[var(--text-muted)]">
-                    · {Math.floor(film.filmLength / 60)}h {film.filmLength % 60}
-                    m
-                  </span>
-                )}
-                {rating && (
-                  <span className="inline-flex items-center gap-1 text-[11px] sm:text-[12px] text-[#f5c518] font-display">
-                    <Star
-                      className="mb-0.5"
-                      size={11}
-                      fill="#f5c518"
-                      stroke="#f5c518"
-                    />
-                    {rating.toFixed(1)}
-                  </span>
-                )}
-                {film.ratingAgeLimits && (
-                  <button
-                    type="button"
-                    onClick={() => setParentalOpen(true)}
-                    title="View Parental Guide"
-                    className="tag tag-accent text-[10px] sm:text-[11px] cursor-pointer hover:border-[rgba(229,9,20,0.5)] inline-flex items-center gap-1"
-                  >
-                    <ShieldAlert size={11} />
-                    {film.ratingAgeLimits.replace("age", "")}+
-                  </button>
-                )}
+                  {year && (
+                    <span className="hidden sm:inline text-[11px] sm:text-[12px] font-medium text-[var(--text-muted)] flex-shrink-0">
+                      ({year})
+                    </span>
+                  )}
+                  {durationText && (
+                    <span className="hidden sm:inline text-[11px] text-[var(--text-muted)] flex-shrink-0">
+                      · {durationText}
+                    </span>
+                  )}
+                </div>
+
+                {/* Desktop inline Rating & Age badges (hidden on mobile where the 2-column box is shown) */}
+                <div className="hidden sm:flex items-center gap-2">
+                  {rating && (
+                    <span className="inline-flex items-center gap-1 text-[12px] text-[#f5c518] font-display">
+                      <Star
+                        className="mb-0.5"
+                        size={11}
+                        fill="#f5c518"
+                        stroke="#f5c518"
+                      />
+                      {rating.toFixed(1)}
+                    </span>
+                  )}
+                  {ageRatingText && (
+                    <button
+                      type="button"
+                      onClick={() => setParentalOpen(true)}
+                      title="View Parental Guide"
+                      className="tag tag-accent text-[11px] cursor-pointer hover:border-[rgba(229,9,20,0.5)] inline-flex items-center gap-1"
+                    >
+                      <ShieldAlert size={11} />
+                      {ageRatingText}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Action controls */}
+            {/* Quick Action Controls (Favorite, Watch Later, Desktop Wide Mode) */}
             <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
               <div className="hidden md:inline-flex">
                 <button
                   type="button"
                   onClick={() => setWideTheater((v) => !v)}
                   title="Toggle Wide Theater Mode (W)"
-                  className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
+                  className={`btn btn-ghost h-8 px-2.5 text-[12px] ${
                     wideTheater
                       ? "border-[rgba(229,9,20,0.5)] text-[var(--accent)]"
                       : ""
@@ -532,25 +684,26 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                 </button>
               </div>
 
-              {!film.ratingAgeLimits && !film.ratingMpaa && (
+              {!ageRatingText && (
                 <button
                   type="button"
                   onClick={() => setParentalOpen(true)}
                   aria-label="View Parental Guide"
                   title="View Parental Guide"
-                  className="btn btn-ghost py-1.5 px-2.5 text-[12px]"
+                  className="hidden sm:inline-flex btn btn-ghost h-8 w-8 p-0 items-center justify-center text-[12px]"
                 >
                   <ShieldAlert size={14} />
                 </button>
               )}
+
               <button
                 type="button"
                 onClick={handleFav}
                 aria-label={isFav ? "In Favorites" : "Add to Favorites"}
                 title={isFav ? "In Favorites" : "Add to Favorites"}
-                className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
+                className={`btn btn-ghost h-8 w-8 p-0 inline-flex items-center justify-center rounded-[9px] transition-all active:scale-90 ${
                   isFav
-                    ? "border-[rgba(229,9,20,0.5)] text-[var(--accent)]"
+                    ? "border-[rgba(229,9,20,0.45)] bg-[rgba(229,9,20,0.1)] text-[var(--accent)]"
                     : ""
                 }`}
               >
@@ -566,8 +719,10 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                 onClick={handleWL}
                 aria-label={isWL ? "In Watch Later" : "Save to Watch Later"}
                 title={isWL ? "In Watch Later" : "Save to Watch Later"}
-                className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
-                  isWL ? "border-[rgba(96,165,250,0.5)] text-[#60a5fa]" : ""
+                className={`btn btn-ghost h-8 w-8 p-0 inline-flex items-center justify-center rounded-[9px] transition-all active:scale-90 ${
+                  isWL
+                    ? "border-[rgba(96,165,250,0.45)] bg-[rgba(96,165,250,0.1)] text-[#60a5fa]"
+                    : ""
                 }`}
               >
                 <Clock size={14} stroke={isWL ? "#60a5fa" : "currentColor"} />
@@ -575,29 +730,29 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
             </div>
           </div>
 
-          {/* Remapped KinoDivBox Server Buttons (Alloha, Collaps, HDVB, VeoVeo, VideoSeeD, Kodik, Trailer) */}
+          {/* ── Desktop Server Selector Bar (hidden on mobile; relocated below player on mobile) ── */}
           {kdbServers.length > 0 && (
-            <div className="flex items-center overflow-x-auto scrollbar-none w-full gap-1.5 sm:gap-2 pt-2 pb-0.5 border-t border-[var(--border)]">
-              <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[1px] text-[var(--text-muted)] flex-shrink-0 mr-1">
+            <div className="hidden sm:flex items-center overflow-x-auto scrollbar-none w-full gap-2 pt-2 pb-0.5 border-t border-[var(--border)]">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[1px] text-[var(--text-muted)] flex-shrink-0 mr-1">
                 <Server size={12} className="text-[var(--accent)]" />
-                <span className="">Server</span>
+                <span>Server</span>
               </span>
               {kdbServers.map((srv) => (
                 <button
                   key={srv.id}
                   type="button"
                   onClick={() => handleSelectKdbServer(srv)}
-                  className={`flex-shrink-0 px-3 sm:px-6 py-1 rounded-[7px] text-[11px] sm:text-[12px] font-semibold cursor-pointer transition-all duration-150 inline-flex items-center gap-1.5 border  ${
+                  className={`flex-shrink-0 px-5 py-1 rounded-[7px] text-[12px] font-semibold cursor-pointer transition-all duration-150 inline-flex items-center gap-1.5 border ${
                     srv.active
                       ? "bg-[var(--accent)] text-white border-[var(--accent)] shadow-[0_0_14px_rgba(229,9,20,0.35)]"
                       : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border-[var(--border)] hover:border-[var(--border-hover)] hover:text-white"
                   }`}
                 >
                   {srv.isTrailer ? (
-                    <div className="flex items-center gap-1">
-                      <FilmIcon size={11} />
+                    <span className="inline-flex items-center gap-1.5">
+                      <FilmIcon size={12} />
                       {srv.name}
-                    </div>
+                    </span>
                   ) : (
                     <span>{srv.index + 1}</span>
                   )}
@@ -607,8 +762,8 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           )}
         </div>
 
-        {/* Theater Video Stage */}
-        <div className="w-full rounded-[14px] sm:rounded-[16px] overflow-hidden shadow-[0_24px_80px_rgba(0,0,0,0.85)]">
+        {/* ── Theater Video Stage ── */}
+        <div className="w-full rounded-[14px] sm:rounded-[16px] overflow-hidden border border-white/[0.07] bg-[#0d0c0c] shadow-[0_20px_60px_rgba(0,0,0,0.85)]">
           <iframe
             ref={iframeRef}
             key={id}
@@ -618,6 +773,9 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                 { type: "CINEMIX_KDB_PING" },
                 "*",
               );
+              if (savedServerRef.current) {
+                postServerSelectToIframe(savedServerRef.current);
+              }
             }}
             width="100%"
             height="510"
@@ -629,53 +787,160 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
             title={name}
             className={`w-full ${
               wideTheater
-                ? "h-[340px] sm:h-[500px] md:h-[440px] lg:h-[540px]"
-                : "h-[200px] sm:h-[340px] md:h-[410px] lg:h-[500px]"
-            } border-none block bg-[#1e1918] overflow-hidden transition-all duration-300`}
+                ? "aspect-video sm:aspect-auto sm:h-[500px] md:h-[440px] lg:h-[540px]"
+                : "aspect-video sm:aspect-auto h-[300px] sm:h-[340px] md:h-[410px] lg:h-[500px]"
+            } border-none block bg-[#141212] overflow-hidden transition-all duration-300`}
           />
         </div>
 
-        {/* Synopsis + Genres below player */}
-        <div className="mt-4 sm:mt-5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-4 sm:p-6">
-          <div className="flex flex-wrap gap-2 mb-3">
-            {film.genres?.map((g) => (
-              <Link
-                key={g.genre}
-                href={`/explore?genres=${encodeURIComponent(g.genre)}`}
-                className="no-underline"
-              >
-                <span className="tag tag-accent capitalize cursor-pointer">
-                  {translateGenre(g.genre, autoTranslate)}
+        {/* ── Mobile Server Switcher Dock (placed directly beneath player for ergonomic thumb reach & zero clipping) ── */}
+        {kdbServers.length > 0 && (
+          <div className="sm:hidden flex flex-col gap-2 mt-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-2.5 shadow-[0_6px_20px_rgba(0,0,0,0.35)]">
+            <div className="flex items-center justify-between gap-2 px-0.5">
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[1px] text-[var(--text-muted)]">
+                <Server size={11} className="text-[var(--accent)]" />
+                <span>Stream Source</span>
+              </span>
+              {kdbServers.find((s) => s.active) && (
+                <span className="text-[10px] font-medium text-[var(--text-dim)]">
+                  Active:{" "}
+                  <strong className="text-white font-semibold">
+                    {kdbServers.find((s) => s.active)?.isTrailer
+                      ? "Trailer"
+                      : `Server ${(kdbServers.find((s) => s.active)?.index ?? 0) + 1}`}
+                  </strong>
                 </span>
-              </Link>
-            ))}
-            {film.countries?.map((c) => (
-              <Link
-                key={c.country}
-                href={`/explore?countries=${encodeURIComponent(c.country)}`}
-                className="no-underline"
-              >
-                <span className="tag tag-dim cursor-pointer">
-                  {translateCountry(c.country, autoTranslate)}
-                </span>
-              </Link>
-            ))}
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {/* Numbered Stream Servers */}
+              <div className="grid grid-cols-6 gap-1.5 flex-1">
+                {kdbServers
+                  .filter((srv) => !srv.isTrailer)
+                  .map((srv) => (
+                    <button
+                      key={srv.id}
+                      type="button"
+                      onClick={() => handleSelectKdbServer(srv)}
+                      className={`h-8 rounded-[8px] text-[12px] font-semibold cursor-pointer transition-all duration-150 flex items-center justify-center border active:scale-95 ${
+                        srv.active
+                          ? "bg-[var(--accent)] text-white border-[var(--accent)] shadow-[0_0_12px_rgba(229,9,20,0.4)]"
+                          : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border-[var(--border)] hover:text-white"
+                      }`}
+                    >
+                      {srv.index + 1}
+                    </button>
+                  ))}
+              </div>
+            </div>
+            {kdbServers
+              .filter((srv) => srv.isTrailer)
+              .map((srv) => (
+                <button
+                  key={srv.id}
+                  type="button"
+                  onClick={() => handleSelectKdbServer(srv)}
+                  className={`h-8 flex items-center justify-center gap-1 rounded-[8px] text-[12px] font-semibold cursor-pointer transition-all duration-150 border active:scale-95 ${
+                    srv.active
+                      ? "bg-[var(--accent)] text-white border-[var(--accent)] shadow-[0_0_12px_rgba(229,9,20,0.4)]"
+                      : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border-[var(--border)] hover:text-white"
+                  }`}
+                >
+                  <PlayCircleIcon size={14} />
+                  Trailer
+                </button>
+              ))}
           </div>
-          {description && (
-            <p className="text-[13px] sm:text-[14px] text-[var(--text-dim)] leading-[1.7] m-0">
+        )}
+        <div className="sm:hidden mt-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-2.5 shadow-[0_6px_20px_rgba(0,0,0,0.35)]">
+          <div className="grid grid-cols-3 gap-2 sm:hidden pt-0.5">
+            {/*  1 */}
+            <div className="flex items-center justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]">
+              <span className="font-display text-[15px] tracking-[0.5px] text-[#f5c518] leading-none">
+                {rating ? rating.toFixed(1) : "—"}
+              </span>
+              <Star
+                size={12}
+                className="mb-0.5"
+                fill="#f5c518"
+                stroke="#f5c518"
+              />
+            </div>
+            {/* 2 */}
+            <button
+              type="button"
+              onClick={() => setParentalOpen(true)}
+              title="View Parental Guide"
+              className="flex items-center text-red-700 justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07] active:scale-[0.98] cursor-pointer transition-all text-left"
+            >
+              <ShieldAlert size={14} className="mb-0.5" />
+              <span className="font-display text-sm">
+                {ageRatingText ?? "Guide"}
+              </span>
+            </button>
+            {/* 3 */}
+            <div className="flex items-center text-[var(--text-dim)] justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]">
+              <CalendarCheckIcon size={14} className="mb-0.5" />
+              <span className="font-display text-sm">{year ?? "—"}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Synopsis + Genres Card ── */}
+        <div className="mt-3 sm:mt-5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[14px] sm:rounded-[var(--radius-lg)] p-3.5 sm:p-6">
+          {((film.genres && film.genres.length > 0) ||
+            (film.countries && film.countries.length > 0)) && (
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-3">
+              {film.genres?.map((g) => (
+                <Link
+                  key={g.genre}
+                  href={`/explore?genres=${encodeURIComponent(g.genre)}`}
+                  className="no-underline"
+                >
+                  <span className="tag tag-dim capitalize cursor-pointer text-[11px] sm:text-[12px]">
+                    {translateGenre(g.genre, autoTranslate)}
+                  </span>
+                </Link>
+              ))}
+              {film.countries?.map((c) => (
+                <Link
+                  key={c.country}
+                  href={`/explore?countries=${encodeURIComponent(c.country)}`}
+                  className="no-underline"
+                >
+                  <span className="tag tag-dim cursor-pointer text-[11px] sm:text-[12px]">
+                    {translateCountry(c.country, autoTranslate)}
+                  </span>
+                </Link>
+              ))}
+              {film.filmLength && film.filmLength > 0 && (
+                <span className="text-xs sm:hidden text-[var(--text-dim)]">
+                  {durationText ?? "—"}
+                </span>
+              )}
+            </div>
+          )}
+
+          {description ? (
+            <p className="text-[13px] sm:text-[14px] text-[var(--text-dim)] leading-[1.68] m-0">
               {description}
+            </p>
+          ) : (
+            <p className="text-[12px] sm:text-[13px] text-[var(--text-muted)] italic m-0">
+              No synopsis available for this title.
             </p>
           )}
         </div>
 
-        {/* Seasons & Episodes (for TV Series) */}
+        {/* ── Seasons & Episodes (for TV Series) ── */}
         {seasons.length > 0 && (
-          <div className="mt-8">
+          <div className="mt-7 sm:mt-8">
             <SectionHeader
               title="SEASONS & EPISODES"
               count={seasons.length}
               rightSlot={
-                <div className="relative w-[170px] sm:w-[190px]">
+                <div className="relative w-[160px] sm:w-[190px]">
                   <Search
                     size={12}
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
@@ -749,9 +1014,9 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           </div>
         )}
 
-        {/* Similar Films (Uses hydrated FilmCard with year, genres, rating & long-press Quick-Peek) */}
+        {/* ── Similar Films ── */}
         {hydratedSimilars.length > 0 && (
-          <div className="mt-8">
+          <div className="mt-7 sm:mt-8">
             <SectionHeader
               title="SIMILAR FILMS"
               count={hydratedSimilars.length}

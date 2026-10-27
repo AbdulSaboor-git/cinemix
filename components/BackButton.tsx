@@ -42,7 +42,7 @@ export default function BackButton({
         desktopOnly ? "hidden md:inline-flex" : "inline-flex"
       } ${className}`.trim()}
     >
-      <ChevronLeft size={14} strokeWidth={2.5} />
+      <ChevronLeft size={14} strokeWidth={2.5} className="-mt-2 sm:mt-0" />
       <div className={iconOnlyOnPhone ? "hidden sm:inline" : "inline"}>
         {label}
       </div>
