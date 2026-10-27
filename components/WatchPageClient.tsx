@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import Link from "next/link";
 import {
   Heart,
@@ -9,10 +9,10 @@ import {
   ShieldAlert,
   Maximize2,
   Minimize2,
-  Moon,
-  Sun,
   Search,
   Lock,
+  Server,
+  Film as FilmIcon,
 } from "lucide-react";
 import {
   getFilm,
@@ -53,7 +53,46 @@ import NoKeyBanner from "@/components/ui/NoKeyBanner";
 import ParentalGuideModal from "@/components/ParentalGuideModal";
 
 const HISTORY_THRESHOLD_S = 10;
-const PLAYER_BASE_URL = "https://kinodivbox.github.io/iframe";
+const PLAYER_PROXY_URL = "/api/kinodivbox";
+const EPISODES_PAGE_SIZE = 24;
+
+interface KinoDivBoxServer {
+  index: number;
+  id: string;
+  name: string;
+  rawName: string;
+  isTrailer?: boolean;
+  active: boolean;
+}
+
+const DEFAULT_KDB_SERVERS: KinoDivBoxServer[] = [
+  { index: 0, id: "alloha", name: "Alloha", rawName: "Alloha", active: true },
+  {
+    index: 1,
+    id: "collaps",
+    name: "Collaps",
+    rawName: "Collaps",
+    active: false,
+  },
+  { index: 2, id: "hdvb", name: "HDVB", rawName: "HDVB", active: false },
+  { index: 3, id: "veoveo", name: "VeoVeo", rawName: "VeoVeo", active: false },
+  {
+    index: 4,
+    id: "videoseed",
+    name: "VideoSeeD",
+    rawName: "VideoSeeD",
+    active: false,
+  },
+  { index: 5, id: "kodik", name: "Kodik", rawName: "Kodik", active: false },
+  {
+    index: 6,
+    id: "trailer",
+    name: "Trailer",
+    rawName: "Трейлер",
+    isTrailer: true,
+    active: false,
+  },
+];
 
 function EpisodeRow({
   epNumber,
@@ -70,13 +109,18 @@ function EpisodeRow({
   synopsis?: string;
   autoTranslate: boolean;
 }) {
-  const epTitle = useFilmTitle({ nameRu, nameEn }, autoTranslate);
+  const titleInput = useMemo(() => ({ nameRu, nameEn }), [nameRu, nameEn]);
+  const epTitle = useFilmTitle(titleInput, autoTranslate);
   const translatedSynopsis = useTranslate(synopsis);
-  const safeDate = formatDateSafe(releaseDate, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  const safeDate = useMemo(
+    () =>
+      formatDateSafe(releaseDate, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      }),
+    [releaseDate],
+  );
 
   return (
     <div className="flex items-start gap-3 border border-[var(--border)] bg-[var(--bg-card)] rounded-[8px] px-3 sm:px-4 py-2.5 sm:py-3">
@@ -86,7 +130,7 @@ function EpisodeRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <p className="font-semibold text-[var(--text)] text-[12px] sm:text-[13px] truncate">
-            {epTitle !== "Unknown" ? epTitle : `Episode ${epNumber}`}
+            {epTitle && epTitle !== "Unknown" ? epTitle : `Episode ${epNumber}`}
           </p>
           {safeDate && (
             <span className="text-[10px] sm:text-[11px] text-[var(--text-muted)]">
@@ -114,13 +158,18 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [activeSeason, setActiveSeason] = useState(0);
   const [episodeQuery, setEpisodeQuery] = useState("");
+  const [visibleEpCount, setVisibleEpCount] = useState(EPISODES_PAGE_SIZE);
   const [similars, setSimilars] = useState<SimilarFilm[]>([]);
   const [loading, setLoading] = useState(!isNaN(id));
   const [error, setError] = useState(isNaN(id));
 
-  // Cinema Controls: Wide Theater
+  // Cinema Controls: Wide Theater & KinoDivBox Remapped Server Buttons
   const [wideTheater, setWideTheater] = useState(false);
   const [parentalOpen, setParentalOpen] = useState(false);
+  const [kdbServers, setKdbServers] =
+    useState<KinoDivBoxServer[]>(DEFAULT_KDB_SERVERS);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const lastServersSigRef = useRef<string>("");
 
   const { isFav, isWL } = useListStatus(isNaN(id) ? 0 : id);
 
@@ -130,6 +179,57 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
   const secondsRef = useRef(0);
   const addedRef = useRef(false);
+  const latestNameRef = useRef(name);
+  latestNameRef.current = name;
+
+  // Reset server buttons to default and reset episode pagination when switching films
+  useEffect(() => {
+    setKdbServers(DEFAULT_KDB_SERVERS);
+    lastServersSigRef.current = "";
+    setVisibleEpCount(EPISODES_PAGE_SIZE);
+  }, [id]);
+
+  // Listen for extracted/synced server buttons from the /api/kinodivbox bridge
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (!e.data || typeof e.data !== "object") return;
+      if (e.data.type === "CINEMIX_KDB_SERVERS") {
+        if (String(e.data.filmId) !== String(id)) return;
+        const incoming = Array.isArray(e.data.servers)
+          ? (e.data.servers as KinoDivBoxServer[])
+          : [];
+        if (incoming.length > 0) {
+          const sig = JSON.stringify(incoming);
+          if (sig !== lastServersSigRef.current) {
+            lastServersSigRef.current = sig;
+            setKdbServers(incoming);
+          }
+        }
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [id]);
+
+  const handleSelectKdbServer = useCallback((srv: KinoDivBoxServer) => {
+    setKdbServers((prev) => {
+      const next = prev.map((item) => ({
+        ...item,
+        active: item.id === srv.id || item.rawName === srv.rawName,
+      }));
+      lastServersSigRef.current = JSON.stringify(next);
+      return next;
+    });
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        type: "CINEMIX_KDB_SELECT",
+        index: srv.index,
+        id: srv.id,
+        name: srv.rawName,
+      },
+      "*",
+    );
+  }, []);
 
   useEffect(() => {
     if (!hasApiKeys()) {
@@ -171,7 +271,14 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         }
         if (f.serial || f.type === "TV_SERIES" || f.type === "MINI_SERIES") {
           getFilmSeasons(id)
-            .then((d) => mounted && setSeasons(d.items ?? []))
+            .then((d) => {
+              if (!mounted) return;
+              const loadedSeasons = d.items ?? [];
+              setSeasons(loadedSeasons);
+              setActiveSeason((prev) =>
+                prev >= loadedSeasons.length ? 0 : prev,
+              );
+            })
             .catch(() => {});
         }
       })
@@ -214,7 +321,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         addToHistory({
           film_id: id,
           film_name:
-            name ||
+            latestNameRef.current ||
             film.nameEn ||
             film.nameOriginal ||
             film.nameRu ||
@@ -228,7 +335,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [film, id, name]);
+  }, [film, id]);
 
   // Block popup ads from iframe
   useEffect(() => {
@@ -253,6 +360,27 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         (ep.nameRu || "").toLowerCase().includes(q),
     );
   }, [seasons, activeSeason, episodeQuery]);
+
+  const displayedEpisodes = useMemo(
+    () => currentSeasonEpisodes.slice(0, visibleEpCount),
+    [currentSeasonEpisodes, visibleEpCount],
+  );
+
+  const hydratedSimilars = useMemo(
+    () =>
+      similars.slice(0, 14).map((sf) =>
+        hydrateFilmWithCache({
+          kinopoiskId: sf.filmId,
+          filmId: sf.filmId,
+          nameRu: sf.nameRu,
+          nameEn: sf.nameEn,
+          nameOriginal: sf.nameOriginal,
+          posterUrl: sf.posterUrl,
+          posterUrlPreview: sf.posterUrlPreview,
+        }),
+      ),
+    [similars],
+  );
 
   if (noKey) return <NoKeyBanner />;
 
@@ -297,7 +425,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
   const rating = film.ratingImdb ?? film.ratingKinopoisk;
   const year = film.year || film.startYear;
-  const playerUrl = `${PLAYER_BASE_URL}?id=${id}`;
+  const playerUrl = `${PLAYER_PROXY_URL}?id=${id}`;
 
   const filmEntry = {
     film_id: id,
@@ -325,140 +453,177 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         } mx-auto transition-all duration-300 relative`}
       >
         {/* Top Cinema Control Bar */}
-        <div className="w-full flex flex-row items-center flex-wrap justify-between gap-2 sm:gap-3 mb-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] px-3 sm:px-4 py-2.5">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-            <BackButton
-              fallbackHref={`/film/${id}`}
-              label="Film Details"
-              className="mb-0"
-              iconOnlyOnPhone
-            />
-            <span className="text-[var(--border-hover)] hidden sm:inline">
-              |
-            </span>
-            <div className="min-w-0 flex items-center gap-2 flex-wrap flex-1">
-              <Link
-                href={`/film/${id}`}
-                className="no-underline hover:underline text-white min-w-0"
-              >
-                <h1 className="font-display tracking-[1.2px] text-[16px] sm:text-[20px] text-white leading-none m-0 line-clamp-2">
-                  {name}
-                </h1>
-              </Link>
-              {year && (
-                <span className="text-[11px] text-[var(--text-muted)]">
-                  ({year})
-                </span>
-              )}
-              {film.filmLength && (
-                <span className="hidden sm:inline text-[11px] text-[var(--text-muted)]">
-                  · {Math.floor(film.filmLength / 60)}h {film.filmLength % 60}m
-                </span>
-              )}
-              {rating && (
-                <span className="inline-flex items-center gap-1 text-[11px] sm:text-[12px] text-[#f5c518] font-display">
-                  <Star
-                    className="mb-0.5"
-                    size={11}
-                    fill="#f5c518"
-                    stroke="#f5c518"
-                  />
-                  {rating.toFixed(1)}
-                </span>
-              )}
-              {film.ratingAgeLimits && (
-                <button
-                  type="button"
-                  onClick={() => setParentalOpen(true)}
-                  title="View Parental Guide"
-                  className="tag tag-accent text-[10px] sm:text-[11px] cursor-pointer hover:border-[rgba(229,9,20,0.5)] inline-flex items-center gap-1"
+        <div className="w-full flex flex-col gap-2.5 mb-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] px-3 sm:px-4 py-2.5">
+          <div className="w-full flex flex-row items-center flex-wrap justify-between gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+              <BackButton
+                fallbackHref={`/film/${id}`}
+                label="Film Details"
+                className="mb-0"
+                iconOnlyOnPhone
+              />
+              <span className="text-[var(--border-hover)] hidden sm:inline">
+                |
+              </span>
+              <div className="min-w-0 flex items-center gap-2 flex-wrap flex-1">
+                <Link
+                  href={`/film/${id}`}
+                  className="no-underline hover:underline text-white min-w-0"
                 >
-                  <ShieldAlert size={11} />
-                  {film.ratingAgeLimits.replace("age", "")}+
-                </button>
-              )}
-              {film.ratingMpaa && (
-                <button
-                  type="button"
-                  onClick={() => setParentalOpen(true)}
-                  title="View Parental Guide"
-                  className="tag tag-dim text-[10px] sm:text-[11px] cursor-pointer hover:border-[var(--border-hover)] inline-flex items-center gap-1"
-                >
-                  <ShieldAlert size={11} />
-                  {film.ratingMpaa.toUpperCase()}
-                </button>
-              )}
+                  <h1 className="font-display tracking-[1.2px] text-[16px] sm:text-[20px] text-white leading-none m-0 line-clamp-2">
+                    {name}
+                  </h1>
+                </Link>
+                {year && (
+                  <span className="text-[11px] text-[var(--text-muted)]">
+                    ({year})
+                  </span>
+                )}
+                {film.filmLength && (
+                  <span className="hidden sm:inline text-[11px] text-[var(--text-muted)]">
+                    · {Math.floor(film.filmLength / 60)}h {film.filmLength % 60}
+                    m
+                  </span>
+                )}
+                {rating && (
+                  <span className="inline-flex items-center gap-1 text-[11px] sm:text-[12px] text-[#f5c518] font-display">
+                    <Star
+                      className="mb-0.5"
+                      size={11}
+                      fill="#f5c518"
+                      stroke="#f5c518"
+                    />
+                    {rating.toFixed(1)}
+                  </span>
+                )}
+                {film.ratingAgeLimits && (
+                  <button
+                    type="button"
+                    onClick={() => setParentalOpen(true)}
+                    title="View Parental Guide"
+                    className="tag tag-accent text-[10px] sm:text-[11px] cursor-pointer hover:border-[rgba(229,9,20,0.5)] inline-flex items-center gap-1"
+                  >
+                    <ShieldAlert size={11} />
+                    {film.ratingAgeLimits.replace("age", "")}+
+                  </button>
+                )}
+                {film.ratingMpaa && (
+                  <button
+                    type="button"
+                    onClick={() => setParentalOpen(true)}
+                    title="View Parental Guide"
+                    className="tag tag-dim text-[10px] sm:text-[11px] cursor-pointer hover:border-[var(--border-hover)] inline-flex items-center gap-1"
+                  >
+                    <ShieldAlert size={11} />
+                    {film.ratingMpaa.toUpperCase()}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
 
-          {/* Action controls */}
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-            <div className="hidden md:inline-flex">
+            {/* Action controls */}
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+              <div className="hidden md:inline-flex">
+                <button
+                  type="button"
+                  onClick={() => setWideTheater((v) => !v)}
+                  title="Toggle Wide Theater Mode (W)"
+                  className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
+                    wideTheater
+                      ? "border-[rgba(229,9,20,0.5)] text-[var(--accent)]"
+                      : ""
+                  }`}
+                >
+                  {wideTheater ? (
+                    <Minimize2 size={14} />
+                  ) : (
+                    <Maximize2 size={14} />
+                  )}
+                  <span>{wideTheater ? "Standard" : "Wide"}</span>
+                </button>
+              </div>
+
+              {!film.ratingAgeLimits && !film.ratingMpaa && (
+                <button
+                  type="button"
+                  onClick={() => setParentalOpen(true)}
+                  aria-label="View Parental Guide"
+                  title="View Parental Guide"
+                  className="btn btn-ghost py-1.5 px-2.5 text-[12px]"
+                >
+                  <ShieldAlert size={14} />
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => setWideTheater((v) => !v)}
-                title="Toggle Wide Theater Mode (W)"
+                onClick={handleFav}
+                aria-label={isFav ? "In Favorites" : "Add to Favorites"}
+                title={isFav ? "In Favorites" : "Add to Favorites"}
                 className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
-                  wideTheater
+                  isFav
                     ? "border-[rgba(229,9,20,0.5)] text-[var(--accent)]"
                     : ""
                 }`}
               >
-                {wideTheater ? (
-                  <Minimize2 size={14} />
-                ) : (
-                  <Maximize2 size={14} />
-                )}
-                <span>{wideTheater ? "Standard" : "Wide"}</span>
+                <Heart
+                  size={14}
+                  fill={isFav ? "var(--accent)" : "none"}
+                  stroke={isFav ? "var(--accent)" : "currentColor"}
+                />
               </button>
-            </div>
 
-            {!film.ratingAgeLimits && !film.ratingMpaa && (
               <button
                 type="button"
-                onClick={() => setParentalOpen(true)}
-                aria-label="View Parental Guide"
-                title="View Parental Guide"
-                className="btn btn-ghost py-1.5 px-2.5 text-[12px]"
+                onClick={handleWL}
+                aria-label={isWL ? "In Watch Later" : "Save to Watch Later"}
+                title={isWL ? "In Watch Later" : "Save to Watch Later"}
+                className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
+                  isWL ? "border-[rgba(96,165,250,0.5)] text-[#60a5fa]" : ""
+                }`}
               >
-                <ShieldAlert size={14} />
+                <Clock size={14} stroke={isWL ? "#60a5fa" : "currentColor"} />
               </button>
-            )}
-            <button
-              type="button"
-              onClick={handleFav}
-              aria-label={isFav ? "In Favorites" : "Add to Favorites"}
-              title={isFav ? "In Favorites" : "Add to Favorites"}
-              className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
-                isFav ? "border-[rgba(229,9,20,0.5)] text-[var(--accent)]" : ""
-              }`}
-            >
-              <Heart
-                size={14}
-                fill={isFav ? "var(--accent)" : "none"}
-                stroke={isFav ? "var(--accent)" : "currentColor"}
-              />
-            </button>
-
-            <button
-              type="button"
-              onClick={handleWL}
-              aria-label={isWL ? "In Watch Later" : "Save to Watch Later"}
-              title={isWL ? "In Watch Later" : "Save to Watch Later"}
-              className={`btn btn-ghost py-1.5 px-2.5 text-[12px] ${
-                isWL ? "border-[rgba(96,165,250,0.5)] text-[#60a5fa]" : ""
-              }`}
-            >
-              <Clock size={14} stroke={isWL ? "#60a5fa" : "currentColor"} />
-            </button>
+            </div>
           </div>
+
+          {/* Remapped KinoDivBox Server Buttons (Alloha, Collaps, HDVB, VeoVeo, VideoSeeD, Kodik, Trailer) */}
+          {kdbServers.length > 0 && (
+            <div className="flex items-center gap-1.5 sm:gap-2 pt-2 pb-0.5 border-t border-[var(--border)] overflow-x-auto scrollbar-none">
+              <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[1px] text-[var(--text-muted)] flex-shrink-0 mr-1">
+                <Server size={12} className="text-[var(--accent)]" />
+                <span className="hidden sm:inline">Server</span>
+              </span>
+              {kdbServers.map((srv) => (
+                <button
+                  key={srv.id}
+                  type="button"
+                  onClick={() => handleSelectKdbServer(srv)}
+                  className={`flex-shrink-0 px-2.5 sm:px-3 py-1 rounded-[7px] text-[11px] sm:text-[12px] font-semibold cursor-pointer transition-all duration-150 inline-flex items-center gap-1.5 border  ${
+                    srv.active
+                      ? "bg-[var(--accent)] text-white border-[var(--accent)] shadow-[0_0_14px_rgba(229,9,20,0.35)]"
+                      : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border-[var(--border)] hover:border-[var(--border-hover)] hover:text-white"
+                  }`}
+                >
+                  {srv.isTrailer && <FilmIcon size={11} />}
+                  <span>{srv.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Theater Video Stage */}
         <div className="w-full rounded-[14px] sm:rounded-[16px] overflow-hidden shadow-[0_24px_80px_rgba(0,0,0,0.85)]">
           <iframe
+            ref={iframeRef}
             key={id}
             src={playerUrl}
+            onLoad={() => {
+              iframeRef.current?.contentWindow?.postMessage(
+                { type: "CINEMIX_KDB_PING" },
+                "*",
+              );
+            }}
             width="100%"
             height="510"
             frameBorder="0"
@@ -523,7 +688,10 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                   <input
                     type="text"
                     value={episodeQuery}
-                    onChange={(e) => setEpisodeQuery(e.target.value)}
+                    onChange={(e) => {
+                      setEpisodeQuery(e.target.value);
+                      setVisibleEpCount(EPISODES_PAGE_SIZE);
+                    }}
                     placeholder="Find episode…"
                     className="input w-full pl-8 pr-3 py-1 text-[12px] rounded-[8px]"
                   />
@@ -537,6 +705,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                   active={activeSeason === i}
                   onClick={() => {
                     setActiveSeason(i);
+                    setVisibleEpCount(EPISODES_PAGE_SIZE);
                     try {
                       localStorage.setItem(
                         `cinemix_last_season_${id}`,
@@ -552,40 +721,51 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
               ))}
             </TabBar>
             {seasons[activeSeason] && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {currentSeasonEpisodes.map((ep, i) => (
-                  <EpisodeRow
-                    key={`${ep.seasonNumber}-${ep.episodeNumber}-${i}`}
-                    epNumber={ep.episodeNumber}
-                    nameRu={ep.nameRu}
-                    nameEn={ep.nameEn}
-                    releaseDate={ep.releaseDate}
-                    synopsis={ep.synopsis}
-                    autoTranslate={autoTranslate}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {displayedEpisodes.map((ep, i) => (
+                    <EpisodeRow
+                      key={`${ep.seasonNumber}-${ep.episodeNumber}-${i}`}
+                      epNumber={ep.episodeNumber}
+                      nameRu={ep.nameRu}
+                      nameEn={ep.nameEn}
+                      releaseDate={ep.releaseDate}
+                      synopsis={ep.synopsis}
+                      autoTranslate={autoTranslate}
+                    />
+                  ))}
+                </div>
+                {currentSeasonEpisodes.length > visibleEpCount && (
+                  <div className="mt-4 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setVisibleEpCount((c) => c + EPISODES_PAGE_SIZE)
+                      }
+                      className="btn btn-ghost px-4 py-2 text-[12px]"
+                    >
+                      Show More Episodes (
+                      {currentSeasonEpisodes.length - visibleEpCount} remaining)
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
         {/* Similar Films (Uses hydrated FilmCard with year, genres, rating & long-press Quick-Peek) */}
-        {similars.length > 0 && (
+        {hydratedSimilars.length > 0 && (
           <div className="mt-8">
-            <SectionHeader title="SIMILAR FILMS" count={similars.length} />
+            <SectionHeader
+              title="SIMILAR FILMS"
+              count={hydratedSimilars.length}
+            />
             <div className="flex gap-3 overflow-x-auto pb-3 scrollbar-none">
-              {similars.slice(0, 14).map((sf) => (
+              {hydratedSimilars.map((hydratedFilm) => (
                 <FilmCard
-                  key={sf.filmId}
-                  film={hydrateFilmWithCache({
-                    kinopoiskId: sf.filmId,
-                    filmId: sf.filmId,
-                    nameRu: sf.nameRu,
-                    nameEn: sf.nameEn,
-                    nameOriginal: sf.nameOriginal,
-                    posterUrl: sf.posterUrl,
-                    posterUrlPreview: sf.posterUrlPreview,
-                  })}
+                  key={hydratedFilm.kinopoiskId ?? hydratedFilm.filmId}
+                  film={hydratedFilm}
                   variant="scroll"
                   size="sm"
                 />

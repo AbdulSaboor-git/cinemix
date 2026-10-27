@@ -23,14 +23,14 @@ export default function BackButton({
   const router = useRouter();
 
   const handleBack = () => {
-    if (typeof window !== "undefined") {
-      const depth = parseInt(sessionStorage.getItem(NAV_DEPTH_KEY) || "0", 10);
-      if (depth > 1 && window.history.length > 1) {
-        sessionStorage.setItem(NAV_DEPTH_KEY, String(Math.max(1, depth - 1)));
-        router.back();
-        return;
-      }
-    }
+    // if (typeof window !== "undefined") {
+    //   const depth = parseInt(sessionStorage.getItem(NAV_DEPTH_KEY) || "0", 10);
+    //   if (depth > 1 && window.history.length > 1) {
+    //     sessionStorage.setItem(NAV_DEPTH_KEY, String(Math.max(1, depth - 1)));
+    //     router.back();
+    //     return;
+    //   }
+    // }
     router.push(fallbackHref);
   };
 

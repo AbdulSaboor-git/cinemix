@@ -486,9 +486,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
 
   // Applied URL parameters
   const activeLens = props.lens;
-  const type = (
-    props.type || (activeLens === "FOR_YOU" ? "ALL" : prefType || "ALL")
-  ) as
+  const type = (props.type ||
+    (activeLens === "FOR_YOU" ? "ALL" : prefType || "ALL")) as
     | "ALL"
     | "FILM"
     | "TV_SERIES"
@@ -2722,7 +2721,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
           onClose={() => setSurpriseModalOpen(false)}
           onWatchNow={(fid) => {
             setSurpriseModalOpen(false);
-            router.push(`/watch/${fid}`);
+            router.push(`/film/${fid}`);
           }}
         />
       )}
@@ -3012,7 +3011,7 @@ function SurpriseMeModal({
             className="btn btn-primary flex-1 justify-center py-2.5 text-[13px]"
           >
             <Play size={14} fill="currentColor" />
-            Watch Now
+            Details & Watch
           </button>
         </div>
       </div>
