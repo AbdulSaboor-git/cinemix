@@ -3,12 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const UPSTREAM_TIMEOUT_MS = 5000;
+const UPSTREAM_TIMEOUT_MS = 6000;
 
 /**
- * Fallback HTML mirroring https://kinodivbox.github.io/iframe so that even if
- * the server-side fetch to GitHub Pages times out or is blocked, the iframe
- * still renders with the original switcher hidden and custom button remapping active.
+ * Fallback HTML mirroring https://kinodivbox.github.io/iframe (<main class="embed">,
+ * <nav id="playerSwitcher" class="switcher">, <section id="stage" class="stage">)
+ * without any iframe sandbox attributes so all players and download options work.
  */
 function buildFallbackKdbHtml(): string {
   return `<!DOCTYPE html>
@@ -17,83 +17,87 @@ function buildFallbackKdbHtml(): string {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>KinoDivBox Player</title>
-  <script src="https://super-puper.che-bur-net.cc/vv2.js" async></script>
-  <script src="https://allohatv.github.io/insert-player.js" async></script>
+</head>
+<body>
+  <main class="embed" aria-label="KinoDivBox встроенный видеоплеер">
+    <nav id="playerSwitcher" class="switcher" aria-label="Выбор источника видео"></nav>
+    <section id="stage" class="stage" aria-live="polite"></section>
+  </main>
+  <script src="https://super-puper.che-bur-net.cc/vv2.js"></script>
+  <script src="https://allohatv.github.io/insert-player.js"></script>
   <script src="https://kodir2.github.io/actualize.js" async></script>
   <script src="https://hdvb-player.github.io/actualize.js" async></script>
   <script src="https://lmx-pl.github.io/lmx-f.github.io/act.js" async></script>
   <script>!function(e,n,t,r,a){r=e.createElement(n),a=e.getElementsByTagName(n)[0],r.async=!0,r.src=t,a.parentNode.insertBefore(r,a)}(document,"script","https://kodik-add.com/change-domains.min.js");</script>
-</head>
-<body>
-  <div class="wrap">
-    <section class="player-wrap" aria-live="polite">
-      <div class="player-switch" role="tablist" aria-label="Выбор плеера" id="playerSwitcher"></div>
-      <div id="playerFrame" class="player-frame"></div>
-    </section>
-  </div>
   <script>
-    const players = {
-      "Alloha": id => \`https://harald-as.newplayjj.com/?kp=\${id}&token=e7b61f129f4a392ac4bf6726a9dd6a\`,
-      "Collaps": id => \`https://api.namy.ws/embed/kp/\${id}\`,
-      "HDVB": async id => {
-        try {
-          const token = "8a22f8e7684404c3815e3ffa940f00a0";
-          const url = \`https://apivb.com/api/videos.json?id_kp=\${id}&token=\${token}\`;
-          const res = await fetch(url);
-          if (!res.ok) return null;
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0 && data[0].iframe_url) return data[0].iframe_url;
-        } catch (e) {}
-        return null;
+    const players = [
+      { key: "alloha", label: "Alloha", fn: id => \`https://harald-as.newplayjj.com/?kp=\${id}&token=e7b61f192ac4bf6726a9dd6a1470402b\` },
+      { key: "collaps", label: "Collaps", fn: id => \`https://api.namy.ws/embed/kp/\${id}\` },
+      {
+        key: "hdvb",
+        label: "HDVB",
+        fn: async id => {
+          try {
+            const token = "8a22f8e7684404c3815e3ffa940f00a0";
+            const url = \`https://apivb.com/api/videos.json?id_kp=\${id}&token=\${token}\`;
+            const res = await fetch(url);
+            if (!res.ok) return null;
+            const data = await res.json();
+            if (Array.isArray(data) && data.length > 0 && data[0].iframe_url) return data[0].iframe_url;
+          } catch (e) {}
+          return null;
+        }
       },
-      "VeoVeo": id => \`https://api.rstprgapipt.com/balancer-api/iframe?kp=\${id}&token=eyJhbGciOiJIUzI1NiJ9.eyJ3ZWJTaXRlSWQiOiI4MTUiLCJpc3MiOiJhcGktd2VibWFzdGVyIiwic3ViIjoiODAzIiwiaWF0IjoxNzc4MjYxMTE3LCJqdGkiOiIzZDkwOTk2OS05M2E4LTQwMDQtYTM0Mi0yYTQ2YzEyNTIyNzUiLCJzY29wZSI6IkRMRSJ9.w9ElOww-i07LD5tX05TGYzgiViDqh8saEWmOwLAzyGU\`,
-      "VideoSeeD": id => \`https://tv-2-kinoserial.net/embed_auto/\${id}/?token=6091e1d0bf421f73804d2f0dcc2bf1cf\`,
-      "Kodik": id => \`https://kodikplayer.com/find-player?kinopoiskID=\${id}\`,
-      "Трейлер": id => \`https://api.atomics.ws/embed/trailer-kp/\${id}\`
-    };
+      { key: "veoveo", label: "VeoVeo", fn: id => \`https://api.rstprgapipt.com/balancer-api/iframe?kp=\${id}&token=eyJhbGciOiJIUzI1NiJ9.eyJ3ZWJTaXRlSWQiOiI4MTUiLCJpc3MiOiJhcGktd2VibWFzdGVyIiwic3ViIjoiODAzIiwiaWF0IjoxNzc4MjYxMTE3LCJqdGkiOiIzZDkwOTk2OS05M2E4LTQwMDQtYTM0Mi0yYTQ2YzEyNTIyNzUiLCJzY29wZSI6IkRMRSJ9.w9ElOww-i07LD5tX05TGYzgiViDqh8saEWmOwLAzyGU\` },
+      { key: "videoseed", label: "VideoSeeD", fn: id => \`https://tv-2-kinoserial.net/embed_auto/\${id}/?token=6091e1d0bf421f73804d2f0dcc2bf1cf\` },
+      { key: "kodik", label: "Kodik", fn: id => \`https://kodikplayer.com/find-player?kinopoiskID=\${id}\` },
+      { key: "trailer", label: "Трейлер", fn: id => \`https://api.atomics.ws/embed/trailer-kp/\${id}\` }
+    ];
 
-    function showPlayer(src, name) {
-      const frame = document.getElementById("playerFrame");
+    function showPlayer(src, label) {
+      const stage = document.getElementById("stage");
       const iframe = document.createElement("iframe");
+      iframe.className = "video-frame";
       iframe.src = src;
-      iframe.loading = "lazy";
-      iframe.title = name;
+      iframe.loading = "eager";
+      iframe.title = \`Видеоплеер \${label}\`;
       iframe.allowFullscreen = true;
-      iframe.setAttribute("allow", "autoplay; fullscreen; picture-in-picture");
-      frame.innerHTML = "";
-      frame.appendChild(iframe);
+      iframe.setAttribute("allow", "autoplay; fullscreen; picture-in-picture; encrypted-media");
+      iframe.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+      stage.innerHTML = "";
+      stage.appendChild(iframe);
     }
 
     async function buildPlayers(id) {
       const switcher = document.getElementById("playerSwitcher");
-      const frame = document.getElementById("playerFrame");
       switcher.innerHTML = "";
-      frame.innerHTML = "<div>Загрузка...</div>";
-      let created = 0;
-      for (const [name, fn] of Object.entries(players)) {
+      let firstBtn = null;
+      for (const item of players) {
         try {
-          const src = typeof fn === "function" ? await fn(id) : null;
+          const src = await item.fn(id);
           if (!src) continue;
           const btn = document.createElement("button");
           btn.className = "switch-btn";
           btn.type = "button";
-          btn.textContent = name;
-          btn.setAttribute("role", "tab");
+          btn.textContent = item.label;
+          btn.setAttribute("data-player", item.key);
           btn.setAttribute("aria-pressed", "false");
           btn.addEventListener("click", () => {
-            [...switcher.children].forEach(b => b.setAttribute("aria-pressed", "false"));
+            [...switcher.children].forEach(b => {
+              b.classList.remove("active");
+              b.setAttribute("aria-pressed", "false");
+            });
+            btn.classList.add("active");
             btn.setAttribute("aria-pressed", "true");
-            showPlayer(src, name);
+            showPlayer(src, item.label);
           });
           switcher.appendChild(btn);
-          created++;
+          if (!firstBtn) {
+            firstBtn = btn;
+            firstBtn.click();
+          }
         } catch (e) {}
       }
-      if (created === 0) {
-        frame.innerHTML = "❌ Плееры не найдены";
-        return;
-      }
-      switcher.querySelector("button")?.click();
     }
 
     (function () {
@@ -142,23 +146,40 @@ export async function GET(req: NextRequest) {
     html = buildFallbackKdbHtml();
   }
 
+  // Strip any hardcoded sandbox attributes or setAttribute("sandbox", ...) calls in KinoDivBox's
+  // /iframe HTML so embedded players (HDVB, VideoSeeD, Alloha, Collaps, etc.) are never sandboxed
+  // and can show their native download buttons and play freely just like on kinodivbox.github.io.
+  html = html.replace(/\s+sandbox=(["'])[^"']*\1/gi, "");
+  html = html.replace(
+    /\.setAttribute\(\s*(['"])sandbox\1\s*,[^)]+\)/gi,
+    '.removeAttribute("sandbox")',
+  );
+
   const bridgeScript = `
 <base href="https://kinodivbox.github.io/iframe">
 <style id="cinemix-kdb-style">
-  html, body, .wrap, .player-wrap {
+  html, body {
     margin: 0 !important;
     padding: 0 !important;
     width: 100% !important;
     height: 100% !important;
-    max-width: 100% !important;
     overflow: hidden !important;
-    background: #1e1918 !important;
+    background: #141212 !important;
   }
-  /* Visually hide the original KinoDivBox server switcher bar while keeping its buttons clickable in DOM */
+  main.embed, .embed {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #141212 !important;
+  }
+  /* Hide the original top server switcher bar offscreen while keeping its buttons clickable in DOM */
   #playerSwitcher,
-  .player-switch,
-  #players,
-  .cinemix-kdb-hidden-bar {
+  nav.switcher,
+  .switcher,
+  .player-switch {
     position: fixed !important;
     top: -9999px !important;
     left: -9999px !important;
@@ -168,28 +189,47 @@ export async function GET(req: NextRequest) {
     max-height: 0 !important;
     padding: 0 !important;
     margin: 0 !important;
-    border: none !important;
+    border: 0 !important;
     opacity: 0 !important;
     pointer-events: none !important;
     overflow: hidden !important;
     z-index: -1 !important;
   }
-  /* Expand the player stage to fill 100% of the iframe */
-  #playerFrame,
-  .player-frame,
-  #player {
-    width: 100vw !important;
-    height: 100vh !important;
+  /* Hide ONLY the bottom credit line (<footer class="foot"> with "Готово · ID ..." & "KinoDivBox") and counter */
+  footer.foot,
+  .foot,
+  #footStatus,
+  .foot-status,
+  .brand-link,
+  body > center {
+    display: none !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    overflow: hidden !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+  /* Let #stage (.stage) and .video-frame fill 100% of the iframe */
+  #stage,
+  section.stage,
+  .stage {
+    position: relative !important;
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
-    border: none !important;
-    border-radius: 0 !important;
-    display: block !important;
-    background: #1e1918 !important;
+    background: #141212 !important;
   }
-  #playerFrame > iframe,
-  .player-frame > iframe,
-  #player > iframe {
+  iframe.video-frame,
+  #stage > iframe {
+    position: absolute !important;
+    inset: 0 !important;
     width: 100% !important;
     height: 100% !important;
     border: 0 !important;
@@ -198,7 +238,7 @@ export async function GET(req: NextRequest) {
 </style>
 <script>
 (function () {
-  // Prevent cross-origin ServiceWorker registration errors on proxied origin
+  // 1. Prevent cross-origin ServiceWorker registration errors on proxied origin
   if (typeof navigator !== "undefined" && navigator.serviceWorker) {
     try {
       navigator.serviceWorker.register = function () {
@@ -207,9 +247,26 @@ export async function GET(req: NextRequest) {
     } catch (e) {}
   }
 
-  // Cap slow third-party balancer checks (such as apivb.com for HDVB) at 2.5s
-  // so KinoDivBox's async buildPlayers(id) loop never stalls before creating
-  // VeoVeo, VideoSeeD, Kodik, and Трейлер buttons or auto-clicking the first server.
+  // 2. Intercept setAttribute("sandbox", ...) on iframes so KinoDivBox's /iframe script
+  // never sandboxes the inner video player (enables native download options & full playback).
+  var origSetAttribute = Element.prototype.setAttribute;
+  if (origSetAttribute) {
+    Element.prototype.setAttribute = function (name, value) {
+      if (
+        String(name).toLowerCase() === "sandbox" &&
+        this &&
+        this.tagName === "IFRAME"
+      ) {
+        try {
+          this.removeAttribute("sandbox");
+        } catch (e) {}
+        return;
+      }
+      return origSetAttribute.call(this, name, value);
+    };
+  }
+
+  // 3. Cap slow third-party balancer checks (such as apivb.com for HDVB) at 3s
   if (typeof window !== "undefined" && typeof window.fetch === "function") {
     var origFetch = window.fetch.bind(window);
     window.fetch = function (input, init) {
@@ -218,7 +275,7 @@ export async function GET(req: NextRequest) {
         var ctrl = new AbortController();
         var timer = setTimeout(function () {
           ctrl.abort();
-        }, 2500);
+        }, 3000);
         var merged = Object.assign({}, init || {}, { signal: ctrl.signal });
         return origFetch(input, merged).finally(function () {
           clearTimeout(timer);
@@ -234,10 +291,35 @@ export async function GET(req: NextRequest) {
   var PENDING_SELECT = null;
   var OBSERVED_SWITCHER = null;
 
+  function unsandboxVideoFrames() {
+    var frames = document.querySelectorAll("iframe");
+    for (var i = 0; i < frames.length; i++) {
+      var f = frames[i];
+      if (f.hasAttribute("sandbox")) {
+        try {
+          f.removeAttribute("sandbox");
+          // Reload src if it was already mounted with a restrictive sandbox
+          var currentSrc = f.getAttribute("src");
+          if (currentSrc && !f.getAttribute("data-cinemix-unsandboxed")) {
+            f.setAttribute("data-cinemix-unsandboxed", "1");
+            f.src = currentSrc;
+          }
+        } catch (e) {}
+      }
+    }
+  }
+
   function normalizeServerId(raw) {
     var s = String(raw || "").trim().toLowerCase();
     if (s === "трейлер" || s === "trailer") return "trailer";
     return s.replace(/[^a-z0-9а-яё]+/gi, "-");
+  }
+
+  function getButtonServerId(btn) {
+    if (!btn) return "";
+    var dp = btn.getAttribute("data-player");
+    if (dp) return normalizeServerId(dp);
+    return normalizeServerId(btn.textContent || "");
   }
 
   function isButtonActive(el) {
@@ -256,17 +338,22 @@ export async function GET(req: NextRequest) {
   function getSwitcherButtons() {
     var switcher =
       document.getElementById("playerSwitcher") ||
-      document.querySelector(".player-switch, #players");
+      document.querySelector("nav.switcher, .switcher, .player-switch");
     if (!switcher) return [];
     return Array.from(
-      switcher.querySelectorAll("button, .switch-btn, .btn-player, [role='tab']")
+      switcher.querySelectorAll("button.switch-btn, button, [role='tab']")
     ).filter(function (btn) {
-      return Boolean((btn.textContent || "").trim());
+      return Boolean((btn.textContent || "").trim() || btn.getAttribute("data-player"));
     });
   }
 
   function triggerNativeButton(btn) {
     if (!btn) return false;
+    // Ensure button is enabled before triggering click (KinoDivBox temporarily sets disabled during transitions)
+    if (btn.disabled) {
+      btn.disabled = false;
+      btn.removeAttribute("disabled");
+    }
     if (typeof btn.click === "function") {
       try {
         btn.click();
@@ -291,10 +378,14 @@ export async function GET(req: NextRequest) {
     var targetId = req.id ? normalizeServerId(req.id) : "";
     var targetName = req.name ? normalizeServerId(req.name) : "";
 
-    // 1. Match by server ID or button text (Alloha, Collaps, HDVB, VeoVeo, VideoSeeD, Kodik, Трейлер)
+    // 1. Match by data-player attribute or button text
     for (var i = 0; i < btns.length; i++) {
-      var btnId = normalizeServerId(btns[i].textContent || "");
-      if ((targetId && btnId === targetId) || (targetName && btnId === targetName)) {
+      var btnId = getButtonServerId(btns[i]);
+      var txtId = normalizeServerId(btns[i].textContent || "");
+      if (
+        (targetId && (btnId === targetId || txtId === targetId)) ||
+        (targetName && (btnId === targetName || txtId === targetName))
+      ) {
         return btns[i];
       }
     }
@@ -310,38 +401,31 @@ export async function GET(req: NextRequest) {
     if (IS_SYNCING) return;
     IS_SYNCING = true;
     try {
+      unsandboxVideoFrames();
       var btns = getSwitcherButtons();
       if (!btns.length) return;
 
-      // If the user clicked a custom button while buildPlayers(id) was still initializing,
-      // apply that selection as soon as the button appears in #playerSwitcher.
+      // Apply queued server selection once buttons are ready and not disabled
       if (PENDING_SELECT) {
         var pendingBtn = findMatchingButton(btns, PENDING_SELECT);
-        if (pendingBtn) {
+        if (pendingBtn && !pendingBtn.disabled) {
           PENDING_SELECT = null;
-          triggerNativeButton(pendingBtn);
+          if (!isButtonActive(pendingBtn)) {
+            triggerNativeButton(pendingBtn);
+          }
         }
-      }
-
-      // If buildPlayers is still partway through and hasn't auto-clicked the first button yet,
-      // auto-click the first button immediately so the user doesn't wait for slow balancers.
-      var frame = document.getElementById("playerFrame") || document.getElementById("player");
-      var hasIframe = frame && frame.querySelector("iframe");
-      var anyActive = btns.some(isButtonActive);
-      if (!hasIframe && !anyActive && btns[0]) {
-        triggerNativeButton(btns[0]);
       }
 
       var hasActive = false;
       var servers = btns.map(function (btn, idx) {
-        var rawName = (btn.textContent || "").trim();
-        var idSlug = normalizeServerId(rawName);
-        var isTrailer = idSlug === "trailer";
+        var rawName = (btn.textContent || "").trim() || btn.getAttribute("data-player") || ("Server " + (idx + 1));
+        var idSlug = getButtonServerId(btn) || ("server-" + idx);
+        var isTrailer = idSlug === "trailer" || /^(трейлер|trailer)$/i.test(rawName);
         var active = isButtonActive(btn);
         if (active) hasActive = true;
         return {
           index: idx,
-          id: idSlug,
+          id: isTrailer ? "trailer" : idSlug,
           name: isTrailer ? "Trailer" : rawName,
           rawName: rawName,
           isTrailer: isTrailer,
@@ -375,23 +459,29 @@ export async function GET(req: NextRequest) {
     SYNC_TIMER = setTimeout(function () {
       SYNC_TIMER = null;
       syncServers(Boolean(force));
-    }, 60);
+    }, 50);
   }
 
   function selectServerButton(req) {
     var btns = getSwitcherButtons();
     var target = findMatchingButton(btns, req);
     if (!target) {
-      // Queue selection in case buildPlayers(id) hasn't appended this button yet
       PENDING_SELECT = req;
       return;
     }
-    PENDING_SELECT = null;
+    if (target.disabled) {
+      // Keep queued in case KinoDivBox is still in initial prepare state, and also trigger now
+      PENDING_SELECT = req;
+    } else {
+      PENDING_SELECT = null;
+    }
     triggerNativeButton(target);
+    unsandboxVideoFrames();
     syncServers(true);
     setTimeout(function () {
+      unsandboxVideoFrames();
       syncServers(true);
-    }, 100);
+    }, 120);
   }
 
   window.addEventListener("message", function (e) {
@@ -410,7 +500,7 @@ export async function GET(req: NextRequest) {
   function attachSwitcherObserver() {
     var switcher =
       document.getElementById("playerSwitcher") ||
-      document.querySelector(".player-switch, #players");
+      document.querySelector("nav.switcher, .switcher, .player-switch");
     if (switcher && switcher !== OBSERVED_SWITCHER) {
       OBSERVED_SWITCHER = switcher;
       var swObserver = new MutationObserver(function () {
@@ -420,16 +510,18 @@ export async function GET(req: NextRequest) {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ["aria-pressed", "class"],
+        attributeFilter: ["aria-pressed", "class", "disabled", "hidden"],
       });
     }
   }
 
   function initBridge() {
+    unsandboxVideoFrames();
     attachSwitcherObserver();
     syncServers(true);
 
     var bodyObserver = new MutationObserver(function () {
+      unsandboxVideoFrames();
       attachSwitcherObserver();
       scheduleSync(false);
     });
@@ -441,6 +533,7 @@ export async function GET(req: NextRequest) {
     }
 
     setInterval(function () {
+      unsandboxVideoFrames();
       attachSwitcherObserver();
       syncServers(false);
     }, 1000);

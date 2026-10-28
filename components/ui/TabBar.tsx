@@ -9,7 +9,7 @@ interface TabBarProps {
 export default function TabBar({ children, className = "" }: TabBarProps) {
   return (
     <div
-      className={`flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none ${className}`.trim()}
+      className={`flex items-center w-full gap-2 overflow-x-auto pb-1 scrollbar-none ${className}`.trim()}
     >
       {children}
     </div>
