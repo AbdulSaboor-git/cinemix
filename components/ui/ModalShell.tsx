@@ -49,7 +49,7 @@ export default function ModalShell({
 
   return (
     <div
-      className="fixed inset-0 z-300 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/78 backdrop-blur-sm fade-in"
+      className={`fixed inset-0 z-300 flex items-end sm:items-center justify-center p-0 sm:p-4 transition-all duration-300 ease-out bg-black/10 backdrop-blur-xl opacity-100`}
       onClick={(e) => {
         if (e.target === e.currentTarget) onCloseRef.current();
       }}

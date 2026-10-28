@@ -364,15 +364,16 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
           {/* Genres & Countries (desktop/tablet only) */}
           <div className="hidden sm:flex flex-wrap gap-2 mb-3.5">
             {currentFilm.genres?.slice(0, 4).map((g) => (
-              <Link
-                key={g.genre}
-                href={`/explore?genres=${encodeURIComponent(g.genre)}`}
-                className="no-underline"
-              >
-                <span className="tag tag-dim hover:border-white/30 transition-colors capitalize">
-                  {translateGenre(g.genre, autoTranslate)}
-                </span>
-              </Link>
+              <button key={g.genre}>
+                <Link
+                  href={`/explore?genres=${encodeURIComponent(g.genre)}`}
+                  className="no-underline"
+                >
+                  <span className="tag tag-dim hover:border-white/30 transition-colors capitalize">
+                    {translateGenre(g.genre, autoTranslate)}
+                  </span>
+                </Link>
+              </button>
             ))}
             {currentFilm.countries?.slice(0, 2).map((c) => (
               <Link

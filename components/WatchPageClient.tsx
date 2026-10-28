@@ -875,26 +875,18 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
             (film.countries && film.countries.length > 0)) && (
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-3">
               {film.genres?.map((g) => (
-                <Link
-                  key={g.genre}
-                  href={`/explore?genres=${encodeURIComponent(g.genre)}`}
-                  className="no-underline"
-                >
-                  <span className="tag tag-dim capitalize cursor-pointer text-[11px] sm:text-[12px]">
+                <div key={g.genre} className="no-underline">
+                  <span className="tag tag-dim capitalize text-[11px] sm:text-[12px]">
                     {translateGenre(g.genre, autoTranslate)}
                   </span>
-                </Link>
+                </div>
               ))}
               {film.countries?.map((c) => (
-                <Link
-                  key={c.country}
-                  href={`/explore?countries=${encodeURIComponent(c.country)}`}
-                  className="no-underline"
-                >
-                  <span className="tag tag-dim cursor-pointer text-[11px] sm:text-[12px]">
+                <div key={c.country} className="no-underline">
+                  <span className="tag tag-dim text-[11px] sm:text-[12px]">
                     {translateCountry(c.country, autoTranslate)}
                   </span>
-                </Link>
+                </div>
               ))}
               {film.filmLength && film.filmLength > 0 && (
                 <span className="text-xs sm:hidden text-[var(--text-dim)]">
