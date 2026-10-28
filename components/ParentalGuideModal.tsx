@@ -92,6 +92,52 @@ const SEVERITY_STYLE: Record<
   },
 };
 
+function getCertSeverity(raw?: string | null): SeverityLevel {
+  if (!raw) return "UNKNOWN";
+  const s = raw.trim().toUpperCase();
+  if (!s || s === "NR" || s === "NOT RATED" || s === "UNRATED") {
+    return "UNKNOWN";
+  }
+
+  if (
+    s === "G" ||
+    s === "TV-G" ||
+    s === "TV-Y" ||
+    s === "TV-Y7" ||
+    s === "U" ||
+    s === "ALL"
+  ) {
+    return "NONE";
+  }
+  if (s === "PG" || s === "TV-PG") {
+    return "MILD";
+  }
+  if (s === "PG-13" || s === "TV-14") {
+    return "MODERATE";
+  }
+  if (
+    s === "R" ||
+    s === "NC-17" ||
+    s === "TV-MA" ||
+    s === "X" ||
+    s === "18+" ||
+    s === "R18+"
+  ) {
+    return "SEVERE";
+  }
+
+  const numMatch = s.match(/(\d{1,2})/);
+  if (numMatch) {
+    const age = parseInt(numMatch[1], 10);
+    if (age >= 18) return "SEVERE";
+    if (age >= 13) return "MODERATE";
+    if (age >= 7) return "MILD";
+    return "NONE";
+  }
+
+  return "UNKNOWN";
+}
+
 function CategoryIcon({
   categoryKey,
   size = 15,
@@ -170,6 +216,9 @@ export default function ParentalGuideModal({
 
   const certificates = guide?.certificates ?? [];
   const visibleCerts = certsExpanded ? certificates : certificates.slice(0, 8);
+
+  const ageLimitStyle = SEVERITY_STYLE[getCertSeverity(guide?.ageLimit)];
+  const mpaaRatingStyle = SEVERITY_STYLE[getCertSeverity(guide?.mpaaRating)];
 
   return (
     <ModalShell
@@ -256,12 +305,16 @@ export default function ParentalGuideModal({
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2.5 flex-wrap">
                   {guide.ageLimit && (
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-[6px] font-display tracking-[1px] text-[15px] sm:text-[16px] bg-[var(--accent-dim)] text-[var(--accent)] border border-[rgba(229,9,20,0.3)] leading-none">
+                    <span
+                      className={`inline-flex items-center px-2.5 py-1 rounded-[6px] font-display tracking-[1px] text-[15px] sm:text-[16px] border leading-none ${ageLimitStyle.bgCls} ${ageLimitStyle.textCls} ${ageLimitStyle.borderCls}`}
+                    >
                       {guide.ageLimit}
                     </span>
                   )}
                   {guide.mpaaRating && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] font-display tracking-[1px] text-[15px] sm:text-[16px] bg-[rgba(245,197,24,0.12)] text-[#f5c518] border border-[rgba(245,197,24,0.3)] leading-none">
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] font-display tracking-[1px] text-[15px] sm:text-[16px] border leading-none ${mpaaRatingStyle.bgCls} ${mpaaRatingStyle.textCls} ${mpaaRatingStyle.borderCls}`}
+                    >
                       <Award size={13} />
                       Rated {guide.mpaaRating}
                     </span>
@@ -307,20 +360,25 @@ export default function ParentalGuideModal({
                     )}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {visibleCerts.map((c, idx) => (
-                      <span
-                        key={`${c.country}-${c.rating}-${idx}`}
-                        title={c.reason || `${c.country}: ${c.rating}`}
-                        className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] bg-[var(--bg-card)] border border-[var(--border)] rounded-[5px] px-2 py-0.5 text-[var(--text-dim)]"
-                      >
-                        <span className="text-[var(--text-muted)]">
-                          {c.country}:
+                    {visibleCerts.map((c, idx) => {
+                      const certSt = SEVERITY_STYLE[getCertSeverity(c.rating)];
+                      return (
+                        <span
+                          key={`${c.country}-${c.rating}-${idx}`}
+                          title={c.reason || `${c.country}: ${c.rating}`}
+                          className={`inline-flex items-center gap-1 text-[10px] sm:text-[11px] border rounded-[5px] px-2 py-0.5 border-[var(--border)]`}
+                        >
+                          <span className="text-[var(--text-dim)]">
+                            {c.country}:
+                          </span>
+                          <span
+                            className={`font-semibold text-[var(--text-dim)]`}
+                          >
+                            {c.rating}
+                          </span>
                         </span>
-                        <span className="font-semibold text-[var(--text)]">
-                          {c.rating}
-                        </span>
-                      </span>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -370,7 +428,7 @@ export default function ParentalGuideModal({
                     }
                     className={`flex flex-col justify-between text-left p-2.5 rounded-[8px] border cursor-pointer transition-all ${
                       isSelected
-                        ? "bg-[var(--bg-elevated)] border-[var(--accent)] shadow-[0_0_12px_rgba(229,9,20,0.2)]"
+                        ? `${st.bgCls} ${st.borderCls}`
                         : "bg-[var(--bg-elevated)] border-[var(--border)] hover:border-[var(--border-hover)]"
                     }`}
                   >
@@ -378,7 +436,7 @@ export default function ParentalGuideModal({
                       <span className="text-[11px] font-semibold text-[var(--text)] truncate">
                         {shortLabel}
                       </span>
-                      <span className="text-[var(--text-muted)] flex-shrink-0">
+                      <span className={`${st.textCls} flex-shrink-0`}>
                         <CategoryIcon categoryKey={cat.key} size={12} />
                       </span>
                     </div>
@@ -455,7 +513,9 @@ function CategoryDetailCard({
     <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[10px] p-3.5 sm:p-4">
       <div className="flex items-center justify-between gap-2 flex-wrap mb-2.5">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-7 h-7 rounded-[6px] bg-[var(--bg-card)] border border-[var(--border)] flex items-center justify-center text-[var(--text-dim)] flex-shrink-0">
+          <div
+            className={`w-7 h-7 rounded-[6px] border flex items-center justify-center flex-shrink-0 ${st.bgCls} ${st.borderCls} ${st.textCls}`}
+          >
             <CategoryIcon categoryKey={category.key} size={14} />
           </div>
           <h3 className="font-display tracking-[1px] text-[15px] sm:text-[16px] text-[var(--text)] m-0 leading-none">

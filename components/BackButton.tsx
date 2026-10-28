@@ -38,11 +38,15 @@ export default function BackButton({
     <button
       type="button"
       onClick={handleBack}
-      className={`items-center gap-1.5 text-(--text-muted) bg-transparent border-none cursor-pointer text-[13px] py-[6px] px-0 font-[var(--font-body)] hover:text-[var(--text)] transition-colors ${
+      className={`items-center gap-1.5 text-[var(--text-muted)] bg-transparent border-none cursor-pointer text-[13px] py-[6px] px-0 font-[var(--font-body)] hover:text-[var(--text)] transition-colors ${
         desktopOnly ? "hidden md:inline-flex" : "inline-flex"
       } ${className}`.trim()}
     >
-      <ChevronLeft size={14} strokeWidth={2.5} className="-mt-2 sm:mt-0" />
+      <ChevronLeft
+        size={14}
+        strokeWidth={2.5}
+        className={`${iconOnlyOnPhone ? " -mt-2 sm:mt-0" : ""}`}
+      />
       <div className={iconOnlyOnPhone ? "hidden sm:inline" : "inline"}>
         {label}
       </div>

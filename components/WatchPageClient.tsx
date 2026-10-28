@@ -13,12 +13,8 @@ import {
   Lock,
   Server,
   Film as FilmIcon,
-  Calendar,
-  CalendarCheck,
-  CalendarCheckIcon,
-  Clock3Icon,
-  PlayIcon,
   PlayCircleIcon,
+  CalendarIcon,
 } from "lucide-react";
 import {
   getFilm,
@@ -28,6 +24,7 @@ import {
   isSafeModeActive,
   hydrateFilmWithCache,
 } from "@/lib/kinopoisk";
+import { getQuickCertBadge } from "@/lib/parentalGuide";
 import { Film, Season, SimilarFilm } from "@/types/kinopoisk";
 import { getPreferences, hasApiKeys } from "@/lib/preferences";
 import {
@@ -384,7 +381,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     getFilm(id)
       .then((f) => {
         if (!mounted) return;
-        setFilm(f);
+        setFilm(hydrateFilmWithCache(f));
         setLoading(false);
 
         if (isSafeModeActive() && isAdultContentFilm(f)) {
@@ -556,21 +553,12 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   const rawRating = film.ratingImdb ?? film.ratingKinopoisk;
   const rating =
     typeof rawRating === "number" && rawRating > 0 ? rawRating : null;
-  const ratingSource = film.ratingImdb
-    ? "IMDb"
-    : film.ratingKinopoisk
-      ? "KP"
-      : "Score";
   const year = film.year || film.startYear;
   const durationText =
     film.filmLength && film.filmLength > 0
       ? `${Math.floor(film.filmLength / 60)}h ${film.filmLength % 60}m`
       : null;
-  const ageRatingText = film.ratingAgeLimits
-    ? `${film.ratingAgeLimits.replace(/^age/i, "")}+`
-    : film.ratingMpaa
-      ? film.ratingMpaa.toUpperCase()
-      : null;
+  const certBadge = getQuickCertBadge(film);
 
   const playerUrl = `${PLAYER_PROXY_URL}?id=${id}`;
 
@@ -618,8 +606,8 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
               {/* Title + Metadata */}
               <div className="min-w-0 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 sm:flex-wrap flex-1">
-                <div className="flex items-baseline gap-1.5 flex-wrap min-w-0">
-                  <h1 className="font-display tracking-[1.1px] text-[17px] sm:text-[20px] text-white line-clamp-2">
+                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                  <h1 className="font-display tracking-[1.1px] text-[15px] sm:text-[20px] text-white line-clamp-2">
                     {name}
                   </h1>
                   {year && (
@@ -634,8 +622,8 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                   )}
                 </div>
 
-                {/* Desktop inline Rating & Age badges (hidden on mobile where the 2-column box is shown) */}
-                <div className="hidden sm:flex items-center gap-2">
+                {/* Desktop inline Rating & Age Certification badges */}
+                <div className="hidden sm:flex items-center justify-center gap-2">
                   {rating && (
                     <span className="inline-flex items-center gap-1 text-[12px] text-[#f5c518] font-display">
                       <Star
@@ -647,17 +635,21 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                       {rating.toFixed(1)}
                     </span>
                   )}
-                  {ageRatingText && (
-                    <button
-                      type="button"
-                      onClick={() => setParentalOpen(true)}
-                      title="View Parental Guide"
-                      className="tag tag-accent text-[11px] cursor-pointer hover:border-[rgba(229,9,20,0.5)] inline-flex items-center gap-1"
-                    >
-                      <ShieldAlert size={11} />
-                      {ageRatingText}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setParentalOpen(true)}
+                    title="View Parental Guide"
+                    className={`rounded-lg px-2.5 py-1 backdrop-blur-md border bg-white/3 border-white/[0.07] inline-flex items-center gap-1.5 shadow-lg transition-transform cursor-pointer active:scale-95 ${
+                      certBadge?.isMature
+                        ? "text-red-500"
+                        : "text-[var(--text-dim)]"
+                    }`}
+                  >
+                    <ShieldAlert size={12} className="mb-0.5 shrink-0" />
+                    <span className="text-[11px] font-bold tracking-[0.5px]">
+                      {certBadge ? certBadge.label : "PG Guide"}
+                    </span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -683,18 +675,6 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                   <span>{wideTheater ? "Standard" : "Wide"}</span>
                 </button>
               </div>
-
-              {!ageRatingText && (
-                <button
-                  type="button"
-                  onClick={() => setParentalOpen(true)}
-                  aria-label="View Parental Guide"
-                  title="View Parental Guide"
-                  className="hidden sm:inline-flex btn btn-ghost h-8 w-8 p-0 items-center justify-center text-[12px]"
-                >
-                  <ShieldAlert size={14} />
-                </button>
-              )}
 
               <button
                 type="button"
@@ -855,8 +835,8 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         )}
         <div className="sm:hidden mt-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-2.5 shadow-[0_6px_20px_rgba(0,0,0,0.35)]">
           <div className="grid grid-cols-3 gap-2 sm:hidden pt-0.5">
-            {/*  1 */}
-            <div className="flex items-center justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]">
+            {/* 1: Rating */}
+            <div className="flex items-center min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]">
               <span className="font-display text-[15px] tracking-[0.5px] text-[#f5c518] leading-none">
                 {rating ? rating.toFixed(1) : "—"}
               </span>
@@ -867,21 +847,23 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                 stroke="#f5c518"
               />
             </div>
-            {/* 2 */}
+            {/* 2: MPAA / Age Certification Badge  */}
             <button
               type="button"
               onClick={() => setParentalOpen(true)}
               title="View Parental Guide"
-              className="flex items-center text-red-700 justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07] active:scale-[0.98] cursor-pointer transition-all text-left"
+              className={`flex items-center min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] backdrop-blur-md border bg-white/3 border-white/[0.07] shadow-lg active:scale-[0.98] cursor-pointer transition-all ${
+                certBadge?.isMature ? "text-red-500" : "text-[var(--text-dim)]"
+              }`}
             >
               <ShieldAlert size={14} className="mb-0.5" />
-              <span className="font-display text-sm">
-                {ageRatingText ?? "Guide"}
+              <span className="text-[11px] font-bold tracking-[0.5px] line-clamp-2">
+                {certBadge ? certBadge.label : "PG Guide"}
               </span>
             </button>
-            {/* 3 */}
-            <div className="flex items-center text-[var(--text-dim)] justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]">
-              <CalendarCheckIcon size={14} className="mb-0.5" />
+            {/* 3: Release Year */}
+            <div className="flex items-center min-w-fit text-[var(--text-dim)] justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]">
+              <CalendarIcon size={14} className="mb-0.5" />
               <span className="font-display text-sm">{year ?? "—"}</span>
             </div>
           </div>

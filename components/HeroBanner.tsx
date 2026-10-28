@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
   Film as FilmIcon,
@@ -24,11 +25,64 @@ import {
 import { useListStatus } from "@/hooks/useListStatus";
 import { toggleFavorite, toggleWatchLater } from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
+import { getQuickCertBadge } from "@/lib/parentalGuide";
 import ParentalGuideModal from "@/components/ParentalGuideModal";
 
 interface HeroBannerProps {
   film?: Film;
   films?: Film[];
+}
+
+function getCertTextColorClass(film: Film, label?: string | null): string {
+  const mpaa = (film.ratingMpaa || "").trim().toUpperCase();
+  const ageRaw = (film.ratingAgeLimits || "").replace(/^age/i, "").trim();
+  const age = ageRaw ? parseInt(ageRaw, 10) : NaN;
+  const combined = (label || "").toUpperCase();
+
+  if (
+    mpaa === "R" ||
+    mpaa === "NC-17" ||
+    mpaa === "TV-MA" ||
+    mpaa === "X" ||
+    (!isNaN(age) && age >= 18) ||
+    combined.includes("18+") ||
+    combined.includes("NC-17")
+  ) {
+    return "!text-[var(--accent)]";
+  }
+
+  if (
+    mpaa === "PG-13" ||
+    mpaa === "TV-14" ||
+    (!isNaN(age) && age >= 13) ||
+    combined.includes("PG-13") ||
+    combined.includes("16+")
+  ) {
+    return "!text-[#f97316]";
+  }
+
+  if (
+    mpaa === "PG" ||
+    mpaa === "TV-PG" ||
+    (!isNaN(age) && age >= 7) ||
+    combined.includes("12+")
+  ) {
+    return "!text-[#eab308]";
+  }
+
+  if (
+    mpaa === "G" ||
+    mpaa === "TV-G" ||
+    mpaa === "TV-Y" ||
+    mpaa === "TV-Y7" ||
+    (!isNaN(age) && age >= 0) ||
+    combined.includes("0+") ||
+    combined.includes("6+")
+  ) {
+    return "!text-[#22c55e]";
+  }
+
+  return "";
 }
 
 export default function HeroBanner({ film, films }: HeroBannerProps) {
@@ -89,6 +143,9 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
     : currentFilm.ratingAwait
       ? `${Math.round(currentFilm.ratingAwait)}%`
       : undefined;
+
+  const certBadge = getQuickCertBadge(currentFilm);
+  const certTextColor = getCertTextColorClass(currentFilm, certBadge?.label);
 
   const filmEntry = {
     film_id: id,
@@ -293,19 +350,15 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
             )}
 
             {/* Age / MPAA rating hidden on mobile (< sm) to keep mobile Hero clean */}
-            {(currentFilm.ratingAgeLimits || currentFilm.ratingMpaa) && (
-              <button
-                type="button"
-                onClick={() => setParentalOpen(true)}
-                title="View Parental Guide"
-                className="hidden sm:inline-flex items-center gap-1 bg-black/50 backdrop-blur-md border border-[rgba(255,255,255,0.28)] hover:border-[var(--accent)] rounded-[5px] px-2 py-[2px] text-[11px] text-white/85 cursor-pointer transition-colors"
-              >
-                <ShieldAlert size={11} className="text-[var(--accent)]" />
-                {currentFilm.ratingMpaa
-                  ? currentFilm.ratingMpaa.toUpperCase()
-                  : `${currentFilm.ratingAgeLimits!.replace("age", "")}+`}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setParentalOpen(true)}
+              title="View Parental Guide"
+              className={`!hidden sm:!inline-flex items-center gap-1 tag tag-dim text-[11px] sm:text-[12px] hover:border-white/30 cursor-pointer transition-colors ${certTextColor}`}
+            >
+              <ShieldAlert size={11} className="opacity-85" />
+              {certBadge ? certBadge.label : "Parents Guide"}
+            </button>
           </div>
 
           {/* Genres & Countries (desktop/tablet only) */}
@@ -452,11 +505,15 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
         </>
       )}
 
-      <ParentalGuideModal
-        open={parentalOpen}
-        onClose={() => setParentalOpen(false)}
-        film={currentFilm}
-      />
+      {typeof document !== "undefined" &&
+        createPortal(
+          <ParentalGuideModal
+            open={parentalOpen}
+            onClose={() => setParentalOpen(false)}
+            film={currentFilm}
+          />,
+          document.body,
+        )}
     </div>
   );
 }

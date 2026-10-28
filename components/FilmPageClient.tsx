@@ -78,6 +78,7 @@ import PosterImage from "@/components/ui/PosterImage";
 import EmptyState from "@/components/ui/EmptyState";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
 import ParentalGuideModal from "@/components/ParentalGuideModal";
+import { getQuickCertBadge } from "@/lib/parentalGuide";
 import { toggleFavorite, toggleWatchLater } from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
 
@@ -453,6 +454,8 @@ function FilmDetail({
   }[];
 
   const primaryYear = film.year || film.startYear;
+  const certBadge = getQuickCertBadge(film);
+  const certTextColor = getCertTextColorClass(film, certBadge?.label);
 
   return (
     <PageContainer>
@@ -547,37 +550,15 @@ function FilmDetail({
                 {Math.floor(film.filmLength / 60)}h {film.filmLength % 60}m
               </MetaTag>
             )}
-            {film.ratingAgeLimits && (
-              <MetaTag
-                accent
-                clickable
-                onClick={() => setParentalOpen(true)}
-                title="View Parental Guide"
-              >
-                <ShieldAlert size={11} className="mr-1 opacity-85" />
-                {film.ratingAgeLimits.replace("age", "")}+
-              </MetaTag>
-            )}
-            {film.ratingMpaa && (
-              <MetaTag
-                clickable
-                onClick={() => setParentalOpen(true)}
-                title="View Parental Guide"
-              >
-                <ShieldAlert size={11} className="mr-1 opacity-75" />
-                {film.ratingMpaa.toUpperCase()}
-              </MetaTag>
-            )}
-            {!film.ratingAgeLimits && !film.ratingMpaa && (
-              <MetaTag
-                clickable
-                onClick={() => setParentalOpen(true)}
-                title="View Parental Guide"
-              >
-                <ShieldAlert size={11} className="mr-1 opacity-75" />
-                Parents Guide
-              </MetaTag>
-            )}
+            <MetaTag
+              clickable
+              onClick={() => setParentalOpen(true)}
+              title="View Parental Guide"
+              className={certTextColor}
+            >
+              <ShieldAlert size={11} className="mr-1 opacity-85" />
+              {certBadge ? certBadge.label : "Parents Guide"}
+            </MetaTag>
             {film.countries?.slice(0, 3).map((c) => (
               <Link
                 key={c.country}
@@ -590,7 +571,7 @@ function FilmDetail({
               </Link>
             ))}
             {film.type && film.type !== "FILM" && (
-              <MetaTag accent>
+              <MetaTag alt>
                 {film.type === "TV_SERIES"
                   ? "TV Series"
                   : film.type === "TV_SHOW"
@@ -602,9 +583,7 @@ function FilmDetail({
             )}
             {film.productionStatus &&
               film.productionStatus !== "FILMING_COMPLETED" && (
-                <MetaTag accent>
-                  {film.productionStatus.replace(/_/g, " ")}
-                </MetaTag>
+                <MetaTag>{film.productionStatus.replace(/_/g, " ")}</MetaTag>
               )}
           </div>
 
@@ -615,7 +594,7 @@ function FilmDetail({
                 href={`/explore?genres=${encodeURIComponent(g.genre)}`}
                 className="no-underline"
               >
-                <span className="tag tag-accent cursor-pointer capitalize">
+                <span className="tag tag-dim cursor-pointer capitalize">
                   {translateGenre(g.genre, autoTranslate)}
                 </span>
               </Link>
@@ -1733,18 +1712,74 @@ function RatingBadge({
   );
 }
 
+function getCertTextColorClass(film: Film, label?: string | null): string {
+  const mpaa = (film.ratingMpaa || "").trim().toUpperCase();
+  const ageRaw = (film.ratingAgeLimits || "").replace(/^age/i, "").trim();
+  const age = ageRaw ? parseInt(ageRaw, 10) : NaN;
+  const combined = (label || "").toUpperCase();
+
+  if (
+    mpaa === "R" ||
+    mpaa === "NC-17" ||
+    mpaa === "TV-MA" ||
+    mpaa === "X" ||
+    (!isNaN(age) && age >= 18) ||
+    combined.includes("18+") ||
+    combined.includes("NC-17")
+  ) {
+    return "!text-[var(--accent)]";
+  }
+
+  if (
+    mpaa === "PG-13" ||
+    mpaa === "TV-14" ||
+    (!isNaN(age) && age >= 13) ||
+    combined.includes("PG-13") ||
+    combined.includes("16+")
+  ) {
+    return "!text-[#f97316]";
+  }
+
+  if (
+    mpaa === "PG" ||
+    mpaa === "TV-PG" ||
+    (!isNaN(age) && age >= 7) ||
+    combined.includes("12+")
+  ) {
+    return "!text-[#eab308]";
+  }
+
+  if (
+    mpaa === "G" ||
+    mpaa === "TV-G" ||
+    mpaa === "TV-Y" ||
+    mpaa === "TV-Y7" ||
+    (!isNaN(age) && age >= 0) ||
+    combined.includes("0+") ||
+    combined.includes("6+")
+  ) {
+    return "!text-[#22c55e]";
+  }
+
+  return "";
+}
+
 function MetaTag({
   children,
   accent,
   clickable,
   onClick,
   title,
+  alt,
+  className = "",
 }: {
   children: React.ReactNode;
   accent?: boolean;
   clickable?: boolean;
   onClick?: () => void;
   title?: string;
+  alt?: boolean;
+  className?: string;
 }) {
   return (
     <span
@@ -1762,7 +1797,7 @@ function MetaTag({
             }
           : undefined
       }
-      className={`${accent ? "tag tag-accent" : "tag tag-dim"} text-[11px] sm:text-[12px] ${clickable || onClick ? "cursor-pointer hover:border-[var(--border-hover)]" : ""}`}
+      className={`${accent ? "tag tag-accent" : alt ? "tag tag-gold" : "tag tag-dim"} text-[11px] sm:text-[12px] ${clickable || onClick ? "cursor-pointer hover:border-[var(--border-hover)]" : ""} ${className}`}
     >
       {children}
     </span>

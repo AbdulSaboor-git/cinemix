@@ -485,7 +485,7 @@ export function FilmLongPressPortal({
             <div
               className={`absolute inset-0 transition-all duration-300 ease-out ${
                 popupEntered
-                  ? "bg-black/78 backdrop-blur-xl opacity-100"
+                  ? "bg-black/10 backdrop-blur-xl opacity-100"
                   : "bg-black/0 backdrop-blur-none opacity-0"
               }`}
               style={{
@@ -497,7 +497,7 @@ export function FilmLongPressPortal({
 
             {/* Centered wrapper for card + positioned controls */}
             <div
-              className="relative z-10 flex flex-col items-center"
+              className="relative z-10 flex flex-col items-center gap-2.5"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Expanded Center Popup Card */}
@@ -512,7 +512,7 @@ export function FilmLongPressPortal({
                     "transform 360ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease-out, box-shadow 360ms ease-out",
                   opacity: popupEntered ? 1 : 0.2,
                 }}
-                className="relative rounded-[20px] overflow-hidden bg-[var(--bg-card)] border border-white/15 shadow-[0_28px_70px_rgba(0,0,0,0.85),0_0_0_1px_rgba(229,9,20,0.28)]"
+                className="relative rounded-[20px] overflow-hidden bg-[var(--bg-card)] border border-white/15"
               >
                 <PosterImage
                   src={hiResPosterUrl}
@@ -587,7 +587,7 @@ export function FilmLongPressPortal({
               </div>
 
               {/* ── Floating Action Controls Below Popup Card ── */}
-              <div className="mt-4 w-[256px] flex flex-col gap-2.5">
+              <div className="w-[256px] flex flex-col gap-2.5">
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
@@ -835,7 +835,7 @@ export default function FilmCard({
           {/* ── Poster ── */}
           <div
             ref={posterRef}
-            className={`rounded-[var(--radius-lg)] overflow-hidden relative bg-[var(--bg-card)] transition-all duration-200 border border-[var(--border)] md:group-hover:border-[rgba(229,9,20,0.35)] shadow-[0_4px_16px_rgba(0,0,0,0.4)] md:group-hover:shadow-[0_16px_48px_rgba(0,0,0,0.7),0_0_0_1px_rgba(229,9,20,0.2)] ${
+            className={`rounded-[var(--radius-lg)] overflow-hidden relative bg-[var(--bg-card)] transition-all duration-200 border border-[var(--border)] shadow-[0_4px_16px_rgba(0,0,0,0.4)]  ${
               isScroll ? `${SCROLL_SIZE_CLASSES[size]}` : "w-full aspect-[2/3]"
             }`}
           >
