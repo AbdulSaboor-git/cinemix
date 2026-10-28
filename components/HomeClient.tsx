@@ -349,14 +349,6 @@ export default function HomeClient() {
       {heroSlides.length > 0 && <HeroBanner films={heroSlides} />}
 
       <div className="relative z-[2] pt-5 sm:pt-8">
-        {forYouFilms.length > 0 && (
-          <FilmRow
-            title="For You"
-            films={forYouFilms}
-            href="/explore?lens=FOR_YOU"
-          />
-        )}
-
         {/* {watchLaterFilms.length > 0 && (
           <FilmRow
             title="From Your Watch Later"
@@ -370,6 +362,13 @@ export default function HomeClient() {
             title="Trending Blockbusters"
             films={popularFilms.slice(0, 20)}
             href="/explore?type=FILM&order=NUM_VOTE"
+          />
+        )}
+        {forYouFilms.length > 0 && (
+          <FilmRow
+            title="For You"
+            films={forYouFilms}
+            href="/explore?lens=FOR_YOU"
           />
         )}
         {s.top250 && top250Films.length > 0 && (
