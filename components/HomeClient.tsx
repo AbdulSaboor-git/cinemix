@@ -1,6 +1,6 @@
 "use client";
 // components/HomeClient.tsx
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   getTopFilms,
   getPremieres,
@@ -50,6 +50,8 @@ export default function HomeClient() {
   // Personalized rows (Watch Later + unified "For You", no "Recently Watched")
   const [watchLaterFilms, setWatchLaterFilms] = useState<Film[]>([]);
   const [forYouFilms, setForYouFilms] = useState<Film[]>([]);
+  const [forYouLoading, setForYouLoading] = useState(false);
+  const forYouRequestRef = useRef(0);
 
   const [loaded, setLoaded] = useState(false);
   const [secondaryLoaded, setSecondaryLoaded] = useState(false);
@@ -80,13 +82,20 @@ export default function HomeClient() {
     setWatchLaterFilms(hydratedWL);
 
     if (hasApiKeys()) {
+      const requestId = ++forYouRequestRef.current;
+      setForYouLoading(true);
       discoverTasteMatchedFilms({ lens: "FOR_YOU", hideWatched: true }, 1)
         .then((res) => {
-          if (res.items && res.items.length > 0) {
+          if (requestId === forYouRequestRef.current) {
             setForYouFilms(res.items.slice(0, 20));
           }
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          if (requestId === forYouRequestRef.current) {
+            setForYouLoading(false);
+          }
+        });
     }
   }, []);
 
@@ -364,11 +373,12 @@ export default function HomeClient() {
             href="/explore?type=FILM&order=NUM_VOTE"
           />
         )}
-        {forYouFilms.length > 0 && (
+        {(forYouLoading || forYouFilms.length > 0) && (
           <FilmRow
             title="For You"
             films={forYouFilms}
             href="/explore?lens=FOR_YOU"
+            isLoading={forYouLoading}
           />
         )}
         {s.top250 && top250Films.length > 0 && (
