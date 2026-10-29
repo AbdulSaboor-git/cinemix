@@ -357,7 +357,7 @@ export default function Navbar() {
                   }
                 />
               </div>
-              <span
+              {/* <span
                 className={`text-[10px] mt-1 leading-tight tracking-[0.2px] transition-colors ${
                   active
                     ? "font-semibold text-white"
@@ -365,7 +365,7 @@ export default function Navbar() {
                 }`}
               >
                 {label}
-              </span>
+              </span> */}
             </Link>
           );
         })}
