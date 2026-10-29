@@ -1,12 +1,19 @@
 "use client";
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useTransition,
+  memo,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   Calendar,
   ChevronLeft,
   ChevronRight,
   Star,
-  SlidersHorizontal,
   ShieldAlert,
   ArrowUpDown,
 } from "lucide-react";
@@ -91,6 +98,19 @@ function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
 }
 
+// ── Module-level cache for instant 0ms month/year switching ──
+interface PremieresSnapshot {
+  timestamp: number;
+  items: Film[];
+}
+
+const SNAPSHOT_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const premieresCache = new Map<string, PremieresSnapshot>();
+
+function getCacheKey(year: number, monthStr: string): string {
+  return `${year}:${monthStr}`;
+}
+
 export default function PremieresClient({
   year: yearParam,
   month: monthParam,
@@ -100,21 +120,34 @@ export default function PremieresClient({
 }) {
   const router = useRouter();
   const autoTranslate = useAutoTranslate();
+  const [, startTransition] = useTransition();
 
   const initYear = yearParam ? parseInt(yearParam, 10) : CUR_YEAR;
   const initMonthIdx = monthParam
     ? MONTHS.indexOf(monthParam.toUpperCase())
     : CUR_MONTH_IDX;
 
+  const resolvedMonthIdx = clamp(
+    initMonthIdx < 0 ? CUR_MONTH_IDX : initMonthIdx,
+    0,
+    11,
+  );
+  const initialCache = premieresCache.get(
+    getCacheKey(initYear, MONTHS[resolvedMonthIdx]),
+  );
+
   const [noKey, setNoKey] = useState(false);
   const [year, setYear] = useState(initYear);
-  const [monthIdx, setMonthIdx] = useState(
-    clamp(initMonthIdx < 0 ? CUR_MONTH_IDX : initMonthIdx, 0, 11),
-  );
-  const [films, setFilms] = useState<Film[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [monthIdx, setMonthIdx] = useState(resolvedMonthIdx);
+  const [films, setFilms] = useState<Film[]>(() => initialCache?.items ?? []);
+  const [loading, setLoading] = useState<boolean>(() => !initialCache);
   const [sortBy, setSortBy] = useState<"DATE" | "RATING">("DATE");
   const [parentalModalFilm, setParentalModalFilm] = useState<Film | null>(null);
+
+  // Progressive 2-frame mount limit for cold loads
+  const [renderLimit, setRenderLimit] = useState<number>(() =>
+    initialCache ? 999 : 6,
+  );
 
   const didMountRef = useRef(false);
 
@@ -126,12 +159,26 @@ export default function PremieresClient({
       setLoading(false);
       return;
     }
+
+    const monthStr = MONTHS[mi];
+    const cached = premieresCache.get(getCacheKey(y, monthStr));
+    if (cached && Date.now() - cached.timestamp < SNAPSHOT_TTL_MS) {
+      setFilms(cached.items);
+      setRenderLimit(999);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
-    setFilms([]);
-    getPremieres(y, MONTHS[mi])
+    getPremieres(y, monthStr)
       .then((d) => {
         const list = d.items ?? [];
+        premieresCache.set(getCacheKey(y, monthStr), {
+          timestamp: Date.now(),
+          items: list,
+        });
         setFilms(list);
+        setRenderLimit(999);
       })
       .catch(() => setFilms([]))
       .finally(() => setLoading(false));
@@ -145,12 +192,23 @@ export default function PremieresClient({
       (String(year) !== yearParam ||
         targetMonth !== (monthParam || "").toUpperCase())
     ) {
-      router.replace(`/premieres?year=${year}&month=${targetMonth}`, {
-        scroll: false,
+      startTransition(() => {
+        router.replace(`/premieres?year=${year}&month=${targetMonth}`, {
+          scroll: false,
+        });
       });
     }
     didMountRef.current = true;
   }, [year, monthIdx, load, router, yearParam, monthParam]);
+
+  // Expand render limit on next animation frame after initial paint
+  useEffect(() => {
+    if (loading || renderLimit >= films.length) return;
+    const raf = requestAnimationFrame(() => {
+      setRenderLimit(999);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [loading, films.length, renderLimit]);
 
   // Silent background regional curation controlled directly by Preferences
   const displayedFilms = useMemo(() => {
@@ -193,6 +251,10 @@ export default function PremieresClient({
     setParentalModalFilm(null);
   }, []);
 
+  const handleOpenParentalGuide = useCallback((film: Film) => {
+    setParentalModalFilm(film);
+  }, []);
+
   if (noKey) return <NoKeyBanner />;
 
   const prevMonth = () => {
@@ -213,6 +275,10 @@ export default function PremieresClient({
   };
 
   const isCurrent = year === CUR_YEAR && monthIdx === CUR_MONTH_IDX;
+  const slicedFilms =
+    renderLimit < displayedFilms.length
+      ? displayedFilms.slice(0, renderLimit)
+      : displayedFilms;
 
   return (
     <PageContainer>
@@ -235,7 +301,6 @@ export default function PremieresClient({
         }
         rightSlot={
           <div className="inline-flex items-center gap-1.5">
-            {/* <SlidersHorizontal size={13} className="text-[var(--text-muted)]" /> */}
             <ArrowUpDown size={18} />
             <select
               value={sortBy}
@@ -324,7 +389,7 @@ export default function PremieresClient({
       </div>
 
       {/* Grid */}
-      {loading ? (
+      {loading && displayedFilms.length === 0 ? (
         <div className="grid gap-3.5 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="skeleton h-[128px] rounded-[12px]" />
@@ -337,8 +402,12 @@ export default function PremieresClient({
           description="Try selecting a different month or year."
         />
       ) : (
-        <div className="grid gap-3.5 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          {displayedFilms.map((film, i) => {
+        <div
+          className={`grid gap-3.5 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 transition-opacity duration-150 ${
+            loading ? "opacity-55 pointer-events-none" : "opacity-100"
+          }`}
+        >
+          {slicedFilms.map((film, i) => {
             const fid = film.kinopoiskId ?? film.filmId ?? i;
             return (
               <div
@@ -347,13 +416,10 @@ export default function PremieresClient({
                 key={fid}
               >
                 <PremiereCard
-                  key={fid}
                   film={film}
                   index={i}
                   autoTranslate={autoTranslate}
-                  onOpenParentalGuide={(enrichedFilm) =>
-                    setParentalModalFilm(enrichedFilm)
-                  }
+                  onOpenParentalGuide={handleOpenParentalGuide}
                 />
               </div>
             );
@@ -372,7 +438,7 @@ export default function PremieresClient({
   );
 }
 
-export function PremiereCard({
+export const PremiereCard = memo(function PremiereCard({
   film: rawFilm,
   index,
   autoTranslate,
@@ -419,21 +485,21 @@ export function PremiereCard({
       ? `${Math.round(film.ratingAwait)}%`
       : null;
 
-  const genresText =
-    film.genres && film.genres.length > 0
-      ? film.genres
-          .slice(0, 2)
-          .map((g) => translateGenre(g.genre, autoTranslate))
-          .join(" · ")
-      : "";
+  const genresText = useMemo(() => {
+    if (!film.genres || film.genres.length === 0) return "";
+    return film.genres
+      .slice(0, 2)
+      .map((g) => translateGenre(g.genre, autoTranslate))
+      .join(" · ");
+  }, [film.genres, autoTranslate]);
 
-  const countriesText =
-    film.countries && film.countries.length > 0
-      ? film.countries
-          .slice(0, 2)
-          .map((c) => translateCountry(c.country, autoTranslate))
-          .join(", ")
-      : "";
+  const countriesText = useMemo(() => {
+    if (!film.countries || film.countries.length === 0) return "";
+    return film.countries
+      .slice(0, 2)
+      .map((c) => translateCountry(c.country, autoTranslate))
+      .join(", ");
+  }, [film.countries, autoTranslate]);
 
   const formattedDuration =
     durationMins !== undefined && durationMins > 0
@@ -521,7 +587,7 @@ export function PremiereCard({
               </p>
             )}
 
-            {/* Country + Duration Inline Row (saves vertical space on mobile) */}
+            {/* Country + Duration Inline Row */}
             {(countriesText || formattedDuration) && (
               <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 text-[11px] leading-snug text-[var(--text-muted)] min-w-0">
                 {countriesText && (
@@ -576,17 +642,19 @@ export function PremiereCard({
         </div>
       </div>
 
-      {/* Long-Press Centered Quick-Peek Portal (with Top-Left MPAA/Age Badge) */}
-      <FilmLongPressPortal
-        film={film}
-        popupOpen={popupOpen}
-        popupEntered={popupEntered}
-        originDelta={originDelta}
-        closePopup={closePopup}
-        setPopupOpen={setPopupOpen}
-        setPopupEntered={setPopupEntered}
-        historyPushedRef={historyPushedRef}
-      />
+      {/* Long-Press Centered Quick-Peek Portal */}
+      {popupOpen && (
+        <FilmLongPressPortal
+          film={film}
+          popupOpen={popupOpen}
+          popupEntered={popupEntered}
+          originDelta={originDelta}
+          closePopup={closePopup}
+          setPopupOpen={setPopupOpen}
+          setPopupEntered={setPopupEntered}
+          historyPushedRef={historyPushedRef}
+        />
+      )}
     </>
   );
-}
+});
