@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useMemo,
   useRef,
+  memo,
 } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -231,6 +232,20 @@ const SMART_LENSES: SmartLens[] = [
   },
 ];
 
+// ── In-memory caches for instant tab/back-navigation & zero duplicate filter fetches ──
+let cachedFilters: { genres: Genre[]; countries: Country[] } | null = null;
+
+interface BrowseSnapshot {
+  queryKey: string;
+  timestamp: number;
+  films: Film[];
+  totalPages: number;
+  streamedPage: number;
+}
+
+const BROWSE_SNAPSHOT_TTL = 5 * 60 * 1000; // 5 minutes
+let browseCache: BrowseSnapshot | null = null;
+
 function parseNumberList(raw?: string): number[] {
   if (!raw) return [];
   return raw
@@ -245,6 +260,54 @@ function parseStringList(raw?: string): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+function resolveGenreTokensFromList(
+  raw: string | undefined,
+  list: Genre[],
+): number[] {
+  if (!raw) return [];
+  const out: number[] = [];
+  for (const token of raw.split(",")) {
+    const t = token.trim();
+    if (!t) continue;
+    if (!isNaN(Number(t))) {
+      out.push(parseInt(t, 10));
+    } else if (list.length > 0) {
+      const lower = t.toLowerCase();
+      const match = list.find(
+        (g) =>
+          g.genre.toLowerCase() === lower ||
+          translateGenre(g.genre, true).toLowerCase() === lower,
+      );
+      if (match) out.push(match.id);
+    }
+  }
+  return Array.from(new Set(out));
+}
+
+function resolveCountryTokensFromList(
+  raw: string | undefined,
+  list: Country[],
+): number[] {
+  if (!raw) return [];
+  const out: number[] = [];
+  for (const token of raw.split(",")) {
+    const t = token.trim();
+    if (!t) continue;
+    if (!isNaN(Number(t))) {
+      out.push(parseInt(t, 10));
+    } else if (list.length > 0) {
+      const lower = t.toLowerCase();
+      const match = list.find(
+        (c) =>
+          c.country.toLowerCase() === lower ||
+          translateCountry(c.country, true).toLowerCase() === lower,
+      );
+      if (match) out.push(match.id);
+    }
+  }
+  return Array.from(new Set(out));
 }
 
 function formatVotesCompact(votes?: number): string | null {
@@ -349,11 +412,11 @@ interface DraftFilterState {
 }
 
 /**
- * Interactive Tag Pill:
+ * Interactive Tag Pill (Memoized so toggling one tag doesn't re-render 100+ pills):
  * - Single tap/click: Includes tag (or Excludes tag if tapMode === "EXCLUDE", or clears if already active)
  * - Long-press (380ms on mobile/touch) OR right-click: Directly Excludes tag from any state!
  */
-function FilterTagPill({
+const FilterTagPill = memo(function FilterTagPill({
   label,
   status,
   tapMode,
@@ -432,7 +495,36 @@ function FilterTagPill({
       <span>{label}</span>
     </button>
   );
-}
+});
+
+/**
+ * Memoized Poster Grid so typing in inputs, toggling filter pills, or opening modals
+ * never re-renders the 20–100+ FilmCards.
+ */
+const MemoizedFilmGrid = memo(function MemoizedFilmGrid({
+  films,
+  onQuickPeek,
+}: {
+  films: Film[];
+  onQuickPeek: (film: Film) => void;
+}) {
+  return (
+    <div className="film-grid">
+      {films.map((film, i) => {
+        const fid = film.kinopoiskId ?? film.filmId ?? i;
+        return (
+          <FilmCard
+            key={`${fid}-${i}`}
+            film={film}
+            variant="grid"
+            priority={i < 6}
+            onQuickPeek={onQuickPeek}
+          />
+        );
+      })}
+    </div>
+  );
+});
 
 export default function BrowseClient(props: ExploreSearchParams) {
   const router = useRouter();
@@ -446,15 +538,25 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const [prefType, setPrefType] = useState<string>("ALL");
   const [prefOrder, setPrefOrder] = useState<ExploreSortOrder>("NUM_VOTE");
 
-  const [genres, setGenres] = useState<Genre[]>([]);
-  const [countries, setCountries] = useState<Country[]>([]);
-  const [filtersLoaded, setFiltersLoaded] = useState(false);
+  const [genres, setGenres] = useState<Genre[]>(
+    () => cachedFilters?.genres ?? [],
+  );
+  const [countries, setCountries] = useState<Country[]>(
+    () => cachedFilters?.countries ?? [],
+  );
+  const [filtersLoaded, setFiltersLoaded] = useState<boolean>(
+    () => cachedFilters !== null,
+  );
 
-  const [films, setFilms] = useState<Film[]>([]);
-  const [totalPages, setTotalPages] = useState(1);
-  const [loading, setLoading] = useState(true);
+  const [films, setFilms] = useState<Film[]>(() => browseCache?.films ?? []);
+  const [totalPages, setTotalPages] = useState(
+    () => browseCache?.totalPages ?? 1,
+  );
+  const [loading, setLoading] = useState<boolean>(() => browseCache === null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [streamedPage, setStreamedPage] = useState(page);
+  const [streamedPage, setStreamedPage] = useState(
+    () => browseCache?.streamedPage ?? page,
+  );
 
   // Studio Command Deck & Mobile Collapsible Controls state (Requirement 5)
   const [deckExpanded, setDeckExpanded] = useState(false);
@@ -477,6 +579,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const [surpriseModalOpen, setSurpriseModalOpen] = useState(false);
   const [surpriseFilm, setSurpriseFilm] = useState<Film | null>(null);
   const [parentalGuideFilm, setParentalGuideFilm] = useState<Film | null>(null);
+
+  const handleQuickPeek = useCallback((f: Film) => {
+    setQuickPeekFilm(f);
+  }, []);
 
   useEffect(() => {
     if (!mobileSheetOpen) return;
@@ -542,25 +648,51 @@ export default function BrowseClient(props: ExploreSearchParams) {
 
   // Resolved applied genre and country IDs
   const [resolvedIncludeGenres, setResolvedIncludeGenres] = useState<number[]>(
-    () => parseNumberList(props.genres),
+    () => resolveGenreTokensFromList(props.genres, cachedFilters?.genres ?? []),
   );
   const [resolvedExcludeGenres, setResolvedExcludeGenres] = useState<number[]>(
-    () => parseNumberList(props.excludeGenres),
+    () =>
+      resolveGenreTokensFromList(
+        props.excludeGenres,
+        cachedFilters?.genres ?? [],
+      ),
   );
   const [resolvedIncludeCountries, setResolvedIncludeCountries] = useState<
     number[]
-  >(() => parseNumberList(props.countries));
+  >(() =>
+    resolveCountryTokensFromList(
+      props.countries,
+      cachedFilters?.countries ?? [],
+    ),
+  );
   const [resolvedExcludeCountries, setResolvedExcludeCountries] = useState<
     number[]
-  >(() => parseNumberList(props.excludeCountries));
+  >(() =>
+    resolveCountryTokensFromList(
+      props.excludeCountries,
+      cachedFilters?.countries ?? [],
+    ),
+  );
 
   // Staged Draft State
-  const [draft, setDraft] = useState<DraftFilterState>({
-    includeGenres: parseNumberList(props.genres),
-    excludeGenres: parseNumberList(props.excludeGenres),
+  const [draft, setDraft] = useState<DraftFilterState>(() => ({
+    includeGenres: resolveGenreTokensFromList(
+      props.genres,
+      cachedFilters?.genres ?? [],
+    ),
+    excludeGenres: resolveGenreTokensFromList(
+      props.excludeGenres,
+      cachedFilters?.genres ?? [],
+    ),
     genreMatchMode: props.genreMode === "OR" ? "OR" : "AND",
-    includeCountries: parseNumberList(props.countries),
-    excludeCountries: parseNumberList(props.excludeCountries),
+    includeCountries: resolveCountryTokensFromList(
+      props.countries,
+      cachedFilters?.countries ?? [],
+    ),
+    excludeCountries: resolveCountryTokensFromList(
+      props.excludeCountries,
+      cachedFilters?.countries ?? [],
+    ),
     ratingFrom: props.ratingFrom || "",
     ratingTo: props.ratingTo || "",
     ratingSource: (props.ratingSource as RatingSource) || "AUTO",
@@ -577,7 +709,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
     hideWatched: props.hideWatched === "1",
     hideFavorites: props.hideFavorites === "1",
     hideWatchLater: props.hideWatchLater === "1",
-  });
+  }));
 
   useDocumentTitle("Explore Films & Series");
 
@@ -594,77 +726,77 @@ export default function BrowseClient(props: ExploreSearchParams) {
     setReady(true);
   }, []);
 
+  // Load filter metadata once per session (cached in memory afterwards)
   useEffect(() => {
     if (!hasApiKeys()) return;
+    if (cachedFilters) {
+      setFiltersLoaded(true);
+      return;
+    }
 
+    let mounted = true;
     getFilters()
       .then((f) => {
+        cachedFilters = { genres: f.genres, countries: f.countries };
+        if (!mounted) return;
         setGenres(f.genres);
         setCountries(f.countries);
-
-        const resolveGenreTokens = (raw?: string): number[] => {
-          if (!raw) return [];
-          const out: number[] = [];
-          for (const token of raw.split(",")) {
-            const t = token.trim();
-            if (!t) continue;
-            if (!isNaN(Number(t))) {
-              out.push(parseInt(t, 10));
-            } else {
-              const lower = t.toLowerCase();
-              const match = f.genres.find(
-                (g) =>
-                  g.genre.toLowerCase() === lower ||
-                  translateGenre(g.genre, true).toLowerCase() === lower,
-              );
-              if (match) out.push(match.id);
-            }
-          }
-          return Array.from(new Set(out));
-        };
-
-        const resolveCountryTokens = (raw?: string): number[] => {
-          if (!raw) return [];
-          const out: number[] = [];
-          for (const token of raw.split(",")) {
-            const t = token.trim();
-            if (!t) continue;
-            if (!isNaN(Number(t))) {
-              out.push(parseInt(t, 10));
-            } else {
-              const lower = t.toLowerCase();
-              const match = f.countries.find(
-                (c) =>
-                  c.country.toLowerCase() === lower ||
-                  translateCountry(c.country, true).toLowerCase() === lower,
-              );
-              if (match) out.push(match.id);
-            }
-          }
-          return Array.from(new Set(out));
-        };
-
-        const incG = resolveGenreTokens(props.genres);
-        const excG = resolveGenreTokens(props.excludeGenres);
-        const incC = resolveCountryTokens(props.countries);
-        const excC = resolveCountryTokens(props.excludeCountries);
-
-        setResolvedIncludeGenres(incG);
-        setResolvedExcludeGenres(excG);
-        setResolvedIncludeCountries(incC);
-        setResolvedExcludeCountries(excC);
-
-        setDraft((prev) => ({
-          ...prev,
-          includeGenres: incG,
-          excludeGenres: excG,
-          includeCountries: incC,
-          excludeCountries: excC,
-        }));
       })
       .catch(() => {})
-      .finally(() => setFiltersLoaded(true));
+      .finally(() => {
+        if (mounted) setFiltersLoaded(true);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Synchronously resolve genre/country tokens whenever URL props or filter lists update,
+  // preserving existing array references when IDs haven't changed to prevent duplicate fetches.
+  useEffect(() => {
+    if (!filtersLoaded) return;
+
+    const incG = resolveGenreTokensFromList(props.genres, genres);
+    const excG = resolveGenreTokensFromList(props.excludeGenres, genres);
+    const incC = resolveCountryTokensFromList(props.countries, countries);
+    const excC = resolveCountryTokensFromList(
+      props.excludeCountries,
+      countries,
+    );
+
+    setResolvedIncludeGenres((prev) =>
+      sameNumArray(prev, incG) ? prev : incG,
+    );
+    setResolvedExcludeGenres((prev) =>
+      sameNumArray(prev, excG) ? prev : excG,
+    );
+    setResolvedIncludeCountries((prev) =>
+      sameNumArray(prev, incC) ? prev : incC,
+    );
+    setResolvedExcludeCountries((prev) =>
+      sameNumArray(prev, excC) ? prev : excC,
+    );
+
+    setDraft((prev) => ({
+      ...prev,
+      includeGenres: sameNumArray(prev.includeGenres, incG)
+        ? prev.includeGenres
+        : incG,
+      excludeGenres: sameNumArray(prev.excludeGenres, excG)
+        ? prev.excludeGenres
+        : excG,
+      includeCountries: sameNumArray(prev.includeCountries, incC)
+        ? prev.includeCountries
+        : incC,
+      excludeCountries: sameNumArray(prev.excludeCountries, excC)
+        ? prev.excludeCountries
+        : excC,
+    }));
   }, [
+    filtersLoaded,
+    genres,
+    countries,
     props.genres,
     props.excludeGenres,
     props.countries,
@@ -984,9 +1116,85 @@ export default function BrowseClient(props: ExploreSearchParams) {
     [activeLens, currentParamsRecord],
   );
 
-  // Fetch films via Partitioned Multi-Constraint Discovery Engine
+  // Deterministic query key for caching active Explore results
+  const activeQueryKey = useMemo(() => {
+    return JSON.stringify({
+      type,
+      excludeTypes,
+      resolvedIncludeGenres,
+      genreMatchMode,
+      resolvedExcludeGenres,
+      resolvedIncludeCountries,
+      resolvedExcludeCountries,
+      order,
+      direction,
+      ratingSource,
+      ratingFrom,
+      ratingTo,
+      requireImdb,
+      minVotes,
+      yearFrom,
+      yearTo,
+      runtimeBucket,
+      includeAgeTiers,
+      excludeAgeTiers,
+      seriesStatus,
+      keyword: props.keyword?.trim() || "",
+      collectionPreset,
+      activeLens,
+      hideWatched,
+      hideFavorites,
+      hideWatchLater,
+      page,
+      randomSeed,
+    });
+  }, [
+    type,
+    excludeTypes,
+    resolvedIncludeGenres,
+    genreMatchMode,
+    resolvedExcludeGenres,
+    resolvedIncludeCountries,
+    resolvedExcludeCountries,
+    order,
+    direction,
+    ratingSource,
+    ratingFrom,
+    ratingTo,
+    requireImdb,
+    minVotes,
+    yearFrom,
+    yearTo,
+    runtimeBucket,
+    includeAgeTiers,
+    excludeAgeTiers,
+    seriesStatus,
+    props.keyword,
+    collectionPreset,
+    activeLens,
+    hideWatched,
+    hideFavorites,
+    hideWatchLater,
+    page,
+    randomSeed,
+  ]);
+
+  // Fetch films via Partitioned Multi-Constraint Discovery Engine (with 5-min snapshot cache)
   useEffect(() => {
     if (!ready || noKey || !filtersLoaded) return;
+
+    // Instant restore if returning to the exact same Explore state within 5 minutes
+    if (
+      browseCache &&
+      browseCache.queryKey === activeQueryKey &&
+      Date.now() - browseCache.timestamp < BROWSE_SNAPSHOT_TTL
+    ) {
+      setFilms(browseCache.films);
+      setTotalPages(browseCache.totalPages);
+      setStreamedPage(browseCache.streamedPage);
+      setLoading(false);
+      return;
+    }
 
     let cancelled = false;
     setLoading(true);
@@ -1026,8 +1234,17 @@ export default function BrowseClient(props: ExploreSearchParams) {
     })
       .then((res) => {
         if (cancelled) return;
-        setFilms(res.items ?? []);
-        setTotalPages(res.totalPages ?? 1);
+        const items = res.items ?? [];
+        const pages = res.totalPages ?? 1;
+        setFilms(items);
+        setTotalPages(pages);
+        browseCache = {
+          queryKey: activeQueryKey,
+          timestamp: Date.now(),
+          films: items,
+          totalPages: pages,
+          streamedPage: page,
+        };
       })
       .catch(() => {
         if (cancelled) return;
@@ -1045,6 +1262,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
     ready,
     noKey,
     filtersLoaded,
+    activeQueryKey,
     type,
     excludeTypes,
     resolvedIncludeGenres,
@@ -1119,7 +1337,17 @@ export default function BrowseClient(props: ExploreSearchParams) {
       const fresh = (res.items ?? []).filter(
         (f) => !existingIds.has(f.kinopoiskId ?? f.filmId),
       );
-      setFilms((prev) => [...prev, ...fresh]);
+      setFilms((prev) => {
+        const updated = [...prev, ...fresh];
+        if (browseCache && browseCache.queryKey === activeQueryKey) {
+          browseCache = {
+            ...browseCache,
+            films: updated,
+            streamedPage: nextP,
+          };
+        }
+        return updated;
+      });
       setStreamedPage(nextP);
     } catch {
       toast.error("Could not load next batch");
@@ -1146,10 +1374,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
       });
   }, [countries, countrySearch]);
 
-  if (noKey) return <NoKeyBanner />;
-
-  // Draft Include / Exclude handlers
-  const toggleDraftGenreInclude = (genreId: number) => {
+  // Draft Include / Exclude handlers (stabilized with useCallback)
+  const toggleDraftGenreInclude = useCallback((genreId: number) => {
     setDraft((prev) => {
       const isInc = prev.includeGenres.includes(genreId);
       const isExc = prev.excludeGenres.includes(genreId);
@@ -1166,9 +1392,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
         excludeGenres: prev.excludeGenres.filter((id) => id !== genreId),
       };
     });
-  };
+  }, []);
 
-  const toggleDraftGenreExclude = (genreId: number) => {
+  const toggleDraftGenreExclude = useCallback((genreId: number) => {
     setDraft((prev) => {
       const isExc = prev.excludeGenres.includes(genreId);
       if (isExc) {
@@ -1183,9 +1409,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
         excludeGenres: [...prev.excludeGenres, genreId],
       };
     });
-  };
+  }, []);
 
-  const toggleDraftCountryInclude = (countryId: number) => {
+  const toggleDraftCountryInclude = useCallback((countryId: number) => {
     setDraft((prev) => {
       const isInc = prev.includeCountries.includes(countryId);
       const isExc = prev.excludeCountries.includes(countryId);
@@ -1208,9 +1434,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
         ),
       };
     });
-  };
+  }, []);
 
-  const toggleDraftCountryExclude = (countryId: number) => {
+  const toggleDraftCountryExclude = useCallback((countryId: number) => {
     setDraft((prev) => {
       const isExc = prev.excludeCountries.includes(countryId);
       if (isExc) {
@@ -1229,9 +1455,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
         excludeCountries: [...prev.excludeCountries, countryId],
       };
     });
-  };
+  }, []);
 
-  const toggleDraftAgeInclude = (tier: AgeTierFilter) => {
+  const toggleDraftAgeInclude = useCallback((tier: AgeTierFilter) => {
     setDraft((prev) => {
       const isInc = prev.includeAgeTiers.includes(tier);
       const isExc = prev.excludeAgeTiers.includes(tier);
@@ -1248,9 +1474,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
         excludeAgeTiers: prev.excludeAgeTiers.filter((t) => t !== tier),
       };
     });
-  };
+  }, []);
 
-  const toggleDraftAgeExclude = (tier: AgeTierFilter) => {
+  const toggleDraftAgeExclude = useCallback((tier: AgeTierFilter) => {
     setDraft((prev) => {
       const isExc = prev.excludeAgeTiers.includes(tier);
       if (isExc) {
@@ -1265,14 +1491,16 @@ export default function BrowseClient(props: ExploreSearchParams) {
         excludeAgeTiers: [...prev.excludeAgeTiers, tier],
       };
     });
-  };
+  }, []);
 
-  const handleSurpriseMe = () => {
+  const handleSurpriseMe = useCallback(() => {
     if (films.length === 0) return;
     const pick = films[Math.floor(Math.random() * films.length)];
     setSurpriseFilm(pick);
     setSurpriseModalOpen(true);
-  };
+  }, [films]);
+
+  if (noKey) return <NoKeyBanner />;
 
   // Requirement 6: Save current filters (including any pending draft filters) and immediately activate the preset
   const handleSaveCurrentPreset = () => {
@@ -2184,9 +2412,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
               Saved Presets
             </span>
             <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-              {/* <span className="text-[10px] font-bold uppercase tracking-[1px] text-[var(--text-muted)] flex-shrink-0 mr-1">
-                Saved:
-              </span> */}
               {savedPresets.map((preset) => {
                 const selected = isSavedPresetSelected(preset);
                 return (
@@ -2635,7 +2860,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
         </div>
       )}
 
-      {/* ── LAYER 3: Standard Poster Grid without card rank numbers (Requirement 3) ── */}
+      {/* ── LAYER 3: Memoized Poster Grid without card rank numbers (Requirement 3) ── */}
       {loading ? (
         <div className="film-grid">
           {Array.from({ length: 20 }).map((_, i) => (
@@ -2654,20 +2879,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
           onAction={handleResetAllFilters}
         />
       ) : (
-        <div className="film-grid">
-          {films.map((film, i) => {
-            const fid = film.kinopoiskId ?? film.filmId ?? i;
-            return (
-              <FilmCard
-                key={`${fid}-${i}`}
-                film={film}
-                variant="grid"
-                priority={i < 6}
-                onQuickPeek={(f) => setQuickPeekFilm(f)}
-              />
-            );
-          })}
-        </div>
+        <MemoizedFilmGrid films={films} onQuickPeek={handleQuickPeek} />
       )}
 
       {/* ── LAYER 4: Continuous Stream Button + Deep Pagination ── */}
