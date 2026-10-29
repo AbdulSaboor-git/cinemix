@@ -148,12 +148,12 @@ export default function Navbar() {
 
   return (
     <>
-      {/* ── Top App Bar (Constant uniform backdrop-blur across all scroll states) ── */}
+      {/* ── Top App Bar (Modern glassy transparent effect, full width) ── */}
       <nav
-        className={`fixed top-0 left-0 right-0 z-[199] flex items-center gap-3 px-3.5 md:px-[var(--page-x)] h-[var(--nav-height)] select-none backdrop-blur-[20px] [-webkit-backdrop-filter:blur(20px)] transition-[background-color,border-color,box-shadow] duration-300 border-b ${
+        className={`fixed top-0 left-0 right-0 z-[199] flex items-center gap-3 px-3.5 md:px-[var(--page-x)] h-[var(--nav-height)] select-none backdrop-blur-[24px] [-webkit-backdrop-filter:blur(24px)] transition-[background-color,border-color,box-shadow] duration-300 border-b ${
           scrolled
-            ? "bg-[#08080a]/20 border-[var(--border)] shadow-[0_8px_28px_rgba(0,0,0,0.55)]"
-            : "bg-[#08080a]/50 border-white/[0.05]"
+            ? "bg-[#08080a]/60 border-white/[0.1] shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+            : "bg-[#08080a]/30 border-transparent"
         }`}
       >
         <Logo />
@@ -328,10 +328,10 @@ export default function Navbar() {
         </div>
       )}
 
-      {/* ── Mobile Bottom Navigation Bar (< md) ── */}
+      {/* ── Mobile Bottom Navigation Bar (Floating, Centered, Oval, Glassy) ── */}
       <div
-        className="md:hidden fixed bottom-0 left-0 right-0 z-[200] flex items-center justify-around px-1.5 pt-1.5 bg-[#09090b]/92 backdrop-blur-[20px] [-webkit-backdrop-filter:blur(20px)] border-t border-white/[0.07] select-none [-webkit-touch-callout:none]"
-        style={{ paddingBottom: "max(6px, env(safe-area-inset-bottom))" }}
+        className="md:hidden fixed z-[200] flex items-center justify-around px-2 py-2 bg-[#08080a]/60 backdrop-blur-[24px] [-webkit-backdrop-filter:blur(24px)] border border-white/[0.1] shadow-[0_8px_32px_rgba(0,0,0,0.4)] select-none [-webkit-touch-callout:none] rounded-full w-[92%] max-w-[400px] left-1/2 -translate-x-1/2"
+        style={{ bottom: "max(24px, env(safe-area-inset-bottom))" }}
       >
         {BOTTOM_NAV_LINKS.map(({ href, label, Icon }) => {
           const active = isActive(href);
@@ -340,10 +340,10 @@ export default function Navbar() {
               key={href}
               href={href}
               aria-label={label}
-              className="no-underline flex-1 flex flex-col items-center justify-center py-0.5 active:scale-95 transition-transform duration-150"
+              className="no-underline flex-1 flex flex-col items-center justify-center active:scale-95 transition-transform duration-150"
             >
               <div
-                className={`flex items-center justify-center w-12 h-7 rounded-full transition-all duration-200 ${
+                className={`flex items-center justify-center w-12 h-8 rounded-full transition-all duration-200 ${
                   active
                     ? "bg-[rgba(229,9,20,0.18)] text-[var(--accent)]"
                     : "text-[var(--text-muted)]"
@@ -358,7 +358,7 @@ export default function Navbar() {
                 />
               </div>
               <span
-                className={`text-[10px] mt-0.5 leading-tight tracking-[0.2px] transition-colors ${
+                className={`text-[10px] mt-1 leading-tight tracking-[0.2px] transition-colors ${
                   active
                     ? "font-semibold text-white"
                     : "font-medium text-[var(--text-muted)]"

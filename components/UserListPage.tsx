@@ -250,7 +250,7 @@ export default function UserListPage({ type }: { type: ListType }) {
 
   useEffect(() => {
     const sync = () => {
-      setEntries(getList(type));
+      setEntries([...getList(type)]);
       setUserName(getSessionName());
     };
     sync();
@@ -305,7 +305,7 @@ export default function UserListPage({ type }: { type: ListType }) {
         rating: null,
       });
     }
-    setEntries(getList(type));
+    setEntries([...getList(type)]);
     toast.info("Removed.");
   };
 
