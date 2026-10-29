@@ -1,10 +1,12 @@
 "use client";
 import React, {
   useEffect,
+  useLayoutEffect,
   useState,
   useCallback,
   useMemo,
   useRef,
+  useTransition,
   memo,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -232,8 +234,12 @@ const SMART_LENSES: SmartLens[] = [
   },
 ];
 
-// ── In-memory caches for instant tab/back-navigation & zero duplicate filter fetches ──
+// ── Module-level caches for instant navigation & zero preference flash ──
 let cachedFilters: { genres: Genre[]; countries: Country[] } | null = null;
+let cachedUserPrefs: {
+  prefType: string;
+  prefOrder: ExploreSortOrder;
+} | null = null;
 
 interface BrowseSnapshot {
   queryKey: string;
@@ -246,12 +252,29 @@ interface BrowseSnapshot {
 const BROWSE_SNAPSHOT_TTL = 5 * 60 * 1000; // 5 minutes
 let browseCache: BrowseSnapshot | null = null;
 
-function parseNumberList(raw?: string): number[] {
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((s) => parseInt(s.trim(), 10))
-    .filter((n) => !isNaN(n) && n > 0);
+function readInitialUserPrefs() {
+  if (cachedUserPrefs) return cachedUserPrefs;
+  if (typeof window !== "undefined") {
+    try {
+      const p = getPreferences();
+      cachedUserPrefs = {
+        prefType: p.defaultExploreType || "ALL",
+        prefOrder: (p.defaultExploreOrder as ExploreSortOrder) || "NUM_VOTE",
+      };
+      return cachedUserPrefs;
+    } catch {
+      // ignore
+    }
+  }
+  return { prefType: "ALL", prefOrder: "NUM_VOTE" as ExploreSortOrder };
+}
+
+function hasNonNumericTokens(raw?: string): boolean {
+  if (!raw) return false;
+  return raw.split(",").some((t) => {
+    const trimmed = t.trim();
+    return trimmed !== "" && isNaN(Number(trimmed));
+  });
 }
 
 function parseStringList(raw?: string): string[] {
@@ -412,9 +435,7 @@ interface DraftFilterState {
 }
 
 /**
- * Interactive Tag Pill (Memoized so toggling one tag doesn't re-render 100+ pills):
- * - Single tap/click: Includes tag (or Excludes tag if tapMode === "EXCLUDE", or clears if already active)
- * - Long-press (380ms on mobile/touch) OR right-click: Directly Excludes tag from any state!
+ * Interactive Tag Pill (Memoized)
  */
 const FilterTagPill = memo(function FilterTagPill({
   label,
@@ -498,19 +519,40 @@ const FilterTagPill = memo(function FilterTagPill({
 });
 
 /**
- * Memoized Poster Grid so typing in inputs, toggling filter pills, or opening modals
- * never re-renders the 20–100+ FilmCards.
+ * Memoized Poster Grid with progressive 2-frame mount on initial cold load
+ * and in-place updates when switching filters.
  */
 const MemoizedFilmGrid = memo(function MemoizedFilmGrid({
   films,
+  isRefreshing,
   onQuickPeek,
 }: {
   films: Film[];
+  isRefreshing: boolean;
   onQuickPeek: (film: Film) => void;
 }) {
+  const [renderLimit, setRenderLimit] = useState(() =>
+    films.length > 10 ? 10 : 999,
+  );
+
+  useEffect(() => {
+    if (renderLimit >= films.length) return;
+    const raf = requestAnimationFrame(() => {
+      setRenderLimit(999);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [films.length, renderLimit]);
+
+  const visibleFilms =
+    renderLimit < films.length ? films.slice(0, renderLimit) : films;
+
   return (
-    <div className="film-grid">
-      {films.map((film, i) => {
+    <div
+      className={`film-grid transition-opacity duration-150 ${
+        isRefreshing ? "opacity-55 pointer-events-none" : "opacity-100"
+      }`}
+    >
+      {visibleFilms.map((film, i) => {
         const fid = film.kinopoiskId ?? film.filmId ?? i;
         return (
           <FilmCard
@@ -526,17 +568,39 @@ const MemoizedFilmGrid = memo(function MemoizedFilmGrid({
   );
 });
 
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
 export default function BrowseClient(props: ExploreSearchParams) {
   const router = useRouter();
   const { toast } = useToast();
   const autoTranslate = useAutoTranslate();
+  const [, startTransition] = useTransition();
 
-  const page = Math.max(1, parseInt(props.page || "1", 10));
+  // Optimistic URL parameters so clicking any filter button updates UI in 0ms
+  // without waiting for Next.js Server Component round-trips.
+  const [optimisticParams, setOptimisticParams] =
+    useState<ExploreSearchParams>(props);
+  const prevPropsRef = useRef(props);
+
+  useEffect(() => {
+    if (prevPropsRef.current !== props) {
+      prevPropsRef.current = props;
+      setOptimisticParams(props);
+    }
+  }, [props]);
+
+  const p = optimisticParams;
+  const page = Math.max(1, parseInt(p.page || "1", 10));
 
   const [noKey, setNoKey] = useState(false);
-  const [ready, setReady] = useState(false);
-  const [prefType, setPrefType] = useState<string>("ALL");
-  const [prefOrder, setPrefOrder] = useState<ExploreSortOrder>("NUM_VOTE");
+  const [ready, setReady] = useState(() => cachedUserPrefs !== null);
+  const [prefType, setPrefType] = useState<string>(
+    () => readInitialUserPrefs().prefType,
+  );
+  const [prefOrder, setPrefOrder] = useState<ExploreSortOrder>(
+    () => readInitialUserPrefs().prefOrder,
+  );
 
   const [genres, setGenres] = useState<Genre[]>(
     () => cachedFilters?.genres ?? [],
@@ -590,86 +654,93 @@ export default function BrowseClient(props: ExploreSearchParams) {
     return () => unlockScroll();
   }, [mobileSheetOpen]);
 
-  // Applied URL parameters
-  const activeLens = props.lens;
-  const type = (props.type ||
-    (activeLens === "FOR_YOU" ? "ALL" : prefType || "ALL")) as
-    | "ALL"
-    | "FILM"
-    | "TV_SERIES"
-    | "TV_SHOW"
-    | "MINI_SERIES";
+  // Synchronously read preferences before first browser paint so it NEVER flashes "All" first
+  useIsomorphicLayoutEffect(() => {
+    if (!hasApiKeys()) {
+      setNoKey(true);
+      setLoading(false);
+      return;
+    }
+    const prefs = getPreferences();
+    const nextPrefType = prefs.defaultExploreType || "ALL";
+    const nextPrefOrder =
+      (prefs.defaultExploreOrder as ExploreSortOrder) || "NUM_VOTE";
+    cachedUserPrefs = { prefType: nextPrefType, prefOrder: nextPrefOrder };
+    setPrefType(nextPrefType);
+    setPrefOrder(nextPrefOrder);
+    setSavedPresets(getSavedExplorePresets());
+    setReady(true);
+  }, []);
+
+  // Applied URL parameters (Fixed: explicit p.type === "ALL" overrides non-ALL prefType)
+  const activeLens = p.lens;
+  const type = (
+    p.type ? p.type : activeLens === "FOR_YOU" ? "ALL" : prefType || "ALL"
+  ) as "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
+
   const excludeTypes = useMemo(
-    () => parseStringList(props.excludeTypes),
-    [props.excludeTypes],
+    () => parseStringList(p.excludeTypes),
+    [p.excludeTypes],
   );
-  const order = (props.order || prefOrder || "NUM_VOTE") as ExploreSortOrder;
-  const direction: SortDirection = props.dir === "ASC" ? "ASC" : "DESC";
-  const genreMatchMode: "AND" | "OR" = props.genreMode === "OR" ? "OR" : "AND";
-  const ratingSource: RatingSource =
-    (props.ratingSource as RatingSource) || "AUTO";
+  const order = (p.order || prefOrder || "NUM_VOTE") as ExploreSortOrder;
+  const direction: SortDirection = p.dir === "ASC" ? "ASC" : "DESC";
+  const genreMatchMode: "AND" | "OR" = p.genreMode === "OR" ? "OR" : "AND";
+  const ratingSource: RatingSource = (p.ratingSource as RatingSource) || "AUTO";
   const ratingFrom =
-    props.ratingFrom !== undefined && props.ratingFrom !== ""
-      ? parseFloat(props.ratingFrom)
+    p.ratingFrom !== undefined && p.ratingFrom !== ""
+      ? parseFloat(p.ratingFrom)
       : undefined;
   const ratingTo =
-    props.ratingTo !== undefined && props.ratingTo !== ""
-      ? parseFloat(props.ratingTo)
+    p.ratingTo !== undefined && p.ratingTo !== ""
+      ? parseFloat(p.ratingTo)
       : undefined;
   const minVotes =
-    props.minVotes !== undefined && props.minVotes !== ""
-      ? parseInt(props.minVotes, 10)
+    p.minVotes !== undefined && p.minVotes !== ""
+      ? parseInt(p.minVotes, 10)
       : undefined;
-  const requireImdb = props.requireImdb === "1";
+  const requireImdb = p.requireImdb === "1";
   const yearFrom =
-    props.yearFrom !== undefined && props.yearFrom !== ""
-      ? parseInt(props.yearFrom, 10)
+    p.yearFrom !== undefined && p.yearFrom !== ""
+      ? parseInt(p.yearFrom, 10)
       : undefined;
   const yearTo =
-    props.yearTo !== undefined && props.yearTo !== ""
-      ? parseInt(props.yearTo, 10)
+    p.yearTo !== undefined && p.yearTo !== ""
+      ? parseInt(p.yearTo, 10)
       : undefined;
-  const runtimeBucket: RuntimeBucket =
-    (props.runtime as RuntimeBucket) || "ANY";
+  const runtimeBucket: RuntimeBucket = (p.runtime as RuntimeBucket) || "ANY";
   const includeAgeTiers = useMemo(
-    () => parseStringList(props.age) as AgeTierFilter[],
-    [props.age],
+    () => parseStringList(p.age) as AgeTierFilter[],
+    [p.age],
   );
   const excludeAgeTiers = useMemo(
-    () => parseStringList(props.excludeAge) as AgeTierFilter[],
-    [props.excludeAge],
+    () => parseStringList(p.excludeAge) as AgeTierFilter[],
+    [p.excludeAge],
   );
   const seriesStatus: SeriesStatusFilter =
-    (props.status as SeriesStatusFilter) || "ALL";
-  const collectionPreset = props.collection as CollectionType | undefined;
-  const hideWatched = props.hideWatched === "1";
-  const hideFavorites = props.hideFavorites === "1";
-  const hideWatchLater = props.hideWatchLater === "1";
+    (p.status as SeriesStatusFilter) || "ALL";
+  const collectionPreset = p.collection as CollectionType | undefined;
+  const hideWatched = p.hideWatched === "1";
+  const hideFavorites = p.hideFavorites === "1";
+  const hideWatchLater = p.hideWatchLater === "1";
 
   // Resolved applied genre and country IDs
   const [resolvedIncludeGenres, setResolvedIncludeGenres] = useState<number[]>(
-    () => resolveGenreTokensFromList(props.genres, cachedFilters?.genres ?? []),
+    () => resolveGenreTokensFromList(p.genres, cachedFilters?.genres ?? []),
   );
   const [resolvedExcludeGenres, setResolvedExcludeGenres] = useState<number[]>(
     () =>
-      resolveGenreTokensFromList(
-        props.excludeGenres,
-        cachedFilters?.genres ?? [],
-      ),
+      resolveGenreTokensFromList(p.excludeGenres, cachedFilters?.genres ?? []),
   );
   const [resolvedIncludeCountries, setResolvedIncludeCountries] = useState<
     number[]
   >(() =>
-    resolveCountryTokensFromList(
-      props.countries,
-      cachedFilters?.countries ?? [],
-    ),
+    resolveCountryTokensFromList(p.countries, cachedFilters?.countries ?? []),
   );
   const [resolvedExcludeCountries, setResolvedExcludeCountries] = useState<
     number[]
   >(() =>
     resolveCountryTokensFromList(
-      props.excludeCountries,
+      p.excludeCountries,
       cachedFilters?.countries ?? [],
     ),
   );
@@ -677,56 +748,43 @@ export default function BrowseClient(props: ExploreSearchParams) {
   // Staged Draft State
   const [draft, setDraft] = useState<DraftFilterState>(() => ({
     includeGenres: resolveGenreTokensFromList(
-      props.genres,
+      p.genres,
       cachedFilters?.genres ?? [],
     ),
     excludeGenres: resolveGenreTokensFromList(
-      props.excludeGenres,
+      p.excludeGenres,
       cachedFilters?.genres ?? [],
     ),
-    genreMatchMode: props.genreMode === "OR" ? "OR" : "AND",
+    genreMatchMode: p.genreMode === "OR" ? "OR" : "AND",
     includeCountries: resolveCountryTokensFromList(
-      props.countries,
+      p.countries,
       cachedFilters?.countries ?? [],
     ),
     excludeCountries: resolveCountryTokensFromList(
-      props.excludeCountries,
+      p.excludeCountries,
       cachedFilters?.countries ?? [],
     ),
-    ratingFrom: props.ratingFrom || "",
-    ratingTo: props.ratingTo || "",
-    ratingSource: (props.ratingSource as RatingSource) || "AUTO",
-    minVotes: props.minVotes || "",
-    requireImdb: props.requireImdb === "1",
-    yearFrom: props.yearFrom || "",
-    yearTo: props.yearTo || "",
-    runtimeBucket: (props.runtime as RuntimeBucket) || "ANY",
-    includeAgeTiers: parseStringList(props.age) as AgeTierFilter[],
-    excludeAgeTiers: parseStringList(props.excludeAge) as AgeTierFilter[],
-    seriesStatus: (props.status as SeriesStatusFilter) || "ALL",
-    keyword: props.keyword || "",
-    collectionPreset: props.collection as CollectionType | undefined,
-    hideWatched: props.hideWatched === "1",
-    hideFavorites: props.hideFavorites === "1",
-    hideWatchLater: props.hideWatchLater === "1",
+    ratingFrom: p.ratingFrom || "",
+    ratingTo: p.ratingTo || "",
+    ratingSource: (p.ratingSource as RatingSource) || "AUTO",
+    minVotes: p.minVotes || "",
+    requireImdb: p.requireImdb === "1",
+    yearFrom: p.yearFrom || "",
+    yearTo: p.yearTo || "",
+    runtimeBucket: (p.runtime as RuntimeBucket) || "ANY",
+    includeAgeTiers: parseStringList(p.age) as AgeTierFilter[],
+    excludeAgeTiers: parseStringList(p.excludeAge) as AgeTierFilter[],
+    seriesStatus: (p.status as SeriesStatusFilter) || "ALL",
+    keyword: p.keyword || "",
+    collectionPreset: p.collection as CollectionType | undefined,
+    hideWatched: p.hideWatched === "1",
+    hideFavorites: p.hideFavorites === "1",
+    hideWatchLater: p.hideWatchLater === "1",
   }));
 
   useDocumentTitle("Explore Films & Series");
 
-  useEffect(() => {
-    if (!hasApiKeys()) {
-      setNoKey(true);
-      setLoading(false);
-      return;
-    }
-    const prefs = getPreferences();
-    setPrefType(prefs.defaultExploreType || "ALL");
-    setPrefOrder((prefs.defaultExploreOrder as ExploreSortOrder) || "NUM_VOTE");
-    setSavedPresets(getSavedExplorePresets());
-    setReady(true);
-  }, []);
-
-  // Load filter metadata once per session (cached in memory afterwards)
+  // Load filter metadata once per session (in parallel, without blocking numeric/default film queries)
   useEffect(() => {
     if (!hasApiKeys()) return;
     if (cachedFilters) {
@@ -752,18 +810,12 @@ export default function BrowseClient(props: ExploreSearchParams) {
     };
   }, []);
 
-  // Synchronously resolve genre/country tokens whenever URL props or filter lists update,
-  // preserving existing array references when IDs haven't changed to prevent duplicate fetches.
+  // Synchronously resolve genre/country tokens whenever URL params or filter lists update
   useEffect(() => {
-    if (!filtersLoaded) return;
-
-    const incG = resolveGenreTokensFromList(props.genres, genres);
-    const excG = resolveGenreTokensFromList(props.excludeGenres, genres);
-    const incC = resolveCountryTokensFromList(props.countries, countries);
-    const excC = resolveCountryTokensFromList(
-      props.excludeCountries,
-      countries,
-    );
+    const incG = resolveGenreTokensFromList(p.genres, genres);
+    const excG = resolveGenreTokensFromList(p.excludeGenres, genres);
+    const incC = resolveCountryTokensFromList(p.countries, countries);
+    const excC = resolveCountryTokensFromList(p.excludeCountries, countries);
 
     setResolvedIncludeGenres((prev) =>
       sameNumArray(prev, incG) ? prev : incG,
@@ -794,55 +846,54 @@ export default function BrowseClient(props: ExploreSearchParams) {
         : excC,
     }));
   }, [
-    filtersLoaded,
     genres,
     countries,
-    props.genres,
-    props.excludeGenres,
-    props.countries,
-    props.excludeCountries,
+    p.genres,
+    p.excludeGenres,
+    p.countries,
+    p.excludeCountries,
   ]);
 
   // Sync URL prop changes back into draft state
   useEffect(() => {
     setDraft((prev) => ({
       ...prev,
-      genreMatchMode: props.genreMode === "OR" ? "OR" : "AND",
-      ratingFrom: props.ratingFrom || "",
-      ratingTo: props.ratingTo || "",
-      ratingSource: (props.ratingSource as RatingSource) || "AUTO",
-      minVotes: props.minVotes || "",
-      requireImdb: props.requireImdb === "1",
-      yearFrom: props.yearFrom || "",
-      yearTo: props.yearTo || "",
-      runtimeBucket: (props.runtime as RuntimeBucket) || "ANY",
-      includeAgeTiers: parseStringList(props.age) as AgeTierFilter[],
-      excludeAgeTiers: parseStringList(props.excludeAge) as AgeTierFilter[],
-      seriesStatus: (props.status as SeriesStatusFilter) || "ALL",
-      keyword: props.keyword || "",
-      collectionPreset: props.collection as CollectionType | undefined,
-      hideWatched: props.hideWatched === "1",
-      hideFavorites: props.hideFavorites === "1",
-      hideWatchLater: props.hideWatchLater === "1",
+      genreMatchMode: p.genreMode === "OR" ? "OR" : "AND",
+      ratingFrom: p.ratingFrom || "",
+      ratingTo: p.ratingTo || "",
+      ratingSource: (p.ratingSource as RatingSource) || "AUTO",
+      minVotes: p.minVotes || "",
+      requireImdb: p.requireImdb === "1",
+      yearFrom: p.yearFrom || "",
+      yearTo: p.yearTo || "",
+      runtimeBucket: (p.runtime as RuntimeBucket) || "ANY",
+      includeAgeTiers: parseStringList(p.age) as AgeTierFilter[],
+      excludeAgeTiers: parseStringList(p.excludeAge) as AgeTierFilter[],
+      seriesStatus: (p.status as SeriesStatusFilter) || "ALL",
+      keyword: p.keyword || "",
+      collectionPreset: p.collection as CollectionType | undefined,
+      hideWatched: p.hideWatched === "1",
+      hideFavorites: p.hideFavorites === "1",
+      hideWatchLater: p.hideWatchLater === "1",
     }));
   }, [
-    props.genreMode,
-    props.ratingFrom,
-    props.ratingTo,
-    props.ratingSource,
-    props.minVotes,
-    props.requireImdb,
-    props.yearFrom,
-    props.yearTo,
-    props.runtime,
-    props.age,
-    props.excludeAge,
-    props.status,
-    props.keyword,
-    props.collection,
-    props.hideWatched,
-    props.hideFavorites,
-    props.hideWatchLater,
+    p.genreMode,
+    p.ratingFrom,
+    p.ratingTo,
+    p.ratingSource,
+    p.minVotes,
+    p.requireImdb,
+    p.yearFrom,
+    p.yearTo,
+    p.runtime,
+    p.age,
+    p.excludeAge,
+    p.status,
+    p.keyword,
+    p.collection,
+    p.hideWatched,
+    p.hideFavorites,
+    p.hideWatchLater,
   ]);
 
   // Count how many staged draft filter changes are waiting to be applied
@@ -853,18 +904,18 @@ export default function BrowseClient(props: ExploreSearchParams) {
     if (draft.genreMatchMode !== genreMatchMode) diff++;
     if (!sameNumArray(draft.includeCountries, resolvedIncludeCountries)) diff++;
     if (!sameNumArray(draft.excludeCountries, resolvedExcludeCountries)) diff++;
-    if (draft.ratingFrom.trim() !== (props.ratingFrom || "")) diff++;
-    if (draft.ratingTo.trim() !== (props.ratingTo || "")) diff++;
+    if (draft.ratingFrom.trim() !== (p.ratingFrom || "")) diff++;
+    if (draft.ratingTo.trim() !== (p.ratingTo || "")) diff++;
     if (draft.ratingSource !== ratingSource) diff++;
-    if (draft.minVotes.trim() !== (props.minVotes || "")) diff++;
+    if (draft.minVotes.trim() !== (p.minVotes || "")) diff++;
     if (draft.requireImdb !== requireImdb) diff++;
-    if (draft.yearFrom.trim() !== (props.yearFrom || "")) diff++;
-    if (draft.yearTo.trim() !== (props.yearTo || "")) diff++;
+    if (draft.yearFrom.trim() !== (p.yearFrom || "")) diff++;
+    if (draft.yearTo.trim() !== (p.yearTo || "")) diff++;
     if (draft.runtimeBucket !== runtimeBucket) diff++;
     if (!sameStrArray(draft.includeAgeTiers, includeAgeTiers)) diff++;
     if (!sameStrArray(draft.excludeAgeTiers, excludeAgeTiers)) diff++;
     if (draft.seriesStatus !== seriesStatus) diff++;
-    if (draft.keyword.trim() !== (props.keyword || "").trim()) diff++;
+    if (draft.keyword.trim() !== (p.keyword || "").trim()) diff++;
     if (draft.collectionPreset !== collectionPreset) diff++;
     if (draft.hideWatched !== hideWatched) diff++;
     if (draft.hideFavorites !== hideFavorites) diff++;
@@ -877,18 +928,18 @@ export default function BrowseClient(props: ExploreSearchParams) {
     genreMatchMode,
     resolvedIncludeCountries,
     resolvedExcludeCountries,
-    props.ratingFrom,
-    props.ratingTo,
+    p.ratingFrom,
+    p.ratingTo,
     ratingSource,
-    props.minVotes,
+    p.minVotes,
     requireImdb,
-    props.yearFrom,
-    props.yearTo,
+    p.yearFrom,
+    p.yearTo,
     runtimeBucket,
     includeAgeTiers,
     excludeAgeTiers,
     seriesStatus,
-    props.keyword,
+    p.keyword,
     collectionPreset,
     hideWatched,
     hideFavorites,
@@ -900,10 +951,16 @@ export default function BrowseClient(props: ExploreSearchParams) {
     string | undefined
   > => {
     return {
-      type: type !== "ALL" ? type : undefined,
+      // Preserve explicit "ALL" in URL when user's default preference is not "ALL"
+      type: type === "ALL" ? (prefType !== "ALL" ? "ALL" : undefined) : type,
       excludeTypes:
         excludeTypes.length > 0 ? excludeTypes.join(",") : undefined,
-      order: order !== "NUM_VOTE" ? order : undefined,
+      order:
+        order === "NUM_VOTE"
+          ? prefOrder !== "NUM_VOTE"
+            ? "NUM_VOTE"
+            : undefined
+          : order,
       dir: direction !== "DESC" ? direction : undefined,
       genres:
         resolvedIncludeGenres.length > 0
@@ -934,7 +991,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
       excludeAge:
         excludeAgeTiers.length > 0 ? excludeAgeTiers.join(",") : undefined,
       status: seriesStatus !== "ALL" ? seriesStatus : undefined,
-      keyword: props.keyword?.trim() ? props.keyword.trim() : undefined,
+      keyword: p.keyword?.trim() ? p.keyword.trim() : undefined,
       collection: collectionPreset,
       lens: activeLens,
       hideWatched: hideWatched ? "1" : undefined,
@@ -943,8 +1000,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
     };
   }, [
     type,
+    prefType,
     excludeTypes,
     order,
+    prefOrder,
     direction,
     resolvedIncludeGenres,
     resolvedExcludeGenres,
@@ -962,7 +1021,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
     includeAgeTiers,
     excludeAgeTiers,
     seriesStatus,
-    props.keyword,
+    p.keyword,
     collectionPreset,
     activeLens,
     hideWatched,
@@ -987,13 +1046,32 @@ export default function BrowseClient(props: ExploreSearchParams) {
     [currentParamsRecord],
   );
 
+  // Optimistic client update + non-blocking URL transition
   const pushFilters = useCallback(
     (overrides: Record<string, string | undefined>, replaceAll = false) => {
-      router.push(
-        buildFilterHref({ page: undefined, ...overrides }, replaceAll),
-      );
+      const base = replaceAll ? {} : currentParamsRecord();
+      const merged: Record<string, string | undefined> = {
+        ...base,
+        page: undefined,
+        ...overrides,
+      };
+      const cleanNext: Record<string, string> = {};
+      const params = new URLSearchParams();
+      Object.entries(merged).forEach(([k, v]) => {
+        if (v !== undefined && v !== "") {
+          params.set(k, v);
+          cleanNext[k] = v;
+        }
+      });
+
+      setOptimisticParams(cleanNext as ExploreSearchParams);
+      const qs = params.toString();
+      const href = qs ? `/explore?${qs}` : "/explore";
+      startTransition(() => {
+        router.push(href);
+      });
     },
-    [router, buildFilterHref],
+    [router, currentParamsRecord],
   );
 
   // Commit staged draft state when user clicks "Apply Filters"
@@ -1070,11 +1148,14 @@ export default function BrowseClient(props: ExploreSearchParams) {
       hideWatchLater: false,
     });
     setMobileSheetOpen(false);
-    router.push("/explore");
+    setOptimisticParams({});
+    startTransition(() => {
+      router.push("/explore");
+    });
   }, [router]);
 
   const buildPageHref = useCallback(
-    (p: number) => buildFilterHref({ page: String(p) }),
+    (pg: number) => buildFilterHref({ page: String(pg) }),
     [buildFilterHref],
   );
 
@@ -1082,7 +1163,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const isSavedPresetSelected = useCallback(
     (preset: SavedExplorePreset): boolean => {
       if (activeLens === preset.id) return true;
-      // If another lens is explicitly active, this saved preset is not selected
       if (
         activeLens &&
         SMART_LENSES.some((l) => l.id === activeLens) &&
@@ -1116,6 +1196,15 @@ export default function BrowseClient(props: ExploreSearchParams) {
     [activeLens, currentParamsRecord],
   );
 
+  // Only wait for getFilters() if URL contains text genre/country names or exclusions that require full list
+  const requiresFiltersMetadata =
+    hasNonNumericTokens(p.genres) ||
+    hasNonNumericTokens(p.excludeGenres) ||
+    hasNonNumericTokens(p.countries) ||
+    hasNonNumericTokens(p.excludeCountries) ||
+    Boolean(p.excludeGenres) ||
+    Boolean(p.excludeCountries);
+
   // Deterministic query key for caching active Explore results
   const activeQueryKey = useMemo(() => {
     return JSON.stringify({
@@ -1139,7 +1228,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
       includeAgeTiers,
       excludeAgeTiers,
       seriesStatus,
-      keyword: props.keyword?.trim() || "",
+      keyword: p.keyword?.trim() || "",
       collectionPreset,
       activeLens,
       hideWatched,
@@ -1169,7 +1258,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
     includeAgeTiers,
     excludeAgeTiers,
     seriesStatus,
-    props.keyword,
+    p.keyword,
     collectionPreset,
     activeLens,
     hideWatched,
@@ -1179,11 +1268,12 @@ export default function BrowseClient(props: ExploreSearchParams) {
     randomSeed,
   ]);
 
-  // Fetch films via Partitioned Multi-Constraint Discovery Engine (with 5-min snapshot cache)
+  // Fetch films via Partitioned Multi-Constraint Discovery Engine
   useEffect(() => {
-    if (!ready || noKey || !filtersLoaded) return;
+    if (!ready || noKey) return;
+    if (requiresFiltersMetadata && !filtersLoaded) return;
 
-    // Instant restore if returning to the exact same Explore state within 5 minutes
+    // Instant 0ms restore if returning to the same query within 5 minutes
     if (
       browseCache &&
       browseCache.queryKey === activeQueryKey &&
@@ -1221,7 +1311,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
       includeAgeTiers,
       excludeAgeTiers,
       seriesStatus,
-      keyword: props.keyword?.trim() || undefined,
+      keyword: p.keyword?.trim() || undefined,
       collectionPreset,
       lens: activeLens,
       hideWatched,
@@ -1229,8 +1319,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
       hideWatchLater,
       page,
       randomSeed,
-      allGenresList: genres,
-      allCountriesList: countries,
+      allGenresList: cachedFilters?.genres ?? genres,
+      allCountriesList: cachedFilters?.countries ?? countries,
     })
       .then((res) => {
         if (cancelled) return;
@@ -1261,6 +1351,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
   }, [
     ready,
     noKey,
+    requiresFiltersMetadata,
     filtersLoaded,
     activeQueryKey,
     type,
@@ -1283,7 +1374,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
     includeAgeTiers,
     excludeAgeTiers,
     seriesStatus,
-    props.keyword,
+    p.keyword,
     collectionPreset,
     activeLens,
     hideWatched,
@@ -1291,8 +1382,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     hideWatchLater,
     page,
     randomSeed,
-    genres,
-    countries,
   ]);
 
   // Continuous "Load Next Batch (+20)" stream without losing scroll position
@@ -1322,7 +1411,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
         includeAgeTiers,
         excludeAgeTiers,
         seriesStatus,
-        keyword: props.keyword?.trim() || undefined,
+        keyword: p.keyword?.trim() || undefined,
         collectionPreset,
         lens: activeLens,
         hideWatched,
@@ -1330,8 +1419,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
         hideWatchLater,
         page: nextP,
         randomSeed,
-        allGenresList: genres,
-        allCountriesList: countries,
+        allGenresList: cachedFilters?.genres ?? genres,
+        allCountriesList: cachedFilters?.countries ?? countries,
       });
       const existingIds = new Set(films.map((f) => f.kinopoiskId ?? f.filmId));
       const fresh = (res.items ?? []).filter(
@@ -1356,25 +1445,31 @@ export default function BrowseClient(props: ExploreSearchParams) {
     }
   };
 
+  // Pre-translate and sort countries once when loaded so searching/opening tab is O(N) instead of O(N log N)
+  const preparedCountries = useMemo(() => {
+    return countries
+      .filter((c) => c.country !== "")
+      .map((c) => {
+        const en = translateCountry(c.country, true);
+        return {
+          ...c,
+          enLower: en.toLowerCase(),
+          rawLower: c.country.toLowerCase(),
+          displayLabel: translateCountry(c.country, autoTranslate) || c.country,
+        };
+      })
+      .sort((a, b) => a.enLower.localeCompare(b.enLower));
+  }, [countries, autoTranslate]);
+
   const filteredCountries = useMemo(() => {
     const q = countrySearch.trim().toLowerCase();
-    const list = countries.filter((c) => {
-      if (!q) return true;
-      const en = translateCountry(c.country, true).toLowerCase();
-      return c.country.toLowerCase().includes(q) || en.includes(q);
-    });
-    return list
-      .sort((a, b) => {
-        const aName = translateCountry(a.country, true).toLowerCase();
-        const bName = translateCountry(b.country, true).toLowerCase();
-        return aName.localeCompare(bName);
-      })
-      .filter((c) => {
-        return c.country !== "";
-      });
-  }, [countries, countrySearch]);
+    if (!q) return preparedCountries;
+    return preparedCountries.filter(
+      (c) => c.rawLower.includes(q) || c.enLower.includes(q),
+    );
+  }, [preparedCountries, countrySearch]);
 
-  // Draft Include / Exclude handlers (stabilized with useCallback)
+  // Draft Include / Exclude handlers
   const toggleDraftGenreInclude = useCallback((genreId: number) => {
     setDraft((prev) => {
       const isInc = prev.includeGenres.includes(genreId);
@@ -1713,9 +1808,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
     });
   }
 
-  if (props.keyword?.trim()) {
+  if (p.keyword?.trim()) {
     activeFilterTags.push({
-      label: `“${props.keyword.trim()}”`,
+      label: `“${p.keyword.trim()}”`,
       onClear: () => pushFilters({ keyword: undefined }),
     });
   }
@@ -1907,12 +2002,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
               const isInc = draft.includeCountries.includes(c.id);
               const isExc = draft.excludeCountries.includes(c.id);
               const status = isInc ? "INCLUDED" : isExc ? "EXCLUDED" : "NONE";
-              const label =
-                translateCountry(c.country, autoTranslate) || c.country;
               return (
                 <FilterTagPill
                   key={c.id}
-                  label={label}
+                  label={c.displayLabel}
                   status={status}
                   tapMode={tapMode}
                   onToggleInclude={() => toggleDraftCountryInclude(c.id)}
@@ -2477,7 +2570,12 @@ export default function BrowseClient(props: ExploreSearchParams) {
                 type="button"
                 onClick={() =>
                   pushFilters({
-                    type: t.value === "ALL" ? undefined : t.value,
+                    type:
+                      t.value === "ALL"
+                        ? prefType !== "ALL"
+                          ? "ALL"
+                          : undefined
+                        : t.value,
                   })
                 }
                 className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
@@ -2552,7 +2650,14 @@ export default function BrowseClient(props: ExploreSearchParams) {
                 if (nextOrd === "RANDOM") {
                   setRandomSeed((s) => s + 1);
                 }
-                pushFilters({ order: nextOrd });
+                pushFilters({
+                  order:
+                    nextOrd === "NUM_VOTE"
+                      ? prefOrder !== "NUM_VOTE"
+                        ? "NUM_VOTE"
+                        : undefined
+                      : nextOrd,
+                });
               }}
               aria-label="Sort films by"
             >
@@ -2630,7 +2735,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                   type="button"
                   onClick={() => {
                     setDraft((d) => ({ ...d, keyword: "" }));
-                    if (props.keyword) pushFilters({ keyword: undefined });
+                    if (p.keyword) pushFilters({ keyword: undefined });
                   }}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-white bg-transparent border-none cursor-pointer"
                 >
@@ -2860,8 +2965,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
         </div>
       )}
 
-      {/* ── LAYER 3: Memoized Poster Grid without card rank numbers (Requirement 3) ── */}
-      {loading ? (
+      {/* ── LAYER 3: Poster Grid (Keeps existing cards mounted during filter switches to prevent DOM thrashing) ── */}
+      {loading && films.length === 0 ? (
         <div className="film-grid">
           {Array.from({ length: 20 }).map((_, i) => (
             <div
@@ -2870,7 +2975,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
             />
           ))}
         </div>
-      ) : films.length === 0 ? (
+      ) : !loading && films.length === 0 ? (
         <EmptyState
           icon={<Search size={36} />}
           title="No Matching Titles Found"
@@ -2879,7 +2984,11 @@ export default function BrowseClient(props: ExploreSearchParams) {
           onAction={handleResetAllFilters}
         />
       ) : (
-        <MemoizedFilmGrid films={films} onQuickPeek={handleQuickPeek} />
+        <MemoizedFilmGrid
+          films={films}
+          isRefreshing={loading}
+          onQuickPeek={handleQuickPeek}
+        />
       )}
 
       {/* ── LAYER 4: Continuous Stream Button + Deep Pagination ── */}
