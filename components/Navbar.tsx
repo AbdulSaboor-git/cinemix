@@ -303,8 +303,8 @@ export default function Navbar() {
       <nav
         className={`fixed top-0 left-0 right-0 z-[199] flex items-center gap-3 px-3.5 md:px-[var(--page-x)] h-[var(--nav-height)] select-none backdrop-blur-[24px] [-webkit-backdrop-filter:blur(24px)] transition-[background-color,border-color,box-shadow] duration-300 border-b ${
           scrolled
-            ? "bg-[#08080a]/60 border-white/[0.1] shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
-            : "bg-[#08080a]/30 border-transparent"
+            ? "bg-[#08080a]/20 border-white/[0.1] shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+            : "bg-[#08080a]/10 border-transparent"
         }`}
       >
         <Logo />
@@ -479,7 +479,7 @@ export default function Navbar() {
       {/* ── Mobile Bottom Navigation Bar (Concentric Pill, Custom Filled/Stroked Icons) ── */}
       <nav
         aria-label="Mobile bottom navigation"
-        className="md:hidden fixed z-[200] flex items-center justify-between gap-1 p-1.5 bg-[#0a0a0e]/80 backdrop-blur-[28px] [-webkit-backdrop-filter:blur(28px)] border border-white/[0.12] shadow-[0_12px_36px_rgba(0,0,0,0.65)] select-none [-webkit-touch-callout:none] rounded-full w-[90%] max-w-[360px] left-1/2 -translate-x-1/2"
+        className="md:hidden fixed z-[200] flex items-center justify-between gap-1 p-1.5 bg-[#08080a]/20 backdrop-blur-[24px] [-webkit-backdrop-filter:blur(24px)] border border-white/[0.12] shadow-[0_12px_36px_rgba(0,0,0,0.65)] select-none [-webkit-touch-callout:none] rounded-full w-[90%] max-w-[360px] left-1/2 -translate-x-1/2"
         style={{ bottom: "max(16px, env(safe-area-inset-bottom))" }}
       >
         {BOTTOM_NAV_LINKS.map(({ href, label, Icon }) => {
