@@ -3,16 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import {
-  Home,
-  Compass,
-  BarChart2,
-  Clapperboard,
-  User,
-  Search,
-  Settings,
-  X,
-} from "lucide-react";
+import { Search, Settings, User, X } from "lucide-react";
 import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import SearchSuggestionDropdown from "@/components/SearchSuggestionDropdown";
 import Logo from "./logo";
@@ -24,12 +15,172 @@ const NAV_LINKS = [
   { href: "/premieres", label: "Premieres" },
 ];
 
+type NavIconProps = { active: boolean; className?: string };
+
+/* ── Custom Bottom Nav Icons (Outline when inactive, Duotone/Filled when active) ── */
+function HomeNavIcon({ active, className }: NavIconProps) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+    >
+      <path
+        d="M3 10.5L12 3L21 10.5V19.5C21 20.3284 20.3284 21 19.5 21H4.5C3.67157 21 3 20.3284 3 19.5V10.5Z"
+        fill={active ? "currentColor" : "none"}
+        fillOpacity={active ? 0.22 : 0}
+        stroke="currentColor"
+        strokeWidth={active ? 2.1 : 1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.5 21V14.5C9.5 13.9477 9.94772 13.5 10.5 13.5H13.5C14.0523 13.5 14.5 13.9477 14.5 14.5V21"
+        stroke="currentColor"
+        strokeWidth={active ? 2.1 : 1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ExploreNavIcon({ active, className }: NavIconProps) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        fill={active ? "currentColor" : "none"}
+        fillOpacity={active ? 0.2 : 0}
+        stroke="currentColor"
+        strokeWidth={active ? 2.1 : 1.8}
+      />
+      <polygon
+        points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"
+        fill={active ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth={active ? 2.1 : 1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function Top250NavIcon({ active, className }: NavIconProps) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+    >
+      {/* Trophy Cup */}
+      <path
+        d="M6 4H18V9C18 12.3137 15.3137 15 12 15C8.68629 15 6 12.3137 6 9V4Z"
+        fill={active ? "currentColor" : "none"}
+        fillOpacity={active ? 0.22 : 0}
+        stroke="currentColor"
+        strokeWidth={active ? 2.1 : 1.8}
+        strokeLinejoin="round"
+      />
+      {/* Handles */}
+      <path
+        d="M6 6H4C3.44772 6 3 6.44772 3 7V8C3 9.65685 4.34315 11 6 11M18 6H20C20.5523 6 21 6.44772 21 7V8C21 9.65685 19.6569 11 18 11"
+        stroke="currentColor"
+        strokeWidth={active ? 2.1 : 1.8}
+        strokeLinecap="round"
+      />
+      {/* Stem & Base */}
+      <path
+        d="M12 15V20M8 20H16"
+        stroke="currentColor"
+        strokeWidth={active ? 2.1 : 1.8}
+        strokeLinecap="round"
+      />
+      {/* Center Star Accent */}
+      <circle cx="12" cy="9.2" r={active ? "1.6" : "1.2"} fill="currentColor" />
+    </svg>
+  );
+}
+
+function PremieresNavIcon({ active, className }: NavIconProps) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+    >
+      {/* Perforated Cinema Ticket */}
+      <path
+        d="M3 8.5C3 7.39543 3.89543 6.5 5 6.5H19C20.1046 6.5 21 7.39543 21 8.5V10C19.8954 10 19 10.8954 19 12C19 13.1046 19.8954 14 21 14V15.5C21 16.6046 20.1046 17.5 19 17.5H5C3.89543 17.5 3 16.6046 3 15.5V14C4.10457 14 5 13.1046 5 12C5 10.8954 4.10457 10 3 10V8.5Z"
+        fill={active ? "currentColor" : "none"}
+        fillOpacity={active ? 0.22 : 0}
+        stroke="currentColor"
+        strokeWidth={active ? 2.1 : 1.8}
+        strokeLinejoin="round"
+      />
+      {/* Premiere Star in Center */}
+      <path
+        d="M12 9.2L12.8 11.1L14.8 11.3L13.3 12.6L13.7 14.6L12 13.5L10.3 14.6L10.7 12.6L9.2 11.3L11.2 11.1L12 9.2Z"
+        fill="currentColor"
+        stroke="currentColor"
+        strokeWidth="0.6"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ProfileNavIcon({ active, className }: NavIconProps) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+    >
+      <circle
+        cx="12"
+        cy="8"
+        r="4"
+        fill={active ? "currentColor" : "none"}
+        fillOpacity={active ? 0.22 : 0}
+        stroke="currentColor"
+        strokeWidth={active ? 2.1 : 1.8}
+      />
+      <path
+        d="M5 19.5C5 16.4624 8.13401 14 12 14C15.866 14 19 16.4624 19 19.5C19 20.0523 18.5523 20.5 18 20.5H6C5.44772 20.5 5 20.0523 5 19.5Z"
+        fill={active ? "currentColor" : "none"}
+        fillOpacity={active ? 0.22 : 0}
+        stroke="currentColor"
+        strokeWidth={active ? 2.1 : 1.8}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 const BOTTOM_NAV_LINKS = [
-  { href: "/", label: "Home", Icon: Home },
-  { href: "/explore", label: "Explore", Icon: Compass },
-  { href: "/top250", label: "Top 250", Icon: BarChart2 },
-  { href: "/premieres", label: "Premieres", Icon: Clapperboard },
-  { href: "/profile", label: "Profile", Icon: User },
+  { href: "/", label: "Home", Icon: HomeNavIcon },
+  { href: "/explore", label: "Explore", Icon: ExploreNavIcon },
+  { href: "/top250", label: "Top 250", Icon: Top250NavIcon },
+  { href: "/premieres", label: "Premieres", Icon: PremieresNavIcon },
+  { href: "/profile", label: "Profile", Icon: ProfileNavIcon },
 ];
 
 export default function Navbar() {
@@ -148,7 +299,7 @@ export default function Navbar() {
 
   return (
     <>
-      {/* ── Top App Bar (Modern glassy transparent effect, full width) ── */}
+      {/* ── Top App Bar ── */}
       <nav
         className={`fixed top-0 left-0 right-0 z-[199] flex items-center gap-3 px-3.5 md:px-[var(--page-x)] h-[var(--nav-height)] select-none backdrop-blur-[24px] [-webkit-backdrop-filter:blur(24px)] transition-[background-color,border-color,box-shadow] duration-300 border-b ${
           scrolled
@@ -228,9 +379,8 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* Right Action Icons (Consistent Order: Search -> Preferences -> Profile) */}
+        {/* Right Action Icons */}
         <div className="flex items-center gap-1">
-          {/* Mobile & Tablet Search Toggle (< lg) */}
           <div className="lg:hidden">
             <NavIconBtn
               onClick={() => setSearchOpen((v) => !v)}
@@ -242,7 +392,6 @@ export default function Navbar() {
             </NavIconBtn>
           </div>
 
-          {/* Preferences Button (All breakpoints) */}
           <Link
             href="/preferences"
             className="no-underline"
@@ -256,7 +405,6 @@ export default function Navbar() {
             </NavIconBtn>
           </Link>
 
-          {/* Desktop Profile Button (md+; on mobile Profile is in the bottom bar) */}
           <Link
             href="/profile"
             className="hidden md:inline-flex no-underline"
@@ -328,10 +476,11 @@ export default function Navbar() {
         </div>
       )}
 
-      {/* ── Mobile Bottom Navigation Bar (Floating, Centered, Oval, Glassy) ── */}
-      <div
-        className="md:hidden fixed z-[200] flex items-center justify-around px-2 py-2 bg-[#08080a]/60 backdrop-blur-[24px] [-webkit-backdrop-filter:blur(24px)] border border-white/[0.1] shadow-[0_8px_32px_rgba(0,0,0,0.4)] select-none [-webkit-touch-callout:none] rounded-full w-[92%] max-w-[400px] left-1/2 -translate-x-1/2"
-        style={{ bottom: "max(24px, env(safe-area-inset-bottom))" }}
+      {/* ── Mobile Bottom Navigation Bar (Concentric Pill, Custom Filled/Stroked Icons) ── */}
+      <nav
+        aria-label="Mobile bottom navigation"
+        className="md:hidden fixed z-[200] flex items-center justify-between gap-1 p-1.5 bg-[#0a0a0e]/80 backdrop-blur-[28px] [-webkit-backdrop-filter:blur(28px)] border border-white/[0.12] shadow-[0_12px_36px_rgba(0,0,0,0.65)] select-none [-webkit-touch-callout:none] rounded-full w-[90%] max-w-[360px] left-1/2 -translate-x-1/2"
+        style={{ bottom: "max(16px, env(safe-area-inset-bottom))" }}
       >
         {BOTTOM_NAV_LINKS.map(({ href, label, Icon }) => {
           const active = isActive(href);
@@ -340,36 +489,25 @@ export default function Navbar() {
               key={href}
               href={href}
               aria-label={label}
-              className="no-underline flex-1 flex flex-col items-center justify-center active:scale-95 transition-transform duration-150"
+              title={label}
+              className={`no-underline flex-1 h-11 rounded-full flex items-center justify-center transition-all duration-200 active:scale-95 ${
+                active
+                  ? "bg-[rgba(229,9,20,0.18)] border border-[rgba(229,9,20,0.32)] text-[var(--accent)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_16px_rgba(229,9,20,0.15)]"
+                  : "border border-transparent text-white/55 hover:text-white/85"
+              }`}
             >
-              <div
-                className={`flex items-center justify-center w-12 h-8 rounded-full transition-all duration-200 ${
+              <Icon
+                active={active}
+                className={`transition-transform duration-200 ${
                   active
-                    ? "bg-[rgba(229,9,20,0.18)] text-[var(--accent)]"
-                    : "text-[var(--text-muted)]"
+                    ? "scale-105 drop-shadow-[0_0_8px_rgba(229,9,20,0.45)]"
+                    : ""
                 }`}
-              >
-                <Icon
-                  size={18}
-                  strokeWidth={active ? 2.3 : 1.85}
-                  className={
-                    active ? "drop-shadow-[0_0_8px_rgba(229,9,20,0.45)]" : ""
-                  }
-                />
-              </div>
-              {/* <span
-                className={`text-[10px] mt-1 leading-tight tracking-[0.2px] transition-colors ${
-                  active
-                    ? "font-semibold text-white"
-                    : "font-medium text-[var(--text-muted)]"
-                }`}
-              >
-                {label}
-              </span> */}
+              />
             </Link>
           );
         })}
-      </div>
+      </nav>
     </>
   );
 }
