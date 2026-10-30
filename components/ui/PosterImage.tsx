@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   FilmPosterFallback,
   sanitizePosterUrl,
@@ -22,6 +22,7 @@ export interface PosterImageProps {
   size?: "sm" | "md" | "lg";
   fallbackType?: "film" | "person" | "mini";
   priority?: boolean;
+  disableEnglishLookup?: boolean;
   className?: string;
   imgClassName?: string;
 }
@@ -97,7 +98,6 @@ function getCachedEnglishPoster(
     return entry;
   }
 
-  // If previously missed without imdbId, but now imdbId is available, re-resolve!
   if (hasImdbId && !entry.hasImdbId) {
     delete store[key];
     return undefined;
@@ -159,7 +159,6 @@ function flushPosterBatch(): void {
   const entries = Array.from(pendingBatchMap.values());
   pendingBatchMap.clear();
 
-  // Chunk into batches of 24
   for (let i = 0; i < entries.length; i += 24) {
     const chunk = entries.slice(i, i + 24);
     const payload = chunk.map((c) => c.item);
@@ -237,11 +236,6 @@ function extractKpFilmId(url?: string | null): number | null {
   return !isNaN(parsed) && parsed > 0 ? parsed : null;
 }
 
-/**
- * Formats Amazon (`m.media-amazon.com`) or Kinopoisk poster URLs to the ideal
- * dimensions for `sm` / `md` / `lg` containers so cards load rapidly while
- * detail & quick-peek modals render at crisp high resolution.
- */
 function optimizePosterUrl(
   rawUrl?: string | null,
   size?: "sm" | "md" | "lg",
@@ -254,7 +248,6 @@ function optimizePosterUrl(
   const isLarge =
     size === "lg" || (priority && !size && fallbackType === "film");
 
-  // Optimize Amazon / IMDb CDN poster dimensions dynamically
   if (cleanUrl.includes("m.media-amazon.com/images/")) {
     const targetParam = isLarge
       ? "_V1_QL85_UX780_"
@@ -271,14 +264,12 @@ function optimizePosterUrl(
     return cleanUrl;
   }
 
-  // Optimize Cinemeta / Metahub fallback URLs
   if (cleanUrl.includes("images.metahub.space/poster/")) {
     return isLarge
       ? cleanUrl.replace("/poster/medium/", "/poster/large/")
       : cleanUrl.replace("/poster/large/", "/poster/medium/");
   }
 
-  // Optimize Kinopoisk URLs
   if (isLarge) {
     return cleanUrl.replace("/images/posters/kp_small/", "/images/posters/kp/");
   }
@@ -302,6 +293,7 @@ export default function PosterImage({
   size,
   fallbackType = "film",
   priority = false,
+  disableEnglishLookup = false,
   className = "w-full h-full relative overflow-hidden bg-[var(--surface)]",
   imgClassName = "w-full h-full object-cover block",
 }: PosterImageProps) {
@@ -317,12 +309,18 @@ export default function PosterImage({
 
   const [metaTick, setMetaTick] = useState(0);
 
-  // Listen for background film metadata hydration so newly discovered imdbId/year updates the poster
+  // Only re-evaluate when THIS specific film's metadata updates
   useEffect(() => {
     if (isPerson || !kpFilmId) return;
     const onMetaUpdated = (e: Event) => {
-      const detail = (e as CustomEvent<{ filmId?: number }>).detail;
-      if (!detail?.filmId || detail.filmId === kpFilmId) {
+      const detail = (
+        e as CustomEvent<{ filmId?: number; filmIds?: number[] }>
+      ).detail;
+      if (
+        detail?.filmId === kpFilmId ||
+        (Array.isArray(detail?.filmIds) && detail.filmIds.includes(kpFilmId)) ||
+        (!detail?.filmId && !detail?.filmIds)
+      ) {
         setMetaTick((t) => t + 1);
       }
     };
@@ -363,7 +361,7 @@ export default function PosterImage({
   }, [cachedMeta?.nameEn, cachedMeta?.nameOriginal, displayTitle]);
 
   const shouldUseEnglishPoster = useMemo(() => {
-    if (isPerson || !autoTranslate) return false;
+    if (isPerson || !autoTranslate || disableEnglishLookup) return false;
     if (
       src &&
       (src.includes("m.media-amazon.com") ||
@@ -378,6 +376,7 @@ export default function PosterImage({
   }, [
     isPerson,
     autoTranslate,
+    disableEnglishLookup,
     src,
     cachedMeta,
     resolvedImdbId,
@@ -421,18 +420,12 @@ export default function PosterImage({
       )
     : null;
 
-  const needsAsyncLookup =
-    shouldUseEnglishPoster &&
-    Boolean(lookupKey) &&
-    synchronousCachedEntry === undefined;
-
   const [resolvedEnRawUrl, setResolvedEnRawUrl] = useState<string | null>(
     synchronousCachedEntry?.url ?? null,
   );
-  const [resolvingEn, setResolvingEn] = useState<boolean>(needsAsyncLookup);
+  // Show `initialEnglishUrl` (if cached) or `optimizedKpSrc` immediately so cards paint in 0ms without blocking!
   const [activeSrc, setActiveSrc] = useState<string | null>(() => {
     if (initialEnglishUrl) return initialEnglishUrl;
-    if (needsAsyncLookup) return null;
     return optimizedKpSrc;
   });
   const [error, setError] = useState(false);
@@ -441,7 +434,6 @@ export default function PosterImage({
   // Sync state when props, size, or synchronous cache changes
   useEffect(() => {
     if (!shouldUseEnglishPoster) {
-      setResolvingEn(false);
       setResolvedEnRawUrl(null);
       setActiveSrc(optimizedKpSrc);
       setError(false);
@@ -453,18 +445,13 @@ export default function PosterImage({
       : undefined;
 
     if (cached !== undefined) {
-      setResolvingEn(false);
       setResolvedEnRawUrl(cached.url);
       const nextUrl = cached.url
         ? optimizePosterUrl(cached.url, size, fallbackType, priority)
         : optimizedKpSrc;
       setActiveSrc(nextUrl);
       setError(false);
-    } else if (lookupKey) {
-      setResolvingEn(true);
-      setError(false);
     } else {
-      setResolvingEn(false);
       setActiveSrc(optimizedKpSrc);
       setError(false);
     }
@@ -478,24 +465,15 @@ export default function PosterImage({
     priority,
   ]);
 
-  // Trigger asynchronous English poster resolution (immediately if priority, or when near viewport)
+  // Trigger asynchronous English poster upgrade when near viewport
   useEffect(() => {
     if (!shouldUseEnglishPoster || !lookupKey) return;
     const cached = getCachedEnglishPoster(lookupKey, Boolean(resolvedImdbId));
     if (cached !== undefined) return;
 
     let cancelled = false;
-    let fallbackTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const startResolution = () => {
-      // Safety timer: if network is slow (>950ms), show Kinopoisk poster while continuing resolution
-      fallbackTimeout = setTimeout(() => {
-        if (!cancelled && optimizedKpSrc) {
-          setResolvingEn(false);
-          setActiveSrc((prev) => prev || optimizedKpSrc);
-        }
-      }, 950);
-
       requestEnglishPoster(
         {
           key: lookupKey,
@@ -511,9 +489,6 @@ export default function PosterImage({
         Boolean(resolvedImdbId),
       ).then((enUrl) => {
         if (cancelled) return;
-        if (fallbackTimeout) clearTimeout(fallbackTimeout);
-        setResolvingEn(false);
-
         if (enUrl) {
           setResolvedEnRawUrl(enUrl);
           const sizedEn = optimizePosterUrl(
@@ -522,11 +497,10 @@ export default function PosterImage({
             fallbackType,
             priority,
           );
-          setActiveSrc(sizedEn || optimizedKpSrc);
-          setError(false);
-        } else {
-          setResolvedEnRawUrl(null);
-          setActiveSrc(optimizedKpSrc);
+          if (sizedEn) {
+            setActiveSrc(sizedEn);
+            setError(false);
+          }
         }
       });
     };
@@ -536,7 +510,6 @@ export default function PosterImage({
       startResolution();
       return () => {
         cancelled = true;
-        if (fallbackTimeout) clearTimeout(fallbackTimeout);
       };
     }
 
@@ -547,14 +520,13 @@ export default function PosterImage({
           startResolution();
         }
       },
-      { rootMargin: "320px" },
+      { rootMargin: "280px" },
     );
 
     observer.observe(el);
     return () => {
       cancelled = true;
       observer.disconnect();
-      if (fallbackTimeout) clearTimeout(fallbackTimeout);
     };
   }, [
     shouldUseEnglishPoster,
@@ -564,7 +536,6 @@ export default function PosterImage({
     origLatinTitle,
     resolvedYear,
     resolvedType,
-    optimizedKpSrc,
     size,
     fallbackType,
     priority,
@@ -583,18 +554,6 @@ export default function PosterImage({
       setLoaded(false);
     }
   }, [activeSrc]);
-
-  // While waiting for the fast English poster micro-batch, show skeleton shimmer
-  if (resolvingEn && !activeSrc) {
-    return (
-      <div ref={containerRef} className={className}>
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 skeleton pointer-events-none"
-        />
-      </div>
-    );
-  }
 
   if (!activeSrc || error) {
     return (
@@ -632,7 +591,6 @@ export default function PosterImage({
         draggable={false}
         onLoad={(e) => {
           const img = e.currentTarget;
-          // Catch 1x1 spacer pixels or redirected no-poster URLs
           if (
             img.naturalWidth <= 1 ||
             img.naturalHeight <= 1 ||
@@ -653,7 +611,6 @@ export default function PosterImage({
           setLoaded(true);
         }}
         onError={() => {
-          // 1. If English poster URL failed to load, fall back to optimized Kinopoisk poster
           if (
             sizedEnglishUrl &&
             activeSrc === sizedEnglishUrl &&
@@ -672,15 +629,13 @@ export default function PosterImage({
             setActiveSrc(optimizedKpSrc);
             return;
           }
-          // 2. If kp_small failed to load, fall back to original kp poster
           if (cleanOriginalKpSrc && activeSrc !== cleanOriginalKpSrc) {
             setActiveSrc(cleanOriginalKpSrc);
             return;
           }
-          // 3. Otherwise show FilmPosterFallback
           setError(true);
         }}
-        className={`${imgClassName} transition-opacity duration-300 ease-out ${
+        className={`${imgClassName} transition-opacity duration-200 ease-out ${
           loaded ? "opacity-100" : "opacity-0"
         }`}
       />

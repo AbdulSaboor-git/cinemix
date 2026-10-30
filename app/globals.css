@@ -151,6 +151,34 @@ body.scroll-locked {
     transform: rotate(360deg);
   }
 }
+@keyframes toastEnter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+@keyframes toastExit {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(24px, 4px, 0) scale(0.94);
+  }
+}
+@keyframes toastProgress {
+  0% {
+    transform: scaleX(1);
+  }
+  100% {
+    transform: scaleX(0);
+  }
+}
 
 @layer utilities {
   /* ── Layout containers ── */
@@ -186,16 +214,27 @@ body.scroll-locked {
     animation: fadeUp 0.5s ease both;
   }
   .fade-in {
-    animation: fadeIn 0.4s ease both;
+    animation: fadeIn 0.3s ease both;
   }
   .slide-down {
-    animation: slideDown 0.3s ease both;
+    animation: slideDown 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
   .scale-in {
-    animation: scaleIn 0.3s ease both;
+    animation: scaleIn 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
   .animate-spin-fast {
     animation: spin 0.7s linear infinite;
+  }
+  .toast-enter {
+    animation: toastEnter 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .toast-exit {
+    animation: toastExit 0.22s cubic-bezier(0.4, 0, 1, 1) both;
+  }
+  .toast-progress-bar {
+    animation-name: toastProgress;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
   }
 
   /* ── Skeleton loader ── */
@@ -207,7 +246,7 @@ body.scroll-locked {
       var(--bg-card) 75%
     );
     background-size: 1600px 100%;
-    animation: shimmer 1.6s ease infinite;
+    animation: shimmer 1.4s ease infinite;
     border-radius: var(--radius);
   }
 

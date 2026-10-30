@@ -17,14 +17,14 @@ import {
   Clock,
   CheckCircle2,
 } from "lucide-react";
-import { getTopFilms } from "@/lib/kinopoisk";
+import { getTopFilms, getCachedTopFilms } from "@/lib/kinopoisk";
 import { translateGenre, translateCountry } from "@/lib/translate";
 import { useAutoTranslate, useFilmTitle } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useListStatus } from "@/hooks/useListStatus";
 import { hasApiKeys } from "@/lib/preferences";
 import { getList, toggleFavorite, toggleWatchLater } from "@/lib/userLists";
-import { useToast } from "@/lib/toast";
+import { ToastOptions, useToast } from "@/lib/toast";
 import { Film } from "@/types/kinopoisk";
 import {
   useHydratedFilm,
@@ -64,13 +64,34 @@ function getValidSnapshot(
   type: TopCollection,
   page: number,
 ): Top250Snapshot | null {
-  const entry = top250Cache.get(getCacheKey(type, page));
-  if (!entry) return null;
-  if (Date.now() - entry.timestamp > SNAPSHOT_TTL_MS) {
-    top250Cache.delete(getCacheKey(type, page));
-    return null;
+  const key = getCacheKey(type, page);
+  const entry = top250Cache.get(key);
+  if (entry) {
+    if (Date.now() - entry.timestamp <= SNAPSHOT_TTL_MS) {
+      return entry;
+    }
+    top250Cache.delete(key);
   }
-  return entry;
+
+  // Fallback to synchronous API cache (e.g. if HomeClient already loaded TOP_250_MOVIES page 1)
+  const syncApiCached = getCachedTopFilms(type, page);
+  if (syncApiCached && syncApiCached.items.length > 0) {
+    const resolvedTotal = syncApiCached.total || 250;
+    const resolvedPages =
+      syncApiCached.totalPages && syncApiCached.totalPages > 1
+        ? syncApiCached.totalPages
+        : Math.ceil(resolvedTotal / PAGE_SIZE);
+    const snap: Top250Snapshot = {
+      timestamp: Date.now(),
+      items: syncApiCached.items,
+      total: resolvedTotal,
+      totalPages: resolvedPages,
+    };
+    top250Cache.set(key, snap);
+    return snap;
+  }
+
+  return null;
 }
 
 function readWatchedSet(): Set<number> {
@@ -96,12 +117,13 @@ const Top250Row = memo(function Top250Row({
   autoTranslate: boolean;
   isWatched: boolean;
   onNavigate: (id: number) => void;
-  onToastSuccess: (msg: string) => void;
-  onToastInfo: (msg: string) => void;
+  onToastSuccess: (msg: string, options?: ToastOptions) => void;
+  onToastInfo: (msg: string, options?: ToastOptions) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const posterWrapRef = useRef<HTMLDivElement>(null);
-  const film = useHydratedFilm(rawFilm, rowRef);
+  // Passive hydration only: Top 250 API already supplies year, genres, countries, and ratings
+  const film = useHydratedFilm(rawFilm, rowRef, false, true);
   const name = useFilmTitle(film, autoTranslate);
   const id = film.kinopoiskId ?? film.filmId ?? 0;
   const { isFav, isWL } = useListStatus(id);
@@ -129,6 +151,8 @@ const Top250Row = memo(function Top250Row({
       : rank <= 10
         ? "text-[rgba(245,197,24,0.65)]"
         : "text-[var(--text-muted)]";
+
+  const displayScore = film.ratingImdb ?? film.ratingKinopoisk;
 
   const filmEntry = useMemo(
     () => ({
@@ -185,6 +209,9 @@ const Top250Row = memo(function Top250Row({
               src={film.posterUrlPreview || film.posterUrl}
               alt={name}
               title={name}
+              filmId={id}
+              imdbId={film.imdbId}
+              year={film.year}
               size="sm"
               fallbackType="mini"
               priority={rank <= 8}
@@ -192,7 +219,7 @@ const Top250Row = memo(function Top250Row({
           </div>
         </div>
 
-        {/* Info — strictly constrained min-w-0 flex-1 overflow-hidden so mobile titles never overflow */}
+        {/* Info */}
         <div className="flex-1 min-w-0 overflow-hidden">
           <div className="flex items-center gap-1.5 min-w-0">
             <div className="no-underline block min-w-0 flex-1 overflow-hidden">
@@ -231,11 +258,11 @@ const Top250Row = memo(function Top250Row({
 
         {/* Rating & Quick Actions */}
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 pl-1">
-          {film.ratingImdb && (
+          {displayScore !== undefined && displayScore > 0 && (
             <div className="flex items-center gap-[3px] sm:gap-[5px]">
               <Star size={11} fill="#f5c518" stroke="#f5c518" />
               <span className="text-[#f5c518] font-display text-[14px] sm:text-[18px] md:text-[20px]">
-                {film.ratingImdb.toFixed(1)}
+                {displayScore.toFixed(1)}
               </span>
             </div>
           )}
@@ -248,6 +275,15 @@ const Top250Row = memo(function Top250Row({
                 const added = toggleFavorite(filmEntry);
                 onToastSuccess(
                   added ? "Added to Favorites" : "Removed from Favorites",
+                  {
+                    description: name,
+                    posterUrl: filmEntry.poster_url,
+                    icon: "heart",
+                    action: {
+                      label: "Undo",
+                      onClick: () => toggleFavorite(filmEntry),
+                    },
+                  },
                 );
               }}
               title={isFav ? "In Favorites" : "Add to Favorites"}
@@ -270,6 +306,15 @@ const Top250Row = memo(function Top250Row({
                 const added = toggleWatchLater(filmEntry);
                 onToastInfo(
                   added ? "Saved to Watch Later" : "Removed from Watch Later",
+                  {
+                    description: name,
+                    posterUrl: filmEntry.poster_url,
+                    icon: "clock",
+                    action: {
+                      label: "Undo",
+                      onClick: () => toggleWatchLater(filmEntry),
+                    },
+                  },
                 );
               }}
               title={isWL ? "In Watch Later" : "Save to Watch Later"}
@@ -285,7 +330,6 @@ const Top250Row = memo(function Top250Row({
         </div>
       </div>
 
-      {/* Only mount portal when long-press is active so 20 portals aren't evaluated on initial open */}
       {popupOpen && (
         <FilmLongPressPortal
           film={film}
@@ -317,7 +361,6 @@ export default function Top250Client({
   const propType: TopCollection =
     tp === "TOP_250_TV_SHOWS" ? "TOP_250_TV_SHOWS" : "TOP_250_MOVIES";
 
-  // Optimistic state so tab switches and pagination respond in 0ms
   const [activeState, setActiveState] = useState<{
     page: number;
     collectionType: TopCollection;
@@ -333,17 +376,11 @@ export default function Top250Client({
   const [noKey, setNoKey] = useState(false);
   const [films, setFilms] = useState<Film[]>(() => initialCached?.items ?? []);
   const [totalPages, setTotalPages] = useState(
-    () => initialCached?.totalPages ?? 1,
+    () => initialCached?.totalPages ?? 13,
   );
-  const [total, setTotal] = useState(() => initialCached?.total ?? 250);
   const [loading, setLoading] = useState<boolean>(() => !initialCached);
-  const [hideWatched, setHideWatched] = useState(false);
+  const [hideWatched] = useState(false);
   const [watchedIds, setWatchedIds] = useState<Set<number>>(readWatchedSet);
-
-  // Progressive 2-frame mount for cold loads so mobile transition stays at 60fps
-  const [renderLimit, setRenderLimit] = useState<number>(() =>
-    initialCached ? PAGE_SIZE : 10,
-  );
 
   const isFirstMountRef = useRef(true);
   const autoTranslate = useAutoTranslate();
@@ -370,7 +407,6 @@ export default function Top250Client({
       return;
     }
 
-    // Only scroll to top when user actually changes page or tab, not on initial mount
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false;
     } else {
@@ -380,9 +416,7 @@ export default function Top250Client({
     const cached = getValidSnapshot(collectionType, page);
     if (cached) {
       setFilms(cached.items);
-      setTotal(cached.total);
       setTotalPages(cached.totalPages);
-      setRenderLimit(PAGE_SIZE);
       setLoading(false);
       return;
     }
@@ -390,7 +424,7 @@ export default function Top250Client({
     let cancelled = false;
     setLoading(true);
 
-    getTopFilms(collectionType, page)
+    getTopFilms(collectionType, page, "high")
       .then((d) => {
         if (cancelled) return;
         const items = d.items ?? [];
@@ -408,7 +442,6 @@ export default function Top250Client({
         });
 
         setFilms(items);
-        setTotal(resolvedTotal);
         setTotalPages(resolvedPages);
       })
       .catch(() => {
@@ -423,16 +456,7 @@ export default function Top250Client({
     };
   }, [page, collectionType]);
 
-  // Expand from 10 rows to 20 rows on the very next animation frame after initial paint
-  useEffect(() => {
-    if (loading || renderLimit >= films.length) return;
-    const raf = requestAnimationFrame(() => {
-      setRenderLimit(PAGE_SIZE);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [loading, films.length, renderLimit]);
-
-  // Silently prefetch the opposite tab (Page 1) and next page after initial idle
+  // Silently prefetch the opposite tab (Page 1) and next page in low priority after idle
   useEffect(() => {
     if (loading || noKey || films.length === 0) return;
 
@@ -443,7 +467,7 @@ export default function Top250Client({
           : "TOP_250_MOVIES";
 
       if (!getValidSnapshot(otherTab, 1)) {
-        getTopFilms(otherTab, 1)
+        getTopFilms(otherTab, 1, "low")
           .then((d) => {
             const items = d.items ?? [];
             const resolvedTotal = d.total || 250;
@@ -462,7 +486,7 @@ export default function Top250Client({
       }
 
       if (page < totalPages && !getValidSnapshot(collectionType, page + 1)) {
-        getTopFilms(collectionType, page + 1)
+        getTopFilms(collectionType, page + 1, "low")
           .then((d) => {
             const items = d.items ?? [];
             const resolvedTotal = d.total || 250;
@@ -479,7 +503,7 @@ export default function Top250Client({
           })
           .catch(() => {});
       }
-    }, 400);
+    }, 350);
 
     return () => clearTimeout(timer);
   }, [loading, noKey, films.length, collectionType, page, totalPages]);
@@ -492,15 +516,15 @@ export default function Top250Client({
   );
 
   const handleToastSuccess = useCallback(
-    (msg: string) => {
-      toast.success(msg);
+    (msg: string, options?: ToastOptions) => {
+      toast.success(msg, options);
     },
     [toast],
   );
 
   const handleToastInfo = useCallback(
-    (msg: string) => {
-      toast.info(msg);
+    (msg: string, options?: ToastOptions) => {
+      toast.info(msg, options);
     },
     [toast],
   );
@@ -533,12 +557,23 @@ export default function Top250Client({
         parseInt(url.searchParams.get("page") || "1", 10),
       );
 
+      if (nextPage === page && nextType === collectionType) return;
+
+      const snap = getValidSnapshot(nextType, nextPage);
+      if (snap) {
+        setFilms(snap.items);
+        setTotalPages(snap.totalPages);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+
       setActiveState({ page: nextPage, collectionType: nextType });
       startTransition(() => {
-        router.push(href);
+        router.push(href, { scroll: false });
       });
     },
-    [router],
+    [router, page, collectionType],
   );
 
   const visibleFilms = useMemo(() => {
@@ -556,9 +591,6 @@ export default function Top250Client({
 
   const getGlobalRank = (localIndex: number) =>
     (page - 1) * PAGE_SIZE + localIndex + 1;
-
-  const slicedFilms =
-    renderLimit < films.length ? films.slice(0, renderLimit) : films;
 
   return (
     <PageContainer>
@@ -593,8 +625,8 @@ export default function Top250Client({
         </TabBar>
       </div>
 
-      {loading && films.length === 0 ? (
-        <div className="flex flex-col gap-2">
+      {loading ? (
+        <div className="flex flex-col gap-2 fade-in" role="status">
           {Array.from({ length: PAGE_SIZE }).map((_, i) => (
             <div
               key={i}
@@ -602,7 +634,7 @@ export default function Top250Client({
             />
           ))}
         </div>
-      ) : !loading && visibleFilms.length === 0 ? (
+      ) : visibleFilms.length === 0 ? (
         <EmptyState
           icon={<Trophy size={36} />}
           title={
@@ -619,12 +651,8 @@ export default function Top250Client({
           actionHref="/explore"
         />
       ) : (
-        <div
-          className={`flex flex-col gap-[3px] transition-opacity duration-150 ${
-            loading ? "opacity-55 pointer-events-none" : "opacity-100"
-          }`}
-        >
-          {slicedFilms.map((film, i) => {
+        <div className="flex flex-col gap-[3px] fade-in">
+          {films.map((film, i) => {
             const fid = film.kinopoiskId ?? film.filmId ?? 0;
             const isWatched = watchedIds.has(fid);
             if (hideWatched && isWatched) {

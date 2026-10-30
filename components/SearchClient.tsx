@@ -10,14 +10,23 @@ import {
   Tv,
   Star,
   Sparkles,
-  RotateCcw,
+  History,
 } from "lucide-react";
-import { searchFilms, isRussianDomesticFilm } from "@/lib/kinopoisk";
+import {
+  searchFilms,
+  isRussianDomesticFilm,
+  analyzeSemanticQuery,
+} from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
-import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
+import {
+  useSearchSuggestions,
+  getRecentSearches,
+  saveRecentSearch,
+  clearRecentSearches,
+} from "@/hooks/useSearchSuggestions";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { hasApiKeys, getPreferences } from "@/lib/preferences";
-import FilmCard from "@/components/FilmCard";
+import FilmCard, { FilmCardSkeletonGrid } from "@/components/FilmCard";
 import Pagination from "@/components/Pagination";
 import SearchSuggestionDropdown from "@/components/SearchSuggestionDropdown";
 import PageContainer from "@/components/ui/PageContainer";
@@ -31,8 +40,8 @@ const QUICK_SEARCH_IDEAS = [
   "The Dark Knight",
   "Oppenheimer",
   "Breaking Bad",
-  "Inception",
-  "Severance",
+  "Time Travel",
+  "Mind Bending",
   "Spider-Man",
 ];
 
@@ -70,6 +79,7 @@ export default function SearchClient({
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState(query);
+  const [recentTerms, setRecentTerms] = useState<string[]>([]);
 
   // Post-Search Filter & Sort Controls
   const [mediaFilter, setMediaFilter] = useState<"ALL" | "FILM" | "SERIES">(
@@ -88,6 +98,7 @@ export default function SearchClient({
 
   const {
     suggestions,
+    semanticMeta,
     sugLoading,
     sugVisible,
     selectedIdx,
@@ -97,6 +108,15 @@ export default function SearchClient({
     handleKeyNav,
   } = useSearchSuggestions();
 
+  const activeQuerySemantic = useMemo(
+    () => (query ? analyzeSemanticQuery(query) : null),
+    [query],
+  );
+
+  useEffect(() => {
+    setRecentTerms(getRecentSearches());
+  }, [query]);
+
   useEffect(() => {
     if (!hasApiKeys()) {
       setNoKey(true);
@@ -104,6 +124,9 @@ export default function SearchClient({
     }
     setSearch(query);
     clearSuggestions();
+    if (query) {
+      setRecentTerms(saveRecentSearch(query));
+    }
   }, [query, clearSuggestions]);
 
   useEffect(() => {
@@ -136,19 +159,27 @@ export default function SearchClient({
       setTotalPages(1);
       return;
     }
+    let cancelled = false;
     setLoading(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
     searchFilms(query, page)
       .then((d) => {
+        if (cancelled) return;
         setFilms(d.items ?? []);
         setTotalPages(d.totalPages ?? 1);
         setTotal(d.total ?? 0);
       })
-      .catch(() => setFilms([]))
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (!cancelled) setFilms([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [query, page]);
 
-  // Base region-aware pool so tab counts (All / Movies / Series) stay accurate
   const regionalPool = useMemo(() => {
     const regionMode =
       typeof window !== "undefined"
@@ -231,6 +262,7 @@ export default function SearchClient({
     const trimmed = search.trim();
     if (trimmed) {
       clearSuggestions();
+      setRecentTerms(saveRecentSearch(trimmed));
       router.push(`/search?q=${encodeURIComponent(trimmed)}`);
     }
   };
@@ -246,7 +278,6 @@ export default function SearchClient({
 
   return (
     <PageContainer>
-      {/* Consistent Top PageHeader (matches Explore, Top 250, and Premieres) */}
       <PageHeader
         eyebrow={query ? "Search Results" : "Catalog Search"}
         eyebrowIcon={<Search size={13} />}
@@ -259,7 +290,7 @@ export default function SearchClient({
               : loading
                 ? "Searching the CineMix catalog…"
                 : "No exact matches found for this query."
-            : "Search across movies, TV series, mini-series, and international releases."
+            : "Search by title, franchise, or semantic theme (e.g. “time travel”, “mind bending”, “zombie”)."
         }
         className="mb-4 sm:mb-6"
         rightSlot={
@@ -277,7 +308,7 @@ export default function SearchClient({
         }
       />
 
-      {/* Unified Search & Post-Filter Control Deck (matches BrowseClient Layer 2 card) */}
+      {/* Unified Search & Post-Filter Control Deck */}
       <div className="relative z-30 bg-[var(--bg-card)] border border-[var(--border)] rounded-[14px] p-3 sm:p-4 mb-6 shadow-[0_12px_40px_rgba(0,0,0,0.4)]">
         <form onSubmit={handleSubmit}>
           <div ref={wrapperRef} className="relative w-full">
@@ -299,11 +330,14 @@ export default function SearchClient({
                   onChange={(e) => handleChange(e.target.value)}
                   onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                   onFocus={() => {
-                    if (search.trim().length >= 2 && suggestions.length > 0) {
+                    if (
+                      search.trim().length >= 2 &&
+                      (suggestions.length > 0 || semanticMeta)
+                    ) {
                       setSugVisible(true);
                     }
                   }}
-                  placeholder="Search films, TV series, keywords…"
+                  placeholder="Search titles, typos (e.g. Interstelar), or vibes (e.g. time travel)…"
                   className="input w-full text-[14px] sm:text-[15px] py-2.5 sm:py-3 pl-10 pr-9 rounded-[10px] bg-[var(--bg-elevated)] border-[var(--border)] focus:border-[var(--accent)]"
                   autoFocus={!query}
                 />
@@ -333,10 +367,11 @@ export default function SearchClient({
               </button>
             </div>
 
-            {/* Instant Search Suggestion Dropdown */}
-            {sugVisible && suggestions.length > 0 && (
+            {/* Instant Hybrid Search Suggestion Dropdown */}
+            {sugVisible && (
               <SearchSuggestionDropdown
                 suggestions={suggestions}
+                semanticMeta={semanticMeta}
                 selectedIdx={selectedIdx}
                 sugLoading={sugLoading}
                 search={search}
@@ -349,34 +384,121 @@ export default function SearchClient({
           </div>
         </form>
 
-        {/* Quick Search Chips when no query is active */}
+        {/* Semantic / Fuzzy Correction Banner when active query was auto-enhanced */}
+        {query &&
+          (activeQuerySemantic?.correctedQuery ||
+            activeQuerySemantic?.matchedConcept) && (
+            <div className="flex items-center justify-between gap-2 flex-wrap mt-3 pt-2.5 border-t border-[var(--border)] text-[12px]">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Sparkles size={13} className="text-[var(--accent)] shrink-0" />
+                {activeQuerySemantic.correctedQuery && (
+                  <span className="text-[var(--text-dim)]">
+                    Including smart matches for{" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const c = activeQuerySemantic.correctedQuery!;
+                        setSearch(c);
+                        router.push(`/search?q=${encodeURIComponent(c)}`);
+                      }}
+                      className="font-bold text-white hover:text-[var(--accent)] underline bg-transparent border-none cursor-pointer p-0"
+                    >
+                      “{activeQuerySemantic.correctedQuery}”
+                    </button>
+                  </span>
+                )}
+                {activeQuerySemantic.matchedConcept && (
+                  <span className="text-[var(--text-dim)]">
+                    · Semantic Theme:{" "}
+                    <strong className="text-[#f5c518]">
+                      {activeQuerySemantic.matchedConcept.label}
+                    </strong>
+                  </span>
+                )}
+              </div>
+
+              {activeQuerySemantic.relatedTerms.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {activeQuerySemantic.relatedTerms.slice(0, 3).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => {
+                        setSearch(t);
+                        router.push(`/search?q=${encodeURIComponent(t)}`);
+                      }}
+                      className="px-2 py-0.5 rounded-full text-[11px] bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-dim)] hover:text-white hover:border-[var(--accent)] cursor-pointer transition-colors"
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+        {/* Recent & Quick Search Chips when no query is active */}
         {!query && (
-          <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-[var(--border)]">
-            <span className="text-[11px] font-bold uppercase tracking-[1px] text-[var(--text-muted)] inline-flex items-center gap-1 mr-1">
-              <Sparkles size={11} className="text-[var(--accent)]" />
-              Popular:
-            </span>
-            {QUICK_SEARCH_IDEAS.map((term) => (
-              <button
-                key={term}
-                type="button"
-                onClick={() => {
-                  setSearch(term);
-                  clearSuggestions();
-                  router.push(`/search?q=${encodeURIComponent(term)}`);
-                }}
-                className="px-2.5 py-1 rounded-[8px] text-[11px] sm:text-[12px] font-medium bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-dim)] hover:text-white hover:border-[var(--border-hover)] cursor-pointer transition-all active:scale-95"
-              >
-                {term}
-              </button>
-            ))}
+          <div className="flex flex-col gap-2.5 mt-3 pt-3 border-t border-[var(--border)]">
+            {recentTerms.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-bold uppercase tracking-[1px] text-[var(--text-muted)] inline-flex items-center gap-1 mr-1">
+                  <History size={11} className="text-[#60a5fa]" />
+                  Recent:
+                </span>
+                {recentTerms.map((term) => (
+                  <button
+                    key={term}
+                    type="button"
+                    onClick={() => {
+                      setSearch(term);
+                      clearSuggestions();
+                      router.push(`/search?q=${encodeURIComponent(term)}`);
+                    }}
+                    className="px-2.5 py-1 rounded-[8px] text-[11px] sm:text-[12px] font-medium bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text)] hover:border-[#60a5fa] cursor-pointer transition-all active:scale-95"
+                  >
+                    {term}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearRecentSearches();
+                    setRecentTerms([]);
+                  }}
+                  className="text-[11px] text-[var(--text-muted)] hover:text-white underline bg-transparent border-none cursor-pointer ml-1"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-bold uppercase tracking-[1px] text-[var(--text-muted)] inline-flex items-center gap-1 mr-1">
+                <Sparkles size={11} className="text-[var(--accent)]" />
+                Try:
+              </span>
+              {QUICK_SEARCH_IDEAS.map((term) => (
+                <button
+                  key={term}
+                  type="button"
+                  onClick={() => {
+                    setSearch(term);
+                    clearSuggestions();
+                    router.push(`/search?q=${encodeURIComponent(term)}`);
+                  }}
+                  className="px-2.5 py-1 rounded-[8px] text-[11px] sm:text-[12px] font-medium bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-dim)] hover:text-white hover:border-[var(--border-hover)] cursor-pointer transition-all active:scale-95"
+                >
+                  {term}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Post-Search Filter & Sort Toolbar (matches BrowseClient toolbar styling) */}
+        {/* Post-Search Filter & Sort Toolbar */}
         {query && !loading && films.length > 0 && (
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 mt-3 pt-3 border-t border-[var(--border)]">
-            {/* Media Type Filter Pills */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
               <button
                 type="button"
@@ -444,7 +566,6 @@ export default function SearchClient({
               </button>
             </div>
 
-            {/* Right Controls: Rated Only + Sort Select + Reset */}
             <div className="flex items-stretch gap-2 flex-wrap sm:flex-nowrap">
               <button
                 type="button"
@@ -492,16 +613,12 @@ export default function SearchClient({
         <EmptyState
           icon={<Search size={40} stroke="var(--accent)" strokeWidth={1.6} />}
           title="Explore the CineMix Catalog"
-          description="Type a film or series title above, or jump into Advanced Explore to filter by genre, country, era, and rating."
+          description="Type a film title, actor, or semantic concept above, or jump into Advanced Explore to filter by genre, country, era, and rating."
           actionLabel="Open Advanced Explore"
           actionHref="/explore"
         />
       ) : loading ? (
-        <div className="film-grid">
-          {Array.from({ length: 12 }).map((_, i) => (
-            <div key={i} className="skeleton aspect-[2/3] rounded-[12px]" />
-          ))}
-        </div>
+        <FilmCardSkeletonGrid count={12} />
       ) : displayedFilms.length === 0 ? (
         <EmptyState
           icon={<Search size={38} />}
@@ -530,7 +647,7 @@ export default function SearchClient({
           }
         />
       ) : (
-        <div className="film-grid">
+        <div className="film-grid fade-in">
           {displayedFilms.map((film, i) => {
             const id = film.kinopoiskId ?? film.filmId ?? i;
             return <FilmCard key={id} film={film} priority={i < 6} />;

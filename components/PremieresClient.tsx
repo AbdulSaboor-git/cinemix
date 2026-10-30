@@ -1,5 +1,5 @@
 "use client";
-import React, {
+import {
   useEffect,
   useState,
   useCallback,
@@ -19,8 +19,8 @@ import {
 } from "lucide-react";
 import {
   getPremieres,
+  getCachedPremieres,
   isRussianDomesticFilm,
-  queueFilmMetaHydration,
   hydrateFilmWithCache,
 } from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
@@ -111,6 +111,34 @@ function getCacheKey(year: number, monthStr: string): string {
   return `${year}:${monthStr}`;
 }
 
+function getValidPremieresSnapshot(
+  year: number,
+  monthIdx: number,
+): PremieresSnapshot | null {
+  const monthStr = MONTHS[monthIdx];
+  const key = getCacheKey(year, monthStr);
+  const existing = premieresCache.get(key);
+  if (existing) {
+    if (Date.now() - existing.timestamp < SNAPSHOT_TTL_MS) {
+      return existing;
+    }
+    premieresCache.delete(key);
+  }
+
+  // Fallback to synchronous API cache (e.g. if HomeClient already fetched this month's premieres)
+  const syncCached = getCachedPremieres(year, monthStr);
+  if (syncCached && syncCached.items) {
+    const snap: PremieresSnapshot = {
+      timestamp: Date.now(),
+      items: syncCached.items,
+    };
+    premieresCache.set(key, snap);
+    return snap;
+  }
+
+  return null;
+}
+
 export default function PremieresClient({
   year: yearParam,
   month: monthParam,
@@ -132,9 +160,7 @@ export default function PremieresClient({
     0,
     11,
   );
-  const initialCache = premieresCache.get(
-    getCacheKey(initYear, MONTHS[resolvedMonthIdx]),
-  );
+  const initialCache = getValidPremieresSnapshot(initYear, resolvedMonthIdx);
 
   const [noKey, setNoKey] = useState(false);
   const [year, setYear] = useState(initYear);
@@ -144,48 +170,49 @@ export default function PremieresClient({
   const [sortBy, setSortBy] = useState<"DATE" | "RATING">("DATE");
   const [parentalModalFilm, setParentalModalFilm] = useState<Film | null>(null);
 
-  // Progressive 2-frame mount limit for cold loads
-  const [renderLimit, setRenderLimit] = useState<number>(() =>
-    initialCache ? 999 : 6,
-  );
-
   const didMountRef = useRef(false);
 
   useDocumentTitle(`Premieres — ${MONTH_FULL[monthIdx]} ${year}`);
 
-  const load = useCallback((y: number, mi: number) => {
+  useEffect(() => {
     if (!hasApiKeys()) {
       setNoKey(true);
       setLoading(false);
       return;
     }
 
-    const monthStr = MONTHS[mi];
-    const cached = premieresCache.get(getCacheKey(y, monthStr));
-    if (cached && Date.now() - cached.timestamp < SNAPSHOT_TTL_MS) {
+    const monthStr = MONTHS[monthIdx];
+    const cached = getValidPremieresSnapshot(year, monthIdx);
+    if (cached) {
       setFilms(cached.items);
-      setRenderLimit(999);
       setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    getPremieres(y, monthStr)
-      .then((d) => {
-        const list = d.items ?? [];
-        premieresCache.set(getCacheKey(y, monthStr), {
-          timestamp: Date.now(),
-          items: list,
+    } else {
+      let cancelled = false;
+      setLoading(true);
+      getPremieres(year, monthStr, "high")
+        .then((d) => {
+          if (cancelled) return;
+          const list = d.items ?? [];
+          premieresCache.set(getCacheKey(year, monthStr), {
+            timestamp: Date.now(),
+            items: list,
+          });
+          setFilms(list);
+        })
+        .catch(() => {
+          if (!cancelled) setFilms([]);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
         });
-        setFilms(list);
-        setRenderLimit(999);
-      })
-      .catch(() => setFilms([]))
-      .finally(() => setLoading(false));
-  }, []);
+
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [year, monthIdx]);
 
   useEffect(() => {
-    load(year, monthIdx);
     const targetMonth = MONTHS[monthIdx];
     if (
       didMountRef.current &&
@@ -199,18 +226,43 @@ export default function PremieresClient({
       });
     }
     didMountRef.current = true;
-  }, [year, monthIdx, load, router, yearParam, monthParam]);
+  }, [year, monthIdx, router, yearParam, monthParam]);
 
-  // Expand render limit on next animation frame after initial paint
+  // Silently prefetch adjacent months (next & prev) in low priority after idle
   useEffect(() => {
-    if (loading || renderLimit >= films.length) return;
-    const raf = requestAnimationFrame(() => {
-      setRenderLimit(999);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [loading, films.length, renderLimit]);
+    if (loading || noKey) return;
+    const timer = setTimeout(() => {
+      const nextM = monthIdx === 11 ? 0 : monthIdx + 1;
+      const nextY = monthIdx === 11 ? year + 1 : year;
+      if (!getValidPremieresSnapshot(nextY, nextM)) {
+        getPremieres(nextY, MONTHS[nextM], "low")
+          .then((d) => {
+            premieresCache.set(getCacheKey(nextY, MONTHS[nextM]), {
+              timestamp: Date.now(),
+              items: d.items ?? [],
+            });
+          })
+          .catch(() => {});
+      }
 
-  // Silent background regional curation controlled directly by Preferences
+      const prevM = monthIdx === 0 ? 11 : monthIdx - 1;
+      const prevY = monthIdx === 0 ? year - 1 : year;
+      if (!getValidPremieresSnapshot(prevY, prevM)) {
+        getPremieres(prevY, MONTHS[prevM], "low")
+          .then((d) => {
+            premieresCache.set(getCacheKey(prevY, MONTHS[prevM]), {
+              timestamp: Date.now(),
+              items: d.items ?? [],
+            });
+          })
+          .catch(() => {});
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [loading, noKey, year, monthIdx]);
+
+  // Regional curation & sorting
   const displayedFilms = useMemo(() => {
     const regionMode =
       typeof window !== "undefined"
@@ -236,17 +288,6 @@ export default function PremieresClient({
     });
   }, [films, sortBy]);
 
-  // Queue background hydration for the first batch of premieres immediately on load
-  useEffect(() => {
-    if (displayedFilms.length === 0) return;
-    displayedFilms.slice(0, 18).forEach((f, idx) => {
-      const fid = f.kinopoiskId ?? f.filmId;
-      if (fid) {
-        queueFilmMetaHydration(fid, idx < 6);
-      }
-    });
-  }, [displayedFilms]);
-
   const handleCloseParentalGuide = useCallback(() => {
     setParentalModalFilm(null);
   }, []);
@@ -257,28 +298,35 @@ export default function PremieresClient({
 
   if (noKey) return <NoKeyBanner />;
 
+  const switchDate = (nextY: number, nextM: number) => {
+    if (nextY === year && nextM === monthIdx) return;
+    const snap = getValidPremieresSnapshot(nextY, nextM);
+    if (snap) {
+      setFilms(snap.items);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+    setYear(nextY);
+    setMonthIdx(nextM);
+  };
+
   const prevMonth = () => {
     if (monthIdx === 0) {
-      setMonthIdx(11);
-      setYear((y) => y - 1);
+      switchDate(year - 1, 11);
     } else {
-      setMonthIdx((m) => m - 1);
+      switchDate(year, monthIdx - 1);
     }
   };
   const nextMonth = () => {
     if (monthIdx === 11) {
-      setMonthIdx(0);
-      setYear((y) => y + 1);
+      switchDate(year + 1, 0);
     } else {
-      setMonthIdx((m) => m + 1);
+      switchDate(year, monthIdx + 1);
     }
   };
 
   const isCurrent = year === CUR_YEAR && monthIdx === CUR_MONTH_IDX;
-  const slicedFilms =
-    renderLimit < displayedFilms.length
-      ? displayedFilms.slice(0, renderLimit)
-      : displayedFilms;
 
   return (
     <PageContainer>
@@ -331,7 +379,7 @@ export default function PremieresClient({
               <TabPill
                 key={lbl}
                 active={monthIdx === i}
-                onClick={() => setMonthIdx(i)}
+                onClick={() => switchDate(year, i)}
                 className="!px-3 !py-1.5 !text-[11px] sm:!text-[12px]"
               >
                 {lbl}
@@ -354,7 +402,7 @@ export default function PremieresClient({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setYear((y) => y - 1)}
+              onClick={() => switchDate(year - 1, monthIdx)}
               className="w-7 h-7 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] active:scale-95 transition-all text-[12px] text-[var(--text)]"
               aria-label="Previous year"
             >
@@ -365,7 +413,7 @@ export default function PremieresClient({
             </span>
             <button
               type="button"
-              onClick={() => setYear((y) => y + 1)}
+              onClick={() => switchDate(year + 1, monthIdx)}
               className="w-7 h-7 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] flex items-center justify-center cursor-pointer hover:border-[var(--border-hover)] active:scale-95 transition-all text-[12px] text-[var(--text)]"
               aria-label="Next year"
             >
@@ -376,10 +424,7 @@ export default function PremieresClient({
           {!isCurrent && (
             <button
               type="button"
-              onClick={() => {
-                setYear(CUR_YEAR);
-                setMonthIdx(CUR_MONTH_IDX);
-              }}
+              onClick={() => switchDate(CUR_YEAR, CUR_MONTH_IDX)}
               className="text-[11px] text-[var(--accent)] bg-transparent border border-[rgba(229,9,20,0.3)] rounded-[8px] px-3 py-[5px] cursor-pointer hover:border-[var(--accent)] transition-colors"
             >
               This month
@@ -389,8 +434,11 @@ export default function PremieresClient({
       </div>
 
       {/* Grid */}
-      {loading && displayedFilms.length === 0 ? (
-        <div className="grid gap-3.5 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+      {loading ? (
+        <div
+          className="grid gap-3.5 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 fade-in"
+          role="status"
+        >
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="skeleton h-[128px] rounded-[12px]" />
           ))}
@@ -402,12 +450,8 @@ export default function PremieresClient({
           description="Try selecting a different month or year."
         />
       ) : (
-        <div
-          className={`grid gap-3.5 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 transition-opacity duration-150 ${
-            loading ? "opacity-55 pointer-events-none" : "opacity-100"
-          }`}
-        >
-          {slicedFilms.map((film, i) => {
+        <div className="grid gap-3.5 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 fade-in">
+          {displayedFilms.map((film, i) => {
             const fid = film.kinopoiskId ?? film.filmId ?? i;
             return (
               <div
@@ -452,8 +496,8 @@ export const PremiereCard = memo(function PremiereCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const posterWrapRef = useRef<HTMLDivElement>(null);
 
-  // Pass `requireFullDetail = true` so PremiereCard always hydrates MPAA/age rating, duration, and rating
-  const film = useHydratedFilm(rawFilm, cardRef, true);
+  // Only hydrate top 6 visible cards in background; others use passive cache to prevent 20-request bursts
+  const film = useHydratedFilm(rawFilm, cardRef, false, index >= 6);
   const name = useFilmTitle(film, autoTranslate);
   const id = film.kinopoiskId ?? film.filmId ?? 0;
 
@@ -536,6 +580,9 @@ export const PremiereCard = memo(function PremiereCard({
               src={film.posterUrlPreview || film.posterUrl}
               alt={name}
               title={name}
+              filmId={id}
+              imdbId={film.imdbId}
+              year={film.year}
               size="sm"
               fallbackType="mini"
               priority={index < 6}
@@ -545,9 +592,7 @@ export const PremiereCard = memo(function PremiereCard({
 
         {/* Info Column */}
         <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5 gap-2">
-          {/* Upper Metadata Stack */}
           <div className="flex flex-col gap-1 sm:gap-1.5 min-w-0">
-            {/* Title + Age Certification Row */}
             <div className="flex items-start justify-between gap-1.5 sm:gap-2 min-w-0">
               <div className="no-underline min-w-0 flex-1">
                 <p className="font-semibold text-[var(--text)] text-[13px] sm:text-[14px] leading-[1.3] m-0 group-hover:text-white transition-colors line-clamp-2 break-words">
@@ -555,7 +600,6 @@ export const PremiereCard = memo(function PremiereCard({
                 </p>
               </div>
 
-              {/* Age / MPAA Certification Badge (Clickable for Parental Guide) */}
               {ageCert && (
                 <button
                   type="button"
@@ -580,14 +624,12 @@ export const PremiereCard = memo(function PremiereCard({
               )}
             </div>
 
-            {/* Genres */}
             {genresText && (
               <p className="text-[11px] sm:text-[12px] leading-snug text-[var(--text-muted)] capitalize truncate m-0">
                 {genresText}
               </p>
             )}
 
-            {/* Country + Duration Inline Row */}
             {(countriesText || formattedDuration) && (
               <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 text-[11px] leading-snug text-[var(--text-muted)] min-w-0">
                 {countriesText && (
@@ -607,7 +649,6 @@ export const PremiereCard = memo(function PremiereCard({
             )}
           </div>
 
-          {/* Bottom Footer Row: Premiere Date & Rating */}
           <div className="flex items-center justify-between gap-2 pt-1.5 mt-auto border-t border-white/[0.05] min-w-0">
             {safePremiereDate ? (
               <span className="text-[11px] sm:text-[12px] leading-none text-[var(--accent)] font-semibold whitespace-nowrap truncate">
@@ -642,7 +683,6 @@ export const PremiereCard = memo(function PremiereCard({
         </div>
       </div>
 
-      {/* Long-Press Centered Quick-Peek Portal */}
       {popupOpen && (
         <FilmLongPressPortal
           film={film}

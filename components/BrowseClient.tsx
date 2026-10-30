@@ -14,7 +14,6 @@ import Link from "next/link";
 import {
   X,
   Search,
-  Sparkles,
   ArrowDown,
   ArrowUp,
   Shuffle,
@@ -72,7 +71,10 @@ import { toggleFavorite, toggleWatchLater } from "@/lib/userLists";
 import { lockScroll, unlockScroll } from "@/lib/scrollLock";
 import { useToast } from "@/lib/toast";
 import { getQuickCertBadge } from "@/lib/parentalGuide";
-import FilmCard from "@/components/FilmCard";
+import FilmCard, {
+  FilmCardSkeleton,
+  FilmCardSkeletonGrid,
+} from "@/components/FilmCard";
 import Pagination from "@/components/Pagination";
 import PageContainer from "@/components/ui/PageContainer";
 import PageHeader from "@/components/ui/PageHeader";
@@ -99,7 +101,6 @@ const SORT_ORDERS: { value: ExploreSortOrder; label: string }[] = [
   { value: "YEAR", label: "Release Year" },
   { value: "HIDDEN_GEMS", label: "Hidden Gems" },
   { value: "CRITICS", label: "Critics Score" },
-  // { value: "TITLE", label: "Title (A–Z)" },
   { value: "RANDOM", label: "Random Roulette" },
 ];
 
@@ -234,7 +235,7 @@ const SMART_LENSES: SmartLens[] = [
   },
 ];
 
-// ── Module-level caches for instant navigation & zero preference flash ──
+// ── Multi-Query LRU Cache for instant 0ms tab/filter switching ──
 let cachedFilters: { genres: Genre[]; countries: Country[] } | null = null;
 let cachedUserPrefs: {
   prefType: string;
@@ -250,7 +251,26 @@ interface BrowseSnapshot {
 }
 
 const BROWSE_SNAPSHOT_TTL = 5 * 60 * 1000; // 5 minutes
-let browseCache: BrowseSnapshot | null = null;
+const MAX_BROWSE_CACHE_ENTRIES = 25;
+const browseCacheMap = new Map<string, BrowseSnapshot>();
+
+function getValidBrowseSnapshot(queryKey: string): BrowseSnapshot | null {
+  const entry = browseCacheMap.get(queryKey);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > BROWSE_SNAPSHOT_TTL) {
+    browseCacheMap.delete(queryKey);
+    return null;
+  }
+  return entry;
+}
+
+function setBrowseSnapshot(snapshot: BrowseSnapshot): void {
+  if (browseCacheMap.size >= MAX_BROWSE_CACHE_ENTRIES) {
+    const oldestKey = browseCacheMap.keys().next().value;
+    if (oldestKey) browseCacheMap.delete(oldestKey);
+  }
+  browseCacheMap.set(snapshot.queryKey, snapshot);
+}
 
 function readInitialUserPrefs() {
   if (cachedUserPrefs) return cachedUserPrefs;
@@ -354,10 +374,6 @@ function sameStrArray(a: string[], b: string[]): boolean {
   return sA.every((v, i) => v === sB[i]);
 }
 
-/**
- * Normalizes any preset parameter map (or legacy queryString) by removing default/no-op keys
- * and sorting comma-separated IDs so saved preset comparison is 100% deterministic.
- */
 function normalizePresetParams(
   preset: SavedExplorePreset,
 ): Record<string, string> {
@@ -434,9 +450,6 @@ interface DraftFilterState {
   hideWatchLater: boolean;
 }
 
-/**
- * Interactive Tag Pill (Memoized)
- */
 const FilterTagPill = memo(function FilterTagPill({
   label,
   status,
@@ -465,14 +478,14 @@ const FilterTagPill = memo(function FilterTagPill({
     }, 380);
   };
 
-  const clearPress = () => {
+  const clearPress = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-  };
+  }, []);
 
-  useEffect(() => clearPress, []);
+  useEffect(() => clearPress, [clearPress]);
 
   return (
     <button
@@ -519,40 +532,20 @@ const FilterTagPill = memo(function FilterTagPill({
 });
 
 /**
- * Memoized Poster Grid with progressive 2-frame mount on initial cold load
- * and in-place updates when switching filters.
+ * Memoized Poster Grid with inline skeleton cards appended during "Load More".
  */
 const MemoizedFilmGrid = memo(function MemoizedFilmGrid({
   films,
-  isRefreshing,
+  loadingMore,
   onQuickPeek,
 }: {
   films: Film[];
-  isRefreshing: boolean;
+  loadingMore: boolean;
   onQuickPeek: (film: Film) => void;
 }) {
-  const [renderLimit, setRenderLimit] = useState(() =>
-    films.length > 10 ? 10 : 999,
-  );
-
-  useEffect(() => {
-    if (renderLimit >= films.length) return;
-    const raf = requestAnimationFrame(() => {
-      setRenderLimit(999);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [films.length, renderLimit]);
-
-  const visibleFilms =
-    renderLimit < films.length ? films.slice(0, renderLimit) : films;
-
   return (
-    <div
-      className={`film-grid transition-opacity duration-150 ${
-        isRefreshing ? "opacity-55 pointer-events-none" : "opacity-100"
-      }`}
-    >
-      {visibleFilms.map((film, i) => {
+    <div className="film-grid fade-in">
+      {films.map((film, i) => {
         const fid = film.kinopoiskId ?? film.filmId ?? i;
         return (
           <FilmCard
@@ -564,6 +557,10 @@ const MemoizedFilmGrid = memo(function MemoizedFilmGrid({
           />
         );
       })}
+      {loadingMore &&
+        Array.from({ length: 8 }).map((_, idx) => (
+          <FilmCardSkeleton key={`more-skel-${idx}`} variant="grid" />
+        ))}
     </div>
   );
 });
@@ -577,8 +574,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const autoTranslate = useAutoTranslate();
   const [, startTransition] = useTransition();
 
-  // Optimistic URL parameters so clicking any filter button updates UI in 0ms
-  // without waiting for Next.js Server Component round-trips.
   const [optimisticParams, setOptimisticParams] =
     useState<ExploreSearchParams>(props);
   const prevPropsRef = useRef(props);
@@ -612,17 +607,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     () => cachedFilters !== null,
   );
 
-  const [films, setFilms] = useState<Film[]>(() => browseCache?.films ?? []);
-  const [totalPages, setTotalPages] = useState(
-    () => browseCache?.totalPages ?? 1,
-  );
-  const [loading, setLoading] = useState<boolean>(() => browseCache === null);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [streamedPage, setStreamedPage] = useState(
-    () => browseCache?.streamedPage ?? page,
-  );
-
-  // Studio Command Deck & Mobile Collapsible Controls state (Requirement 5)
   const [deckExpanded, setDeckExpanded] = useState(false);
   const [mobileControlsExpanded, setMobileControlsExpanded] = useState(false);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
@@ -633,12 +617,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const [countrySearch, setCountrySearch] = useState("");
   const [randomSeed, setRandomSeed] = useState(1);
 
-  // Custom saved presets
   const [savedPresets, setSavedPresets] = useState<SavedExplorePreset[]>([]);
   const [presetNameInput, setPresetNameInput] = useState("");
   const [showSavePresetInput, setShowSavePresetInput] = useState(false);
 
-  // Quick-Peek & Randomizer modals
   const [quickPeekFilm, setQuickPeekFilm] = useState<Film | null>(null);
   const [surpriseModalOpen, setSurpriseModalOpen] = useState(false);
   const [surpriseFilm, setSurpriseFilm] = useState<Film | null>(null);
@@ -654,11 +636,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
     return () => unlockScroll();
   }, [mobileSheetOpen]);
 
-  // Synchronously read preferences before first browser paint so it NEVER flashes "All" first
   useIsomorphicLayoutEffect(() => {
     if (!hasApiKeys()) {
       setNoKey(true);
-      setLoading(false);
       return;
     }
     const prefs = getPreferences();
@@ -672,7 +652,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     setReady(true);
   }, []);
 
-  // Applied URL parameters (Fixed: explicit p.type === "ALL" overrides non-ALL prefType)
   const activeLens = p.lens;
   const type = (
     p.type ? p.type : activeLens === "FOR_YOU" ? "ALL" : prefType || "ALL"
@@ -723,7 +702,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const hideFavorites = p.hideFavorites === "1";
   const hideWatchLater = p.hideWatchLater === "1";
 
-  // Resolved applied genre and country IDs
   const [resolvedIncludeGenres, setResolvedIncludeGenres] = useState<number[]>(
     () => resolveGenreTokensFromList(p.genres, cachedFilters?.genres ?? []),
   );
@@ -743,6 +721,83 @@ export default function BrowseClient(props: ExploreSearchParams) {
       p.excludeCountries,
       cachedFilters?.countries ?? [],
     ),
+  );
+
+  // Deterministic query key for caching active Explore results
+  const activeQueryKey = useMemo(() => {
+    return JSON.stringify({
+      type,
+      excludeTypes,
+      resolvedIncludeGenres,
+      genreMatchMode,
+      resolvedExcludeGenres,
+      resolvedIncludeCountries,
+      resolvedExcludeCountries,
+      order,
+      direction,
+      ratingSource,
+      ratingFrom,
+      ratingTo,
+      requireImdb,
+      minVotes,
+      yearFrom,
+      yearTo,
+      runtimeBucket,
+      includeAgeTiers,
+      excludeAgeTiers,
+      seriesStatus,
+      keyword: p.keyword?.trim() || "",
+      collectionPreset,
+      activeLens,
+      hideWatched,
+      hideFavorites,
+      hideWatchLater,
+      page,
+      randomSeed,
+    });
+  }, [
+    type,
+    excludeTypes,
+    resolvedIncludeGenres,
+    genreMatchMode,
+    resolvedExcludeGenres,
+    resolvedIncludeCountries,
+    resolvedExcludeCountries,
+    order,
+    direction,
+    ratingSource,
+    ratingFrom,
+    ratingTo,
+    requireImdb,
+    minVotes,
+    yearFrom,
+    yearTo,
+    runtimeBucket,
+    includeAgeTiers,
+    excludeAgeTiers,
+    seriesStatus,
+    p.keyword,
+    collectionPreset,
+    activeLens,
+    hideWatched,
+    hideFavorites,
+    hideWatchLater,
+    page,
+    randomSeed,
+  ]);
+
+  const initialSnapshot = getValidBrowseSnapshot(activeQueryKey);
+
+  const [films, setFilms] = useState<Film[]>(
+    () => initialSnapshot?.films ?? [],
+  );
+  const [totalPages, setTotalPages] = useState(
+    () => initialSnapshot?.totalPages ?? 1,
+  );
+  const [loading, setLoading] = useState<boolean>(() => !initialSnapshot);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [streamedPage, setStreamedPage] = useState(
+    () => initialSnapshot?.streamedPage ?? page,
   );
 
   // Staged Draft State
@@ -784,7 +839,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
 
   useDocumentTitle("Explore Films & Series");
 
-  // Load filter metadata once per session (in parallel, without blocking numeric/default film queries)
   useEffect(() => {
     if (!hasApiKeys()) return;
     if (cachedFilters) {
@@ -810,7 +864,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     };
   }, []);
 
-  // Synchronously resolve genre/country tokens whenever URL params or filter lists update
   useEffect(() => {
     const incG = resolveGenreTokensFromList(p.genres, genres);
     const excG = resolveGenreTokensFromList(p.excludeGenres, genres);
@@ -854,7 +907,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     p.excludeCountries,
   ]);
 
-  // Sync URL prop changes back into draft state
   useEffect(() => {
     setDraft((prev) => ({
       ...prev,
@@ -896,7 +948,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     p.hideWatchLater,
   ]);
 
-  // Count how many staged draft filter changes are waiting to be applied
   const pendingChangesCount = useMemo(() => {
     let diff = 0;
     if (!sameNumArray(draft.includeGenres, resolvedIncludeGenres)) diff++;
@@ -951,7 +1002,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     string | undefined
   > => {
     return {
-      // Preserve explicit "ALL" in URL when user's default preference is not "ALL"
       type: type === "ALL" ? (prefType !== "ALL" ? "ALL" : undefined) : type,
       excludeTypes:
         excludeTypes.length > 0 ? excludeTypes.join(",") : undefined,
@@ -1046,7 +1096,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
     [currentParamsRecord],
   );
 
-  // Optimistic client update + non-blocking URL transition
+  // Optimistic client update + immediate skeleton display when switching to an uncached tab/filter
   const pushFilters = useCallback(
     (overrides: Record<string, string | undefined>, replaceAll = false) => {
       const base = replaceAll ? {} : currentParamsRecord();
@@ -1064,17 +1114,55 @@ export default function BrowseClient(props: ExploreSearchParams) {
         }
       });
 
+      // Trigger loading state immediately so film card skeletons render on the exact click frame
+      setLoading(true);
+      setLoadingMore(false);
       setOptimisticParams(cleanNext as ExploreSearchParams);
+
       const qs = params.toString();
       const href = qs ? `/explore?${qs}` : "/explore";
       startTransition(() => {
-        router.push(href);
+        router.push(href, { scroll: false });
       });
     },
     [router, currentParamsRecord],
   );
 
-  // Commit staged draft state when user clicks "Apply Filters"
+  // Intercept pagination clicks for 0ms optimistic page transitions with skeleton feedback
+  const handleOptimisticPageClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (
+        e.defaultPrevented ||
+        e.button !== 0 ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.shiftKey
+      ) {
+        return;
+      }
+      const anchor = (e.target as HTMLElement).closest("a");
+      if (!anchor) return;
+      const href = anchor.getAttribute("href");
+      if (!href || !href.startsWith("/explore")) return;
+
+      e.preventDefault();
+      const url = new URL(href, window.location.origin);
+      const nextParams: Record<string, string> = {};
+      url.searchParams.forEach((v, k) => {
+        nextParams[k] = v;
+      });
+
+      setLoading(true);
+      setLoadingMore(false);
+      setOptimisticParams(nextParams as ExploreSearchParams);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      startTransition(() => {
+        router.push(href, { scroll: false });
+      });
+    },
+    [router],
+  );
+
   const handleApplyDraftFilters = useCallback(() => {
     pushFilters({
       genres:
@@ -1148,9 +1236,11 @@ export default function BrowseClient(props: ExploreSearchParams) {
       hideWatchLater: false,
     });
     setMobileSheetOpen(false);
+    setLoading(true);
+    setLoadingMore(false);
     setOptimisticParams({});
     startTransition(() => {
-      router.push("/explore");
+      router.push("/explore", { scroll: false });
     });
   }, [router]);
 
@@ -1159,7 +1249,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     [buildFilterHref],
   );
 
-  // Requirement 6: Deterministic check whether a custom saved preset is currently active
   const isSavedPresetSelected = useCallback(
     (preset: SavedExplorePreset): boolean => {
       if (activeLens === preset.id) return true;
@@ -1196,7 +1285,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     [activeLens, currentParamsRecord],
   );
 
-  // Only wait for getFilters() if URL contains text genre/country names or exclusions that require full list
   const requiresFiltersMetadata =
     hasNonNumericTokens(p.genres) ||
     hasNonNumericTokens(p.excludeGenres) ||
@@ -1205,83 +1293,16 @@ export default function BrowseClient(props: ExploreSearchParams) {
     Boolean(p.excludeGenres) ||
     Boolean(p.excludeCountries);
 
-  // Deterministic query key for caching active Explore results
-  const activeQueryKey = useMemo(() => {
-    return JSON.stringify({
-      type,
-      excludeTypes,
-      resolvedIncludeGenres,
-      genreMatchMode,
-      resolvedExcludeGenres,
-      resolvedIncludeCountries,
-      resolvedExcludeCountries,
-      order,
-      direction,
-      ratingSource,
-      ratingFrom,
-      ratingTo,
-      requireImdb,
-      minVotes,
-      yearFrom,
-      yearTo,
-      runtimeBucket,
-      includeAgeTiers,
-      excludeAgeTiers,
-      seriesStatus,
-      keyword: p.keyword?.trim() || "",
-      collectionPreset,
-      activeLens,
-      hideWatched,
-      hideFavorites,
-      hideWatchLater,
-      page,
-      randomSeed,
-    });
-  }, [
-    type,
-    excludeTypes,
-    resolvedIncludeGenres,
-    genreMatchMode,
-    resolvedExcludeGenres,
-    resolvedIncludeCountries,
-    resolvedExcludeCountries,
-    order,
-    direction,
-    ratingSource,
-    ratingFrom,
-    ratingTo,
-    requireImdb,
-    minVotes,
-    yearFrom,
-    yearTo,
-    runtimeBucket,
-    includeAgeTiers,
-    excludeAgeTiers,
-    seriesStatus,
-    p.keyword,
-    collectionPreset,
-    activeLens,
-    hideWatched,
-    hideFavorites,
-    hideWatchLater,
-    page,
-    randomSeed,
-  ]);
-
   // Fetch films via Partitioned Multi-Constraint Discovery Engine
   useEffect(() => {
     if (!ready || noKey) return;
     if (requiresFiltersMetadata && !filtersLoaded) return;
 
-    // Instant 0ms restore if returning to the same query within 5 minutes
-    if (
-      browseCache &&
-      browseCache.queryKey === activeQueryKey &&
-      Date.now() - browseCache.timestamp < BROWSE_SNAPSHOT_TTL
-    ) {
-      setFilms(browseCache.films);
-      setTotalPages(browseCache.totalPages);
-      setStreamedPage(browseCache.streamedPage);
+    const cachedSnap = getValidBrowseSnapshot(activeQueryKey);
+    if (cachedSnap) {
+      setFilms(cachedSnap.films);
+      setTotalPages(cachedSnap.totalPages);
+      setStreamedPage(cachedSnap.streamedPage);
       setLoading(false);
       return;
     }
@@ -1328,13 +1349,13 @@ export default function BrowseClient(props: ExploreSearchParams) {
         const pages = res.totalPages ?? 1;
         setFilms(items);
         setTotalPages(pages);
-        browseCache = {
+        setBrowseSnapshot({
           queryKey: activeQueryKey,
           timestamp: Date.now(),
           films: items,
           totalPages: pages,
           streamedPage: page,
-        };
+        });
       })
       .catch(() => {
         if (cancelled) return;
@@ -1382,62 +1403,80 @@ export default function BrowseClient(props: ExploreSearchParams) {
     hideWatchLater,
     page,
     randomSeed,
+    genres,
+    countries,
   ]);
 
-  // Continuous "Load Next Batch (+20)" stream without losing scroll position
+  // Continuous "Load More" stream with automatic page advancement if overlap occurs
   const handleLoadNextBatch = async () => {
     if (loadingMore || streamedPage >= totalPages) return;
-    const nextP = streamedPage + 1;
     setLoadingMore(true);
     try {
-      const res = await discoverFilms({
-        type,
-        excludeTypes,
-        includeGenres: resolvedIncludeGenres,
-        genreMatchMode,
-        excludeGenres: resolvedExcludeGenres,
-        includeCountries: resolvedIncludeCountries,
-        excludeCountries: resolvedExcludeCountries,
-        order,
-        direction,
-        ratingSource,
-        ratingFrom,
-        ratingTo,
-        requireImdb,
-        minVotes,
-        yearFrom,
-        yearTo,
-        runtimeBucket,
-        includeAgeTiers,
-        excludeAgeTiers,
-        seriesStatus,
-        keyword: p.keyword?.trim() || undefined,
-        collectionPreset,
-        lens: activeLens,
-        hideWatched,
-        hideFavorites,
-        hideWatchLater,
-        page: nextP,
-        randomSeed,
-        allGenresList: cachedFilters?.genres ?? genres,
-        allCountriesList: cachedFilters?.countries ?? countries,
-      });
       const existingIds = new Set(films.map((f) => f.kinopoiskId ?? f.filmId));
-      const fresh = (res.items ?? []).filter(
-        (f) => !existingIds.has(f.kinopoiskId ?? f.filmId),
-      );
+      let nextP = streamedPage + 1;
+      const collected: Film[] = [];
+
+      // Probe up to 2 consecutive pages if needed so "Load More" always appends fresh unseen films
+      for (let attempt = 0; attempt < 2 && nextP <= totalPages; attempt++) {
+        const res = await discoverFilms({
+          type,
+          excludeTypes,
+          includeGenres: resolvedIncludeGenres,
+          genreMatchMode,
+          excludeGenres: resolvedExcludeGenres,
+          includeCountries: resolvedIncludeCountries,
+          excludeCountries: resolvedExcludeCountries,
+          order,
+          direction,
+          ratingSource,
+          ratingFrom,
+          ratingTo,
+          requireImdb,
+          minVotes,
+          yearFrom,
+          yearTo,
+          runtimeBucket,
+          includeAgeTiers,
+          excludeAgeTiers,
+          seriesStatus,
+          keyword: p.keyword?.trim() || undefined,
+          collectionPreset,
+          lens: activeLens,
+          hideWatched,
+          hideFavorites,
+          hideWatchLater,
+          page: nextP,
+          randomSeed: randomSeed + attempt * 19,
+          allGenresList: cachedFilters?.genres ?? genres,
+          allCountriesList: cachedFilters?.countries ?? countries,
+        });
+
+        for (const item of res.items ?? []) {
+          const id = item.kinopoiskId ?? item.filmId;
+          if (id && !existingIds.has(id)) {
+            existingIds.add(id);
+            collected.push(item);
+          }
+        }
+
+        if (collected.length >= 8) break;
+        nextP += 1;
+      }
+
+      const finalStreamedPage = Math.min(totalPages, nextP);
       setFilms((prev) => {
-        const updated = [...prev, ...fresh];
-        if (browseCache && browseCache.queryKey === activeQueryKey) {
-          browseCache = {
-            ...browseCache,
+        const updated = [...prev, ...collected];
+        const snap = browseCacheMap.get(activeQueryKey);
+        if (snap) {
+          setBrowseSnapshot({
+            ...snap,
             films: updated,
-            streamedPage: nextP,
-          };
+            streamedPage: finalStreamedPage,
+          });
         }
         return updated;
       });
-      setStreamedPage(nextP);
+      setStreamedPage(finalStreamedPage);
     } catch {
       toast.error("Could not load next batch");
     } finally {
@@ -1445,7 +1484,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     }
   };
 
-  // Pre-translate and sort countries once when loaded so searching/opening tab is O(N) instead of O(N log N)
   const preparedCountries = useMemo(() => {
     return countries
       .filter((c) => c.country !== "")
@@ -1469,7 +1507,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     );
   }, [preparedCountries, countrySearch]);
 
-  // Draft Include / Exclude handlers
   const toggleDraftGenreInclude = useCallback((genreId: number) => {
     setDraft((prev) => {
       const isInc = prev.includeGenres.includes(genreId);
@@ -1597,7 +1634,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
 
   if (noKey) return <NoKeyBanner />;
 
-  // Requirement 6: Save current filters (including any pending draft filters) and immediately activate the preset
   const handleSaveCurrentPreset = () => {
     const label = presetNameInput.trim();
     if (!label) return;
@@ -1664,7 +1700,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
     setPresetNameInput("");
     setShowSavePresetInput(false);
     pushFilters(cleanParams, true);
-    toast.success(`Saved & activated preset "${label}"`);
+    toast.success("Saved & activated preset", {
+      description: label,
+      icon: "sparkles",
+    });
   };
 
   // Build active applied filter chips
@@ -1886,7 +1925,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     },
   ];
 
-  // Shared Filter Panel Body rendered inside Desktop Deck or Mobile Bottom-Sheet
   const renderFilterDeckBody = () => (
     <div className="flex flex-col gap-4">
       {(activeStudioTab === "GENRES" ||
@@ -1961,7 +1999,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
         </div>
       )}
 
-      {/* TAB 1: MULTI-GENRE MATRIX */}
       {activeStudioTab === "GENRES" && (
         <div className="flex flex-wrap gap-2">
           {genres
@@ -1985,7 +2022,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
         </div>
       )}
 
-      {/* TAB 2: COUNTRIES MATRIX */}
       {activeStudioTab === "COUNTRIES" && (
         <div>
           <div className="mb-3">
@@ -2017,7 +2053,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
         </div>
       )}
 
-      {/* TAB 3: RATINGS & VOTE CONFIDENCE */}
       {activeStudioTab === "RATINGS" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
@@ -2160,7 +2195,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
         </div>
       )}
 
-      {/* TAB 4: ERA, RUNTIME & AGE SUITABILITY */}
       {activeStudioTab === "ERA_RUNTIME" && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           <div>
@@ -2315,7 +2349,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
         </div>
       )}
 
-      {/* TAB 5: CURATED THEME COLLECTIONS & PERSONAL LIBRARY */}
       {activeStudioTab === "LIBRARY" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
@@ -2403,19 +2436,35 @@ export default function BrowseClient(props: ExploreSearchParams) {
         title="EXPLORE"
         className="mb-3.5 sm:mb-6"
         rightSlot={
-          <button
-            type="button"
-            onClick={handleSurpriseMe}
-            disabled={films.length === 0}
-            className="btn btn-primary py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] disabled:opacity-40"
-          >
-            <Shuffle size={13} />
-            Surprise Me
-          </button>
+          <div className="flex items-center gap-2">
+            {activeLens === "FOR_YOU" && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLoading(true);
+                  setRandomSeed((s) => s + 1);
+                }}
+                className="btn btn-ghost py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px]"
+                title="Shuffle your personalized For You mix"
+              >
+                <Shuffle size={13} className="text-[var(--accent)]" />
+                <span>Shuffle Mix</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleSurpriseMe}
+              disabled={films.length === 0}
+              className="btn btn-primary py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] disabled:opacity-40"
+            >
+              <Shuffle size={13} />
+              Surprise Me
+            </button>
+          </div>
         }
       />
 
-      {/* ── LAYER 1: Default Smart Lenses + Separate Custom Saved Presets Row (Always visible) ── */}
+      {/* ── LAYER 1: Default Smart Lenses + Separate Custom Saved Presets Row ── */}
       <div className="mb-3.5 sm:mb-5">
         <div className="flex items-center justify-between gap-2 mb-2">
           <span className="text-[11px] font-bold uppercase tracking-[1.4px] text-[var(--text-muted)] flex items-center gap-1.5">
@@ -2498,7 +2547,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
           })}
         </div>
 
-        {/* Row 2: Custom Saved Presets on a Separate Line with Identical Active/Toggle Behavior (Requirement 6) */}
+        {/* Row 2: Custom Saved Presets */}
         {savedPresets.length > 0 && (
           <div className="mt-1.5 md:mt-2 pb-2 border-b border-[var(--border)]">
             <span className="text-[11px] mb-1.5 font-bold uppercase tracking-[1.4px] text-[var(--text-muted)] flex items-center gap-1.5">
@@ -2543,7 +2592,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
                         if (selected) {
                           handleResetAllFilters();
                         }
-                        toast.info(`Removed preset "${preset.name}"`);
+                        toast.info("Removed preset", {
+                          description: preset.name,
+                          icon: "trash",
+                        });
                       }}
                       title="Delete preset"
                       className="px-2 py-1.5 text-[var(--text-muted)] hover:text-[var(--accent)] bg-transparent border-none border-l border-[var(--border)] cursor-pointer"
@@ -2558,9 +2610,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
         )}
       </div>
 
-      {/* ── LAYER 2: Category Selector Row (Always Visible) + Collapsible Explore Controls on Mobile (Requirement 5) ── */}
+      {/* ── LAYER 2: Category Selector Row + Collapsible Explore Controls ── */}
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[14px] p-2.5 sm:p-4 mb-5 sm:mb-6 shadow-[0_12px_40px_rgba(0,0,0,0.4)]">
-        {/* Top Row: Category Selector Row (All, Movies, TV Series, ...) + Mobile Collapse Toggle */}
         <div className="flex items-center gap-1.5 flex-wrap justify-center md:justify-start md:overflow-x-auto pb-0.5 scrollbar-none flex-1 min-w-0">
           {TYPES.map((t) => {
             const isSelected = type === t.value;
@@ -2568,7 +2619,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
               <button
                 key={t.value}
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  if (isSelected) return;
                   pushFilters({
                     type:
                       t.value === "ALL"
@@ -2576,8 +2628,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
                           ? "ALL"
                           : undefined
                         : t.value,
-                  })
-                }
+                  });
+                }}
                 className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
                   isSelected
                     ? "bg-[var(--accent)] border-[var(--accent)] text-white shadow-[0_0_12px_rgba(229,9,20,0.3)]"
@@ -2588,7 +2640,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
               </button>
             );
           })}
-          {/* Mobile Collapse / Expand Toggle Button for all controls & tags below */}
           <button
             type="button"
             onClick={() => setMobileControlsExpanded((v) => !v)}
@@ -2616,13 +2667,11 @@ export default function BrowseClient(props: ExploreSearchParams) {
           </button>
         </div>
 
-        {/* Collapsible Section on Mobile (Hidden when collapsed on mobile; always visible on desktop) */}
         <div
           className={`${
             mobileControlsExpanded ? "block" : "hidden md:block"
           } mt-2.5 pt-2.5 border-t border-[var(--border)]`}
         >
-          {/* Sort + Keyword + Mobile Filter Sheet Trigger */}
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
             <button
               type="button"
@@ -2702,7 +2751,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
             ) : (
               <button
                 type="button"
-                onClick={() => setRandomSeed((s) => s + 1)}
+                onClick={() => {
+                  setLoading(true);
+                  setRandomSeed((s) => s + 1);
+                }}
                 className="px-3 py-2 rounded-[8px] text-[12px] font-semibold border border-[var(--accent)] bg-[var(--accent-dim)] text-white cursor-pointer inline-flex items-center gap-1.5 flex-shrink-0"
               >
                 <Shuffle size={13} />
@@ -2745,7 +2797,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
             </form>
           </div>
 
-          {/* Desktop Filter Category Tabs */}
           <div className="hidden md:flex items-center justify-between gap-2 pt-3 mt-3 border-t border-[var(--border)] flex-wrap">
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
               {studioTabs.map((tab) => {
@@ -2807,7 +2858,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
             </div>
           </div>
 
-          {/* Desktop Expandable Studio Filter Panel + Apply Filters Footer */}
           {deckExpanded && (
             <div className="hidden md:block mt-4 pt-4 border-t border-[var(--border)] fade-in">
               {renderFilterDeckBody()}
@@ -2842,7 +2892,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
             </div>
           )}
 
-          {/* Active Applied Filter Summary Chips (Hidden when collapsed on mobile per Requirement 5) */}
           {activeFilterTags.length > 0 && (
             <div className="flex items-center flex-wrap gap-1.5 mt-3 pt-3 border-t border-[var(--border)]">
               {activeFilterTags.map((tag, idx) => (
@@ -2965,17 +3014,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
         </div>
       )}
 
-      {/* ── LAYER 3: Poster Grid (Keeps existing cards mounted during filter switches to prevent DOM thrashing) ── */}
-      {loading && films.length === 0 ? (
-        <div className="film-grid">
-          {Array.from({ length: 20 }).map((_, i) => (
-            <div
-              key={i}
-              className="skeleton aspect-[2/3] rounded-[10px] sm:rounded-[12px]"
-            />
-          ))}
-        </div>
-      ) : !loading && films.length === 0 ? (
+      {/* ── LAYER 3: Poster Grid (Shows FilmCardSkeletonGrid whenever loading an uncached tab or filter) ── */}
+      {loading ? (
+        <FilmCardSkeletonGrid count={20} />
+      ) : films.length === 0 ? (
         <EmptyState
           icon={<Search size={36} />}
           title="No Matching Titles Found"
@@ -2986,14 +3028,17 @@ export default function BrowseClient(props: ExploreSearchParams) {
       ) : (
         <MemoizedFilmGrid
           films={films}
-          isRefreshing={loading}
+          loadingMore={loadingMore}
           onQuickPeek={handleQuickPeek}
         />
       )}
 
       {/* ── LAYER 4: Continuous Stream Button + Deep Pagination ── */}
       {!loading && films.length > 0 && (
-        <div className="mt-8 flex flex-col items-center gap-3">
+        <div
+          className="mt-8 flex flex-col items-center gap-3"
+          onClickCapture={handleOptimisticPageClick}
+        >
           {streamedPage < totalPages && (
             <button
               type="button"
@@ -3001,7 +3046,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
               disabled={loadingMore}
               className="btn btn-ghost border-[rgba(229,9,20,0.4)] text-white px-6 py-3 text-[13px] font-semibold hover:bg-[var(--accent-dim)]"
             >
-              {loadingMore ? "Loading…" : "Load More"}
+              {loadingMore ? "Loading More…" : "Load More"}
             </button>
           )}
           <Pagination
@@ -3129,6 +3174,9 @@ function QuickPeekModal({
           src={detail.posterUrlPreview || detail.posterUrl}
           alt={title}
           title={title}
+          filmId={id}
+          imdbId={detail.imdbId}
+          year={detail.year}
           className="w-[140px] sm:w-[180px] aspect-[2/3] rounded-[10px] overflow-hidden flex-shrink-0 mx-auto sm:mx-0 bg-[var(--surface)] relative"
         />
         <div className="flex-1 min-w-0">
@@ -3230,6 +3278,15 @@ function QuickPeekModal({
                 const added = toggleFavorite(filmEntry);
                 toast.success(
                   added ? "Added to Favorites" : "Removed from Favorites",
+                  {
+                    description: title,
+                    posterUrl: filmEntry.poster_url,
+                    icon: "heart",
+                    action: {
+                      label: "Undo",
+                      onClick: () => toggleFavorite(filmEntry),
+                    },
+                  },
                 );
               }}
               className="btn btn-ghost py-2 px-3 text-[12px]"
@@ -3247,6 +3304,15 @@ function QuickPeekModal({
                 const added = toggleWatchLater(filmEntry);
                 toast.info(
                   added ? "Saved to Watch Later" : "Removed from Watch Later",
+                  {
+                    description: title,
+                    posterUrl: filmEntry.poster_url,
+                    icon: "clock",
+                    action: {
+                      label: "Undo",
+                      onClick: () => toggleWatchLater(filmEntry),
+                    },
+                  },
                 );
               }}
               className="btn btn-ghost py-2 px-3 text-[12px]"
@@ -3292,6 +3358,9 @@ function SurpriseMeModal({
           src={film.posterUrlPreview || film.posterUrl}
           alt={title}
           title={title}
+          filmId={id}
+          imdbId={film.imdbId}
+          year={film.year}
           priority
           className="w-[155px] aspect-[2/3] rounded-[12px] overflow-hidden shadow-[0_12px_40px_rgba(0,0,0,0.7)] mb-4 bg-[var(--surface)] relative"
         />

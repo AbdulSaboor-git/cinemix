@@ -433,12 +433,13 @@ export function stripHtml(html: string): string {
     .trim();
 }
 
-// ─── Persistent Translation Cache & Deduplication ─────────────────────────────
+// ─── Persistent Translation Cache & Micro-Batched Persistence ─────────────────
 
 const TRANSLATE_CACHE_KEY = "cinemix_translate_cache_v1";
 const MAX_TRANSLATE_CACHE = 1500;
 let memoryTranslateCache: Record<string, string> | null = null;
 const inflightRequests = new Map<string, Promise<string>>();
+let persistTranslateTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getTranslateCache(): Record<string, string> {
   if (memoryTranslateCache) return memoryTranslateCache;
@@ -457,19 +458,30 @@ export function getCachedTranslation(text?: string | null): string | undefined {
   return getTranslateCache()[text];
 }
 
+function schedulePersistTranslateCache() {
+  if (typeof window === "undefined" || persistTranslateTimer) return;
+  persistTranslateTimer = setTimeout(() => {
+    persistTranslateTimer = null;
+    try {
+      const cache = getTranslateCache();
+      localStorage.setItem(TRANSLATE_CACHE_KEY, JSON.stringify(cache));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, 400);
+}
+
 function setCachedTranslation(source: string, translated: string) {
   if (typeof window === "undefined") return;
   const cache = getTranslateCache();
   const keys = Object.keys(cache);
   if (keys.length >= MAX_TRANSLATE_CACHE) {
-    delete cache[keys[0]];
+    for (let i = 0; i < 150; i++) {
+      delete cache[keys[i]];
+    }
   }
   cache[source] = translated;
-  try {
-    localStorage.setItem(TRANSLATE_CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    // ignore storage quota errors
-  }
+  schedulePersistTranslateCache();
 }
 
 export async function translateText(

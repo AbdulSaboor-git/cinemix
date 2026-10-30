@@ -1,6 +1,5 @@
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import Link from "next/link";
 import {
   Heart,
   Clock,
@@ -23,6 +22,7 @@ import {
   isAdultContentFilm,
   isSafeModeActive,
   hydrateFilmWithCache,
+  getCachedFilmMeta,
 } from "@/lib/kinopoisk";
 import { getQuickCertBadge } from "@/lib/parentalGuide";
 import { Film, Season, SimilarFilm } from "@/types/kinopoisk";
@@ -157,6 +157,17 @@ function applySavedServerToList(
   return { list, matched };
 }
 
+function buildInitialCachedWatchFilm(id: number): Film | null {
+  if (typeof window === "undefined" || isNaN(id)) return null;
+  const cached = getCachedFilmMeta(id);
+  if (!cached) return null;
+  return hydrateFilmWithCache({
+    kinopoiskId: id,
+    filmId: id,
+    ...cached,
+  });
+}
+
 function EpisodeRow({
   epNumber,
   nameRu,
@@ -217,13 +228,18 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   const autoTranslate = useAutoTranslate();
 
   const [noKey, setNoKey] = useState(false);
-  const [film, setFilm] = useState<Film | null>(null);
+  const [film, setFilm] = useState<Film | null>(() =>
+    buildInitialCachedWatchFilm(id),
+  );
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [activeSeason, setActiveSeason] = useState(0);
   const [episodeQuery, setEpisodeQuery] = useState("");
   const [visibleEpCount, setVisibleEpCount] = useState(EPISODES_PAGE_SIZE);
   const [similars, setSimilars] = useState<SimilarFilm[]>([]);
-  const [loading, setLoading] = useState(!isNaN(id));
+  const [loading, setLoading] = useState(() => {
+    if (isNaN(id)) return false;
+    return buildInitialCachedWatchFilm(id) === null;
+  });
   const [error, setError] = useState(isNaN(id));
 
   // Cinema Controls: Wide Theater & KinoDivBox Remapped Server Buttons
@@ -290,7 +306,6 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         let nextServers = incoming;
         const saved = savedServerRef.current;
 
-        // If a saved server exists from before refresh, keep it active and instruct the iframe to select it
         if (saved) {
           const { list, matched } = applySavedServerToList(incoming, saved);
           if (matched) {
@@ -350,8 +365,20 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
       });
 
       postServerSelectToIframe(srv);
+      toast.show(
+        srv.isTrailer
+          ? "Switched to Official Trailer"
+          : `Switched to Server ${srv.index + 1}`,
+        {
+          type: "info",
+          icon: "sparkles",
+          description: srv.name,
+          duration: 2000,
+          dedupeKey: `watch-server-${id}`,
+        },
+      );
     },
-    [id, postServerSelectToIframe],
+    [id, postServerSelectToIframe, toast],
   );
 
   useEffect(() => {
@@ -363,7 +390,13 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     if (isNaN(id)) return;
 
     let mounted = true;
-    setLoading(true);
+    const seeded = buildInitialCachedWatchFilm(id);
+    if (seeded) {
+      setFilm(seeded);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError(false);
 
     try {
@@ -378,24 +411,23 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
       // ignore
     }
 
-    getFilm(id)
+    getFilm(id, "high")
       .then((f) => {
         if (!mounted) return;
-        setFilm(hydrateFilmWithCache(f));
+        const merged = hydrateFilmWithCache(f);
+        setFilm(merged);
         setLoading(false);
 
-        if (isSafeModeActive() && isAdultContentFilm(f)) {
+        if (isSafeModeActive() && isAdultContentFilm(merged)) {
           return;
         }
 
-        const fs = getPreferences().filmSections;
-        if (fs.similars) {
-          getSimilarFilms(id)
-            .then((d) => mounted && setSimilars(d.items ?? []))
-            .catch(() => {});
-        }
-        if (f.serial || f.type === "TV_SERIES" || f.type === "MINI_SERIES") {
-          getFilmSeasons(id)
+        if (
+          merged.serial ||
+          merged.type === "TV_SERIES" ||
+          merged.type === "MINI_SERIES"
+        ) {
+          getFilmSeasons(id, "high")
             .then((d) => {
               if (!mounted) return;
               const loadedSeasons = d.items ?? [];
@@ -406,10 +438,17 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
             })
             .catch(() => {});
         }
+
+        const fs = getPreferences().filmSections;
+        if (fs.similars) {
+          getSimilarFilms(id, "low")
+            .then((d) => mounted && setSimilars(d.items ?? []))
+            .catch(() => {});
+        }
       })
       .catch(() => {
         if (mounted) {
-          setError(true);
+          if (!seeded) setError(true);
           setLoading(false);
         }
       });
@@ -509,7 +548,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
   if (noKey) return <NoKeyBanner />;
 
-  if (loading) {
+  if (loading && !film) {
     return (
       <PageContainer>
         <div className="max-w-[960px] mx-auto flex flex-col gap-3">
@@ -562,22 +601,43 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
   const playerUrl = `${PLAYER_PROXY_URL}?id=${id}`;
 
+  const posterThumb = film.posterUrlPreview || film.posterUrl || null;
   const filmEntry = {
     film_id: id,
     film_name: name,
-    poster_url: film.posterUrlPreview || film.posterUrl || null,
+    poster_url: posterThumb,
     year: film.year ?? film.startYear ?? null,
     rating: rating,
   };
 
   const handleFav = () => {
     const added = toggleFavorite(filmEntry);
-    toast.success(added ? "Added to Favorites" : "Removed from Favorites");
+    toast.show(added ? "Added to Favorites" : "Removed from Favorites", {
+      type: added ? "success" : "info",
+      icon: "heart",
+      description: name,
+      posterUrl: posterThumb,
+      dedupeKey: `fav-${id}`,
+      action: {
+        label: "Undo",
+        onClick: () => toggleFavorite(filmEntry),
+      },
+    });
   };
 
   const handleWL = () => {
     const added = toggleWatchLater(filmEntry);
-    toast.info(added ? "Saved to Watch Later" : "Removed from Watch Later");
+    toast.show(added ? "Saved to Watch Later" : "Removed from Watch Later", {
+      type: "info",
+      icon: "clock",
+      description: name,
+      posterUrl: posterThumb,
+      dedupeKey: `wl-${id}`,
+      action: {
+        label: "Undo",
+        onClick: () => toggleWatchLater(filmEntry),
+      },
+    });
   };
 
   return (
@@ -742,7 +802,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           )}
         </div>
 
-        {/* ── Theater Video Stage ── */}
+        {/* ── Theater Video Stage (eagerly mounted so video stream begins immediately) ── */}
         <div className="w-full rounded-[14px] sm:rounded-[16px] overflow-hidden border border-white/[0.07] bg-[#0d0c0c] shadow-[0_20px_60px_rgba(0,0,0,0.85)]">
           <iframe
             ref={iframeRef}
@@ -762,9 +822,9 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
             frameBorder="0"
             scrolling="no"
             allowFullScreen
-            loading="lazy"
+            loading="eager"
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-            title={name}
+            title={name || `Stream ${id}`}
             className={`w-full ${
               wideTheater
                 ? "aspect-video sm:aspect-auto sm:h-[500px] md:h-[440px] lg:h-[540px]"

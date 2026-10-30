@@ -56,7 +56,6 @@ let homeCache: HomeSnapshot | null = null;
 
 /**
  * Mounts heavy below-the-fold FilmRows only when the user scrolls within 350px of them.
- * Keeps initial mobile DOM node count tiny so route transitions stay at 60fps.
  */
 function LazySection({
   children,
@@ -131,7 +130,7 @@ export default function HomeClient() {
   );
 
   // Personalized rows
-  const [watchLaterFilms, setWatchLaterFilms] = useState<Film[]>([]);
+  const [, setWatchLaterFilms] = useState<Film[]>([]);
   const [forYouFilms, setForYouFilms] = useState<Film[]>(
     () => homeCache?.forYouFilms ?? [],
   );
@@ -147,7 +146,6 @@ export default function HomeClient() {
     () => homeCache?.sections ?? null,
   );
 
-  // Keep memory snapshot updated as rows arrive
   useEffect(() => {
     if (!loaded || !sections) return;
     homeCache = {
@@ -183,10 +181,9 @@ export default function HomeClient() {
     secondaryLoaded,
   ]);
 
-  // Sync Watch Later & For You recommendations without blocking initial route paint
   const syncPersonalRows = useCallback(() => {
     const wl = getList("watchlater").slice(0, 15);
-    const hydratedWL = wl.map((e) => {
+    const hydratedWL = wl.map((e, idx) => {
       const item = hydrateFilmWithCache({
         kinopoiskId: e.film_id,
         filmId: e.film_id,
@@ -197,8 +194,8 @@ export default function HomeClient() {
         year: e.year ?? undefined,
         ratingKinopoisk: e.rating ?? undefined,
       });
-      if (!item.year || !item.genres || item.genres.length === 0) {
-        queueFilmMetaHydration(e.film_id, true);
+      if (idx < 6 && (!item.year || !item.genres || item.genres.length === 0)) {
+        queueFilmMetaHydration(e.film_id, false);
       }
       return item;
     });
@@ -223,12 +220,9 @@ export default function HomeClient() {
   }, []);
 
   useEffect(() => {
-    // Defer personal taste discovery slightly so mobile tap transition finishes first
-    const initTimer = setTimeout(() => {
-      if (!hasValidSnapshot || forYouFilms.length === 0) {
-        syncPersonalRows();
-      }
-    }, 250);
+    if (!hasValidSnapshot || forYouFilms.length === 0) {
+      syncPersonalRows();
+    }
 
     let metaDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -236,25 +230,9 @@ export default function HomeClient() {
       if (!e.key || e.key === SESSION_KEY) syncPersonalRows();
     };
 
-    // Debounce meta hydration events so 15 background hydrations don't trigger 15 full-page re-renders
     const onMetaUpdated = () => {
       if (metaDebounceTimer) clearTimeout(metaDebounceTimer);
       metaDebounceTimer = setTimeout(() => {
-        const wl = getList("watchlater").slice(0, 15);
-        setWatchLaterFilms(
-          wl.map((e) =>
-            hydrateFilmWithCache({
-              kinopoiskId: e.film_id,
-              filmId: e.film_id,
-              nameEn: e.film_name,
-              nameRu: e.film_name,
-              posterUrl: e.poster_url || "",
-              posterUrlPreview: e.poster_url || "",
-              year: e.year ?? undefined,
-              ratingKinopoisk: e.rating ?? undefined,
-            }),
-          ),
-        );
         setForYouFilms((prev) =>
           prev.length > 0 ? prev.map((f) => hydrateFilmWithCache(f)) : prev,
         );
@@ -265,7 +243,6 @@ export default function HomeClient() {
     window.addEventListener("storage", onStorage);
     window.addEventListener("cinemix-meta-updated", onMetaUpdated);
     return () => {
-      clearTimeout(initTimer);
       if (metaDebounceTimer) clearTimeout(metaDebounceTimer);
       window.removeEventListener("cinemix-session-change", syncPersonalRows);
       window.removeEventListener("storage", onStorage);
@@ -284,7 +261,6 @@ export default function HomeClient() {
     const regionMode = prefs.contentRegionMode ?? "GLOBAL_FIRST";
     setSections(s);
 
-    // Skip network cascade if we already have a fresh snapshot in memory
     if (hasValidSnapshot && homeCache?.secondaryLoaded) {
       return;
     }
@@ -292,16 +268,19 @@ export default function HomeClient() {
     let mounted = true;
     let stage2Timer: ReturnType<typeof setTimeout> | null = null;
 
-    // Stage 1: Load only Above-the-Fold (Popular + Top 250) so initial paint is fast
+    // Stage 1 (High Priority): Above-the-Fold (Popular + Top 250)
     Promise.allSettled([
       s.popular
-        ? getCuratedHomeSection({
-            collection: "TOP_POPULAR_MOVIES",
-            type: "FILM",
-            ratingFrom: 6.8,
-          })
+        ? getCuratedHomeSection(
+            {
+              collection: "TOP_POPULAR_MOVIES",
+              type: "FILM",
+              ratingFrom: 6.8,
+            },
+            "high",
+          )
         : Promise.resolve(null),
-      s.top250 ? getTopFilms("TOP_250_MOVIES") : Promise.resolve(null),
+      s.top250 ? getTopFilms("TOP_250_MOVIES", 1, "high") : Promise.resolve(null),
     ]).then(([popular, top250]) => {
       if (!mounted) return;
       if (popular.status === "fulfilled" && popular.value) {
@@ -317,52 +296,70 @@ export default function HomeClient() {
       }
       setLoaded(true);
 
-      // Give the browser 180ms to paint the Hero + first 2 rows smoothly before firing Stage 2
+      // Stage 2 runs in LOW priority so navigating to Explore / Top 250 / Premieres preempts it in 0ms!
       stage2Timer = setTimeout(() => {
         if (!mounted) return;
 
         Promise.allSettled([
           s.premieres
-            ? getPremieres(CURRENT_YEAR, CURRENT_MONTH)
+            ? getPremieres(CURRENT_YEAR, CURRENT_MONTH, "low")
             : Promise.resolve(null),
           s.series
-            ? getCuratedHomeSection({ type: "TV_SERIES", ratingFrom: 7.2 })
+            ? getCuratedHomeSection(
+                { type: "TV_SERIES", ratingFrom: 7.2 },
+                "low",
+              )
             : Promise.resolve(null),
           s.action
-            ? getCuratedHomeSection({
-                type: "FILM",
-                genreId: 11,
-                ratingFrom: 6.8,
-              })
+            ? getCuratedHomeSection(
+                {
+                  type: "FILM",
+                  genreId: 11,
+                  ratingFrom: 6.8,
+                },
+                "low",
+              )
             : Promise.resolve(null),
           s.drama
-            ? getCuratedHomeSection({
-                type: "FILM",
-                genreId: 2,
-                ratingFrom: 7.0,
-              })
+            ? getCuratedHomeSection(
+                {
+                  type: "FILM",
+                  genreId: 2,
+                  ratingFrom: 7.0,
+                },
+                "low",
+              )
             : Promise.resolve(null),
           s.scifi
-            ? getCuratedHomeSection({
-                type: "FILM",
-                genreId: 6,
-                ratingFrom: 6.8,
-              })
+            ? getCuratedHomeSection(
+                {
+                  type: "FILM",
+                  genreId: 6,
+                  ratingFrom: 6.8,
+                },
+                "low",
+              )
             : Promise.resolve(null),
-          s.upcoming ? getUpcomingPremieres() : Promise.resolve(null),
+          s.upcoming ? getUpcomingPremieres("low") : Promise.resolve(null),
           s.comedy
-            ? getCuratedHomeSection({
-                type: "FILM",
-                genreId: 13,
-                ratingFrom: 6.5,
-              })
+            ? getCuratedHomeSection(
+                {
+                  type: "FILM",
+                  genreId: 13,
+                  ratingFrom: 6.5,
+                },
+                "low",
+              )
             : Promise.resolve(null),
           s.horror
-            ? getCuratedHomeSection({
-                type: "FILM",
-                genreId: 17,
-                ratingFrom: 6.2,
-              })
+            ? getCuratedHomeSection(
+                {
+                  type: "FILM",
+                  genreId: 17,
+                  ratingFrom: 6.2,
+                },
+                "low",
+              )
             : Promise.resolve(null),
         ]).then(
           ([
@@ -446,7 +443,7 @@ export default function HomeClient() {
             setSecondaryLoaded(true);
           },
         );
-      }, 180);
+      }, 150);
     });
 
     return () => {
@@ -455,7 +452,6 @@ export default function HomeClient() {
     };
   }, [hasValidSnapshot]);
 
-  // Memoize Hero slides using Stage-1 arrays so it never recalculates or flickers when Stage 2 loads
   const heroSlides = useMemo(() => {
     const heroPool = deduplicateFilms([...popularFilms, ...top250Films]).filter(
       (f) => !isRussianDomesticFilm(f),

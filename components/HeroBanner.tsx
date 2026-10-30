@@ -147,22 +147,44 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
   const certBadge = getQuickCertBadge(currentFilm);
   const certTextColor = getCertTextColorClass(currentFilm, certBadge?.label);
 
+  const posterThumb =
+    currentFilm.posterUrlPreview || currentFilm.posterUrl || null;
   const filmEntry = {
     film_id: id,
     film_name: name,
-    poster_url: currentFilm.posterUrlPreview || currentFilm.posterUrl || null,
+    poster_url: posterThumb,
     year: currentFilm.year ?? currentFilm.startYear ?? null,
     rating: currentFilm.ratingImdb ?? currentFilm.ratingKinopoisk ?? null,
   };
 
   const handleFav = () => {
     const added = toggleFavorite(filmEntry);
-    toast.success(added ? "Added to Favorites" : "Removed from Favorites");
+    toast.show(added ? "Added to Favorites" : "Removed from Favorites", {
+      type: added ? "success" : "info",
+      icon: "heart",
+      description: name,
+      posterUrl: posterThumb,
+      dedupeKey: `fav-${id}`,
+      action: {
+        label: "Undo",
+        onClick: () => toggleFavorite(filmEntry),
+      },
+    });
   };
 
   const handleWL = () => {
     const added = toggleWatchLater(filmEntry);
-    toast.info(added ? "Saved to Watch Later" : "Removed from Watch Later");
+    toast.show(added ? "Saved to Watch Later" : "Removed from Watch Later", {
+      type: "info",
+      icon: "clock",
+      description: name,
+      posterUrl: posterThumb,
+      dedupeKey: `wl-${id}`,
+      action: {
+        label: "Undo",
+        onClick: () => toggleWatchLater(filmEntry),
+      },
+    });
   };
 
   // Touch & Pointer swipe handlers for smooth mobile/tablet/desktop swiping
@@ -321,7 +343,7 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
             {name}
           </h1>
 
-          {/* Meta row — clean & decluttered (no KP badge anywhere; PG/18+ hidden on mobile) */}
+          {/* Meta row */}
           <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap mb-3 sm:mb-3.5">
             {ratingDisplay && (
               <div className="flex items-center gap-[5px] bg-black/50 backdrop-blur-md border border-[rgba(245,197,24,0.35)] rounded-[5px] px-2 py-0.5">
@@ -349,7 +371,6 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
               </span>
             )}
 
-            {/* Age / MPAA rating hidden on mobile (< sm) to keep mobile Hero clean */}
             <button
               type="button"
               onClick={() => setParentalOpen(true)}
@@ -364,16 +385,15 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
           {/* Genres & Countries (desktop/tablet only) */}
           <div className="hidden sm:flex flex-wrap gap-2 mb-3.5">
             {currentFilm.genres?.slice(0, 4).map((g) => (
-              <button key={g.genre}>
-                <Link
-                  href={`/explore?genres=${encodeURIComponent(g.genre)}`}
-                  className="no-underline"
-                >
-                  <span className="tag tag-dim hover:border-white/30 transition-colors capitalize">
-                    {translateGenre(g.genre, autoTranslate)}
-                  </span>
-                </Link>
-              </button>
+              <Link
+                key={g.genre}
+                href={`/explore?genres=${encodeURIComponent(g.genre)}`}
+                className="no-underline"
+              >
+                <span className="tag tag-dim hover:border-white/30 transition-colors capitalize">
+                  {translateGenre(g.genre, autoTranslate)}
+                </span>
+              </Link>
             ))}
             {currentFilm.countries?.slice(0, 2).map((c) => (
               <Link
@@ -395,7 +415,7 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
             </p>
           )}
 
-          {/* CTAs — On mobile: only Watch Now & Details; on sm+: also In Favorites & Watch Later */}
+          {/* CTAs */}
           <div className="flex gap-2.5 sm:gap-3 flex-wrap items-center">
             <Link
               href={`/watch/${id}`}
@@ -463,7 +483,7 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
         </div>
       </div>
 
-      {/* Carousel Controls (Prev/Next + Animated Dots) */}
+      {/* Carousel Controls */}
       {slides.length > 1 && (
         <>
           <div className="hidden sm:flex items-center gap-2 absolute right-6 bottom-8 z-[4]">

@@ -36,6 +36,7 @@ import {
   isAdultContentFilm,
   isSafeModeActive,
   hydrateFilmWithCache,
+  getCachedFilmMeta,
 } from "@/lib/kinopoisk";
 import {
   Film,
@@ -82,10 +83,28 @@ import { getQuickCertBadge } from "@/lib/parentalGuide";
 import { toggleFavorite, toggleWatchLater } from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
 
+function buildInitialCachedFilm(id: number): Film | null {
+  if (typeof window === "undefined" || isNaN(id)) return null;
+  const cached = getCachedFilmMeta(id);
+  if (!cached) return null;
+  const hasTitle = Boolean(
+    cached.nameEn || cached.nameOriginal || cached.nameRu,
+  );
+  const hasPoster = Boolean(cached.posterUrlPreview || cached.posterUrl);
+  if (!hasTitle && !hasPoster) return null;
+  return hydrateFilmWithCache({
+    kinopoiskId: id,
+    filmId: id,
+    ...cached,
+  });
+}
+
 export default function FilmPageClient({ filmId }: { filmId: string }) {
   const id = parseInt(filmId, 10);
   const [noKey, setNoKey] = useState(false);
-  const [film, setFilm] = useState<Film | null>(null);
+  const [film, setFilm] = useState<Film | null>(() =>
+    buildInitialCachedFilm(id),
+  );
   const [staff, setStaff] = useState<Staff[]>([]);
   const [related, setRelated] = useState<Film[]>([]);
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -96,7 +115,10 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
   const [awards, setAwards] = useState<Award[]>([]);
   const [images, setImages] = useState<ImageItem[]>([]);
   const [distributions, setDistributions] = useState<Distribution[]>([]);
-  const [loading, setLoading] = useState(!isNaN(id));
+  const [loading, setLoading] = useState(() => {
+    if (isNaN(id)) return false;
+    return buildInitialCachedFilm(id) === null;
+  });
   const [error, setError] = useState(isNaN(id));
 
   useEffect(() => {
@@ -107,7 +129,15 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
     }
     if (isNaN(id)) return;
     let mounted = true;
-    setLoading(true);
+    let stage2Timer: ReturnType<typeof setTimeout> | null = null;
+
+    const seeded = buildInitialCachedFilm(id);
+    if (seeded) {
+      setFilm(seeded);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError(false);
     setStaff([]);
     setRelated([]);
@@ -121,83 +151,95 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
     setDistributions([]);
     window.scrollTo({ top: 0 });
 
-    getFilm(id)
+    getFilm(id, "high")
       .then((f) => {
         if (!mounted) return;
-        setFilm(f);
+        const merged = hydrateFilmWithCache(f);
+        setFilm(merged);
         setLoading(false);
 
-        if (isSafeModeActive() && isAdultContentFilm(f)) {
+        if (isSafeModeActive() && isAdultContentFilm(merged)) {
           return;
         }
 
         const fs = getPreferences().filmSections;
 
+        // ── Stage 1 (High Priority): Above-the-fold Cast, Box Office & Series Seasons ──
         if (fs.cast) {
-          getFilmStaff(id)
+          getFilmStaff(id, "high")
             .then((s) => mounted && setStaff(s || []))
             .catch(() => {});
         }
-        if (fs.sequels) {
-          getRelatedFilms(id)
-            .then((r) => mounted && setRelated(r || []))
-            .catch(() => {});
-        }
-        if (fs.facts) {
-          getFilmFacts(id)
-            .then((d) => mounted && setFacts(d.items || []))
-            .catch(() => {});
-        }
         if (fs.boxOffice) {
-          getFilmBoxOffice(id)
+          getFilmBoxOffice(id, "high")
             .then((d) => mounted && setBoxOffice(d.items || []))
             .catch(() => {});
         }
-        if (fs.similars) {
-          getSimilarFilms(id)
-            .then((d) => mounted && setSimilars(d.items || []))
-            .catch(() => {});
-        }
-        if (fs.reviews) {
-          getFilmReviews(id)
-            .then((d) => mounted && setReviews(d.items || []))
-            .catch(() => {});
-        }
-        if (fs.awards) {
-          getFilmAwards(id)
-            .then((d) => mounted && setAwards(d.items || []))
-            .catch(() => {});
-        }
-        if (fs.gallery) {
-          getFilmImages(id, "STILL", 1)
-            .then((d) => mounted && setImages(d.items || []))
-            .catch(() => {});
-        }
-        if (fs.distributions) {
-          getFilmDistributions(id)
-            .then((d) => mounted && setDistributions(d.items || []))
-            .catch(() => {});
-        }
-        if (f.serial || f.type === "TV_SERIES" || f.type === "MINI_SERIES") {
-          getFilmSeasons(id)
+        if (
+          merged.serial ||
+          merged.type === "TV_SERIES" ||
+          merged.type === "MINI_SERIES"
+        ) {
+          getFilmSeasons(id, "high")
             .then((d) => mounted && setSeasons(d.items || []))
             .catch(() => {});
         }
+
+        // ── Stage 2 (Low Priority, Deferred): Below-the-fold Trivia, Reviews, Awards, Gallery, Similars ──
+        stage2Timer = setTimeout(() => {
+          if (!mounted) return;
+          if (fs.similars) {
+            getSimilarFilms(id, "low")
+              .then((d) => mounted && setSimilars(d.items || []))
+              .catch(() => {});
+          }
+          if (fs.sequels) {
+            getRelatedFilms(id, "low")
+              .then((r) => mounted && setRelated(r || []))
+              .catch(() => {});
+          }
+          if (fs.facts) {
+            getFilmFacts(id, "low")
+              .then((d) => mounted && setFacts(d.items || []))
+              .catch(() => {});
+          }
+          if (fs.reviews) {
+            getFilmReviews(id, 1, "DATE_DESC", "low")
+              .then((d) => mounted && setReviews(d.items || []))
+              .catch(() => {});
+          }
+          if (fs.awards) {
+            getFilmAwards(id, "low")
+              .then((d) => mounted && setAwards(d.items || []))
+              .catch(() => {});
+          }
+          if (fs.gallery) {
+            getFilmImages(id, "STILL", 1, "low")
+              .then((d) => mounted && setImages(d.items || []))
+              .catch(() => {});
+          }
+          if (fs.distributions) {
+            getFilmDistributions(id, "low")
+              .then((d) => mounted && setDistributions(d.items || []))
+              .catch(() => {});
+          }
+        }, 120);
       })
       .catch(() => {
         if (mounted) {
-          setError(true);
+          if (!seeded) setError(true);
           setLoading(false);
         }
       });
 
     return () => {
       mounted = false;
+      if (stage2Timer) clearTimeout(stage2Timer);
     };
   }, [id]);
 
   if (noKey) return <NoKeyBanner />;
-  if (loading) return <LoadingSkeleton />;
+  if (loading && !film) return <LoadingSkeleton />;
   if (error || !film) return <ErrorState />;
 
   if (isSafeModeActive() && isAdultContentFilm(film)) {
@@ -348,22 +390,43 @@ function FilmDetail({
   const [parentalOpen, setParentalOpen] = useState(false);
   const { toast } = useToast();
 
+  const posterThumb = film.posterUrlPreview || film.posterUrl || null;
   const filmEntry = {
     film_id: filmId,
     film_name: name,
-    poster_url: film.posterUrlPreview || film.posterUrl || null,
+    poster_url: posterThumb,
     year: film.year ?? film.startYear ?? null,
     rating: film.ratingKinopoisk ?? film.ratingImdb ?? null,
   };
 
   const handleFav = () => {
     const added = toggleFavorite(filmEntry);
-    toast.success(added ? "Added to Favorites" : "Removed from Favorites");
+    toast.show(added ? "Added to Favorites" : "Removed from Favorites", {
+      type: added ? "success" : "info",
+      icon: "heart",
+      description: name,
+      posterUrl: posterThumb,
+      dedupeKey: `fav-${filmId}`,
+      action: {
+        label: "Undo",
+        onClick: () => toggleFavorite(filmEntry),
+      },
+    });
   };
 
   const handleWL = () => {
     const added = toggleWatchLater(filmEntry);
-    toast.info(added ? "Saved to Watch Later" : "Removed from Watch Later");
+    toast.show(added ? "Saved to Watch Later" : "Removed from Watch Later", {
+      type: "info",
+      icon: "clock",
+      description: name,
+      posterUrl: posterThumb,
+      dedupeKey: `wl-${filmId}`,
+      action: {
+        label: "Undo",
+        onClick: () => toggleWatchLater(filmEntry),
+      },
+    });
   };
 
   const directors = staff
@@ -603,14 +666,12 @@ function FilmDetail({
 
           {/* ── Native Android Action Row on Mobile / Inline on Desktop ── */}
           <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 mb-6">
-            <Link href={`/watch/${filmId}`} className="no-underline">
-              <button
-                type="button"
-                className="btn btn-primary w-full sm:w-auto justify-center px-6 py-3 sm:py-[10px] text-[14px] rounded-[10px] sm:rounded-[var(--radius)]"
-              >
-                <Play size={15} fill="white" stroke="white" />
-                Watch Now
-              </button>
+            <Link
+              href={`/watch/${filmId}`}
+              className="btn btn-primary w-full sm:w-auto justify-center px-6 py-3 sm:py-[10px] text-[14px] rounded-[10px] sm:rounded-[var(--radius)] no-underline"
+            >
+              <Play size={15} fill="white" stroke="white" />
+              Watch Now
             </Link>
 
             <div className="grid grid-cols-2 sm:flex items-center gap-2.5">
@@ -1211,7 +1272,7 @@ function GallerySection({
     if (categoryCache[activeCategory]) return;
     let mounted = true;
     setLoadingCat(true);
-    getFilmImages(filmId, activeCategory, 1)
+    getFilmImages(filmId, activeCategory, 1, "high")
       .then((res) => {
         if (!mounted) return;
         setCategoryCache((prev) => ({

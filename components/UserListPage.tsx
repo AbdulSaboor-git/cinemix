@@ -11,12 +11,10 @@ import {
   X,
   Search,
   Shuffle,
-  LayoutGrid,
-  List as ListIcon,
-  ArrowUpDown,
 } from "lucide-react";
 import {
   getList,
+  addToHistory,
   removeFromHistory,
   toggleFavorite,
   toggleWatchLater,
@@ -88,7 +86,7 @@ function UserListRow({
 }: {
   entry: FilmListEntry;
   type: ListType;
-  onRemove: (id: number) => void;
+  onRemove: (entry: FilmListEntry) => void;
 }) {
   const [removing, setRemoving] = useState(false);
   const autoTranslate = useAutoTranslate();
@@ -96,7 +94,7 @@ function UserListRow({
   const posterWrapRef = useRef<HTMLDivElement>(null);
 
   const rawFilm = useMemo(() => entryToFilm(entry), [entry]);
-  const film = useHydratedFilm(rawFilm, rowRef);
+  const film = useHydratedFilm(rawFilm, rowRef, false, true);
   const displayName = useFilmTitle(film, autoTranslate);
 
   const {
@@ -114,7 +112,7 @@ function UserListRow({
     e.preventDefault();
     e.stopPropagation();
     setRemoving(true);
-    setTimeout(() => onRemove(entry.film_id), 180);
+    setTimeout(() => onRemove(entry), 160);
   };
 
   const formattedDate =
@@ -219,16 +217,18 @@ function UserListRow({
         </button>
       </div>
 
-      <FilmLongPressPortal
-        film={film}
-        popupOpen={popupOpen}
-        popupEntered={popupEntered}
-        originDelta={originDelta}
-        closePopup={closePopup}
-        setPopupOpen={setPopupOpen}
-        setPopupEntered={setPopupEntered}
-        historyPushedRef={historyPushedRef}
-      />
+      {popupOpen && (
+        <FilmLongPressPortal
+          film={film}
+          popupOpen={popupOpen}
+          popupEntered={popupEntered}
+          originDelta={originDelta}
+          closePopup={closePopup}
+          setPopupOpen={setPopupOpen}
+          setPopupEntered={setPopupEntered}
+          historyPushedRef={historyPushedRef}
+        />
+      )}
     </>
   );
 }
@@ -244,7 +244,7 @@ export default function UserListPage({ type }: { type: ListType }) {
   const [sortBy, setSortBy] = useState<"ADDED" | "RATING" | "YEAR" | "TITLE">(
     "ADDED",
   );
-  const [viewMode, setViewMode] = useState<"LIST" | "GRID">("LIST");
+  const [viewMode] = useState<"LIST" | "GRID">("LIST");
 
   const { toast } = useToast();
 
@@ -285,28 +285,45 @@ export default function UserListPage({ type }: { type: ListType }) {
     });
   }, [entries, query, sortBy]);
 
-  const handleRemove = (filmId: number) => {
+  const handleRemove = (removedEntry: FilmListEntry) => {
+    const filmId = removedEntry.film_id;
+    const payload = {
+      film_id: removedEntry.film_id,
+      film_name: removedEntry.film_name,
+      poster_url: removedEntry.poster_url,
+      year: removedEntry.year,
+      rating: removedEntry.rating,
+    };
+
     if (type === "history") {
       removeFromHistory(filmId);
     } else if (type === "favorites") {
-      toggleFavorite({
-        film_id: filmId,
-        film_name: "",
-        poster_url: null,
-        year: null,
-        rating: null,
-      });
+      toggleFavorite(payload);
     } else if (type === "watchlater") {
-      toggleWatchLater({
-        film_id: filmId,
-        film_name: "",
-        poster_url: null,
-        year: null,
-        rating: null,
-      });
+      toggleWatchLater(payload);
     }
     setEntries([...getList(type)]);
-    toast.info("Removed.");
+
+    toast.show(`Removed from ${cfg.label}`, {
+      type: "info",
+      icon: "trash",
+      description: removedEntry.film_name,
+      posterUrl: removedEntry.poster_url,
+      dedupeKey: `remove-${type}-${filmId}`,
+      action: {
+        label: "Undo",
+        onClick: () => {
+          if (type === "history") {
+            addToHistory(payload);
+          } else if (type === "favorites") {
+            toggleFavorite(payload);
+          } else if (type === "watchlater") {
+            toggleWatchLater(payload);
+          }
+          setEntries([...getList(type)]);
+        },
+      },
+    });
   };
 
   const handlePickRandom = () => {
@@ -355,7 +372,7 @@ export default function UserListPage({ type }: { type: ListType }) {
         </div>
       </div>
 
-      {/* Toolbar: Search + Sort + Grid/List View */}
+      {/* Toolbar: Search + Sort */}
       {entries.length > 0 && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-5">
           <div className="relative flex-1">
@@ -385,8 +402,6 @@ export default function UserListPage({ type }: { type: ListType }) {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* <ArrowUpDown size={18} /> */}
-
             <select
               value={sortBy}
               onChange={(e) =>
@@ -401,31 +416,6 @@ export default function UserListPage({ type }: { type: ListType }) {
               <option value="YEAR">Release Year</option>
               <option value="TITLE">Title (A–Z)</option>
             </select>
-
-            {/* <div className="inline-flex items-center rounded-[8px] border border-[var(--border)] bg-[var(--bg-elevated)] p-0.5">
-              <button
-                type="button"
-                onClick={() => setViewMode("LIST")}
-                className={`p-1.5 rounded-[6px] border-none cursor-pointer ${
-                  viewMode === "LIST"
-                    ? "bg-[var(--accent)] text-white"
-                    : "bg-transparent text-[var(--text-muted)]"
-                }`}
-              >
-                <ListIcon size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("GRID")}
-                className={`p-1.5 rounded-[6px] border-none cursor-pointer ${
-                  viewMode === "GRID"
-                    ? "bg-[var(--accent)] text-white"
-                    : "bg-transparent text-[var(--text-muted)]"
-                }`}
-              >
-                <LayoutGrid size={14} />
-              </button>
-            </div> */}
           </div>
         </div>
       )}
@@ -448,7 +438,7 @@ export default function UserListPage({ type }: { type: ListType }) {
                 onClick={(ev) => {
                   ev.preventDefault();
                   ev.stopPropagation();
-                  handleRemove(e.film_id);
+                  handleRemove(e);
                 }}
                 className="absolute top-1.5 left-1.5 z-20 w-7 h-7 rounded-full bg-black/80 border border-white/20 text-white flex items-center justify-center cursor-pointer active:scale-90 transition-transform"
                 aria-label="Remove"

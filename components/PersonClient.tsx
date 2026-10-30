@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
   Star,
@@ -12,8 +12,6 @@ import {
   Sparkles,
   Film as FilmIcon,
   Tv,
-  SlidersHorizontal,
-  ArrowUpDown,
 } from "lucide-react";
 import {
   getPerson,
@@ -38,7 +36,6 @@ import {
   translateCountry,
   isRussian,
   formatDateSafe,
-  translateText,
 } from "@/lib/translate";
 import { hasApiKeys } from "@/lib/preferences";
 import { toggleFavorite, toggleWatchLater } from "@/lib/userLists";
@@ -91,20 +88,31 @@ const FILMOGRAPHY_PAGE_SIZE = 20;
 type CreditSortMode = "RATING" | "YEAR_DESC" | "YEAR_ASC" | "VOTES" | "TITLE";
 type CreditMediaFilter = "ALL" | "MOVIES" | "SERIES";
 
-function getCreditMediaType(
+const SERIES_HINT_RE =
+  /(\bсериал\b|\bмини-сериал\b|\bтв\b|\btv\s*series\b|\bmini-?series\b|\bseason\b|\bepisode\b|\bэпизод|\bсезон)/i;
+
+function inferCreditMediaType(
+  credit: PersonFilm,
   meta?: CompactFilmMeta,
-): Exclude<CreditMediaFilter, "ALL"> | null {
-  if (!meta) return null;
-  if (
-    meta.serial ||
-    meta.type === "TV_SHOW" ||
-    meta.type === "TV_SERIES" ||
-    meta.type === "MINI_SERIES"
-  ) {
+): Exclude<CreditMediaFilter, "ALL"> {
+  if (meta) {
+    if (
+      meta.serial ||
+      meta.type === "TV_SHOW" ||
+      meta.type === "TV_SERIES" ||
+      meta.type === "MINI_SERIES"
+    ) {
+      return "SERIES";
+    }
+    if (meta.type === "FILM" || meta.type === "VIDEO") {
+      return "MOVIES";
+    }
+  }
+  const combined = `${credit.nameRu || ""} ${credit.nameEn || ""} ${credit.description || ""}`;
+  if (SERIES_HINT_RE.test(combined)) {
     return "SERIES";
   }
-  if (meta.type === "FILM" || meta.type === "VIDEO") return "MOVIES";
-  return null;
+  return "MOVIES";
 }
 
 function formatAgeCert(
@@ -173,13 +181,8 @@ export default function PersonClient({ personId }: { personId: string }) {
   const [creditSort, setCreditSort] = useState<CreditSortMode>("RATING");
   const [creditMediaFilter, setCreditMediaFilter] =
     useState<CreditMediaFilter>("ALL");
-  const [mediaTypeProgress, setMediaTypeProgress] = useState({
-    completed: 0,
-    total: 0,
-  });
-  const [mediaTypeLookupFailed, setMediaTypeLookupFailed] = useState(0);
 
-  // Enriched film metadata map (filmId -> CompactFilmMeta) for year, PG/18+ age rating, runtime, poster, IMDb score, votes, genres
+  // Enriched film metadata map (filmId -> CompactFilmMeta)
   const [metaMap, setMetaMap] = useState<Record<number, CompactFilmMeta>>({});
   const enrichedFilmIdsRef = useRef(new Set<number>());
   const [parentalModalFilm, setParentalModalFilm] = useState<Film | null>(null);
@@ -206,7 +209,7 @@ export default function PersonClient({ personId }: { personId: string }) {
       return;
     }
     setLoading(true);
-    getPerson(id)
+    getPerson(id, "high")
       .then((p) => {
         setPerson(p);
         // Seed initial metaMap from localStorage cache immediately
@@ -261,61 +264,13 @@ export default function PersonClient({ personId }: { personId: string }) {
     });
   }, [allFilms, profGroups, resolvedActiveProf]);
 
-  useEffect(() => {
-    if (creditMediaFilter === "ALL") {
-      setMediaTypeProgress({ completed: 0, total: 0 });
-      setMediaTypeLookupFailed(0);
-      return;
-    }
-
-    let cancelled = false;
-    const unresolvedFilms = professionFilms.filter(
-      (film) => !getCreditMediaType(getCachedFilmMeta(film.filmId)),
-    );
-    let completed = 0;
-    let failed = 0;
-
-    setMediaTypeProgress({ completed: 0, total: unresolvedFilms.length });
-    setMediaTypeLookupFailed(0);
-
-    if (unresolvedFilms.length === 0) return;
-
-    void Promise.all(
-      unresolvedFilms.map(async (film) => {
-        if (cancelled) return;
-        try {
-          const details = await getFilm(film.filmId);
-          const meta = getCachedFilmMeta(film.filmId) ?? details;
-          setMetaMap((prev) => ({ ...prev, [film.filmId]: meta }));
-        } catch {
-          failed += 1;
-        } finally {
-          completed += 1;
-          if (!cancelled) {
-            setMediaTypeProgress({
-              completed,
-              total: unresolvedFilms.length,
-            });
-            setMediaTypeLookupFailed(failed);
-          }
-        }
-      }),
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [creditMediaFilter, professionFilms]);
-
-  // Deduplicate, filter, and sort credits
+  // Deduplicate, filter, and sort credits immediately without firing 100+ API calls
   const filteredAndSortedFilms = useMemo(() => {
     const q = creditSearch.trim().toLowerCase();
     const afterFilter = professionFilms.filter((f) => {
-      if (
-        creditMediaFilter !== "ALL" &&
-        getCreditMediaType(metaMap[f.filmId]) !== creditMediaFilter
-      ) {
-        return false;
+      if (creditMediaFilter !== "ALL") {
+        const inferred = inferCreditMediaType(f, metaMap[f.filmId]);
+        if (inferred !== creditMediaFilter) return false;
       }
       if (mainRolesOnly && !f.general) return false;
       if (q) {
@@ -390,13 +345,13 @@ export default function PersonClient({ personId }: { personId: string }) {
     [filteredAndSortedFilms, showAllFilms, filmPage],
   );
 
-  // Progressively enrich the visible credits so every row displays Year, Age/MPAA rating (PG-13/R/18+), Runtime, Poster, Genres & Votes
+  // Progressively enrich ONLY the top visible credits in low priority so navigation stays snappy
   useEffect(() => {
     if (displayedFilms.length === 0) return;
     let cancelled = false;
 
     const toFetch = displayedFilms
-      .slice(0, 20)
+      .slice(0, 12)
       .map((f) => f.filmId)
       .filter((fid) => {
         if (enrichedFilmIdsRef.current.has(fid)) return false;
@@ -430,7 +385,7 @@ export default function PersonClient({ personId }: { personId: string }) {
         if (cancelled) break;
         enrichedFilmIdsRef.current.add(fid);
         try {
-          await getFilm(fid);
+          await getFilm(fid, "low");
           const updatedMeta = getCachedFilmMeta(fid);
           if (!cancelled && updatedMeta) {
             setMetaMap((prev) => ({ ...prev, [fid]: updatedMeta }));
@@ -496,7 +451,7 @@ export default function PersonClient({ personId }: { personId: string }) {
                   {professionLabel}
                 </p>
               )}
-              <h1 className="font-display  text-center md:text-left leading-none tracking-[1px] sm:tracking-[2px] mb-4 text-[clamp(22px,5vw,64px)]">
+              <h1 className="font-display text-center md:text-left leading-none tracking-[1px] sm:tracking-[2px] mb-4 text-[clamp(22px,5vw,64px)]">
                 {name}
               </h1>
 
@@ -688,10 +643,6 @@ export default function PersonClient({ personId }: { personId: string }) {
             </div>
 
             <div className="flex items-center gap-2">
-              {/* <ArrowUpDown
-                size={16}
-                className="shrink-0 text-[var(--text-muted)]"
-              /> */}
               <select
                 value={creditSort}
                 onChange={(e) => {
@@ -711,26 +662,7 @@ export default function PersonClient({ personId }: { personId: string }) {
         </div>
 
         {/* Credits List */}
-        {creditMediaFilter !== "ALL" &&
-          mediaTypeProgress.completed < mediaTypeProgress.total &&
-          displayedFilms.length > 0 && (
-            <p
-              className="mb-3 text-[12px] text-[var(--text-muted)]"
-              role="status"
-            >
-              Finding more matching credits…
-            </p>
-          )}
-        {displayedFilms.length === 0 &&
-        creditMediaFilter !== "ALL" &&
-        mediaTypeProgress.completed < mediaTypeProgress.total ? (
-          <p
-            className="py-8 text-center text-[13px] text-[var(--text-muted)]"
-            role="status"
-          >
-            Finding matching credits…
-          </p>
-        ) : displayedFilms.length === 0 ? (
+        {displayedFilms.length === 0 ? (
           <p className="text-[var(--text-muted)] text-[14px] sm:text-[15px] py-8 text-center">
             No credits match your current filter.
           </p>
@@ -747,14 +679,6 @@ export default function PersonClient({ personId }: { personId: string }) {
             ))}
           </div>
         )}
-        {creditMediaFilter !== "ALL" &&
-          mediaTypeProgress.completed === mediaTypeProgress.total &&
-          mediaTypeLookupFailed > 0 && (
-            <p className="mt-3 text-center text-[12px] text-[var(--text-muted)]">
-              Could not determine the type of {mediaTypeLookupFailed}{" "}
-              {mediaTypeLookupFailed === 1 ? "credit" : "credits"}.
-            </p>
-          )}
 
         {filmTotalPages > 1 && (
           <div className="flex items-center gap-2 mt-6 flex-wrap">
@@ -875,7 +799,7 @@ function FilmEntry({
     }),
     [film, meta],
   );
-  const hydratedFilm = useHydratedFilm(popupFilm, entryRef);
+  const hydratedFilm = useHydratedFilm(popupFilm, entryRef, false, true);
   const {
     popupOpen,
     popupEntered,
@@ -899,6 +823,7 @@ function FilmEntry({
   const baseRating = parseFloat(film.rating || "0") || null;
   const kpRating = meta?.ratingKinopoisk ?? baseRating;
   const imdbRating = meta?.ratingImdb;
+  const displayScore = imdbRating ?? kpRating;
   const votesLabel = formatVotesShort(meta?.votes);
 
   const profLabel = film.professionKey
@@ -914,8 +839,7 @@ function FilmEntry({
         : String(meta.year ?? meta.startYear)
       : null;
 
-  const isSeries =
-    meta?.serial || meta?.type === "TV_SERIES" || meta?.type === "MINI_SERIES";
+  const isSeries = inferCreditMediaType(film, meta) === "SERIES";
 
   const runtimeDisplay =
     meta?.filmLength && meta.filmLength > 0
@@ -938,12 +862,13 @@ function FilmEntry({
       )
     : null;
 
+  const posterThumb = meta?.posterUrlPreview || meta?.posterUrl || null;
   const filmEntryPayload = {
     film_id: film.filmId,
     film_name: name,
-    poster_url: meta?.posterUrlPreview || null,
+    poster_url: posterThumb,
     year: meta?.year ?? meta?.startYear ?? null,
-    rating: imdbRating ?? kpRating ?? null,
+    rating: displayScore ?? null,
   };
 
   const router = useRouter();
@@ -1003,7 +928,7 @@ function FilmEntry({
             </span>
           )}
 
-          {/* Age / MPAA Rating Badge (PG, PG-13, R, 16+, 18+ - Clickable for Parental Guide) */}
+          {/* Age / MPAA Rating Badge */}
           {ageCert && (
             <button
               type="button"
@@ -1025,12 +950,10 @@ function FilmEntry({
           )}
 
           {/* Media Type Pill (Movie vs Series) */}
-          {meta && (
-            <span className="text-[10px] text-[var(--text-dim)] bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[4px] px-1.5 py-[1px] inline-flex items-center gap-1 flex-shrink-0">
-              {isSeries ? <Tv size={10} /> : <FilmIcon size={10} />}
-              {isSeries ? "Series" : "Movie"}
-            </span>
-          )}
+          <span className="text-[10px] text-[var(--text-dim)] bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[4px] px-1.5 py-[1px] inline-flex items-center gap-1 flex-shrink-0">
+            {isSeries ? <Tv size={10} /> : <FilmIcon size={10} />}
+            {isSeries ? "Series" : "Movie"}
+          </span>
 
           {/* Profession Pill (Actor, Producer, Director, etc.) */}
           {profLabel && (
@@ -1068,15 +991,15 @@ function FilmEntry({
         </div>
       </div>
 
-      {/* Right Column: Dual IMDb + KP Ratings, Vote Count & Quick List Actions */}
+      {/* Right Column: Rating, Vote Count & Quick List Actions */}
       <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
         <div className="flex flex-col items-end gap-0.5">
           <div className="flex items-center gap-2">
-            {imdbRating && imdbRating > 0 && (
+            {displayScore && displayScore > 0 && (
               <div className="flex items-center gap-1">
                 <Star size={11} fill="#f5c518" stroke="#f5c518" />
                 <span className="font-display text-[15px] sm:text-[17px] text-[#f5c518]">
-                  {imdbRating.toFixed(1)}
+                  {displayScore.toFixed(1)}
                 </span>
               </div>
             )}
@@ -1096,8 +1019,19 @@ function FilmEntry({
               e.preventDefault();
               e.stopPropagation();
               const added = toggleFavorite(filmEntryPayload);
-              toast.success(
+              toast.show(
                 added ? "Added to Favorites" : "Removed from Favorites",
+                {
+                  type: added ? "success" : "info",
+                  icon: "heart",
+                  description: name,
+                  posterUrl: posterThumb,
+                  dedupeKey: `fav-${film.filmId}`,
+                  action: {
+                    label: "Undo",
+                    onClick: () => toggleFavorite(filmEntryPayload),
+                  },
+                },
               );
             }}
             title={isFav ? "In Favorites" : "Add to Favorites"}
@@ -1119,8 +1053,19 @@ function FilmEntry({
               e.preventDefault();
               e.stopPropagation();
               const added = toggleWatchLater(filmEntryPayload);
-              toast.info(
+              toast.show(
                 added ? "Saved to Watch Later" : "Removed from Watch Later",
+                {
+                  type: "info",
+                  icon: "clock",
+                  description: name,
+                  posterUrl: posterThumb,
+                  dedupeKey: `wl-${film.filmId}`,
+                  action: {
+                    label: "Undo",
+                    onClick: () => toggleWatchLater(filmEntryPayload),
+                  },
+                },
               );
             }}
             title={isWL ? "In Watch Later" : "Save to Watch Later"}
@@ -1143,16 +1088,18 @@ function FilmEntry({
         </Link>
       </div>
 
-      <FilmLongPressPortal
-        film={hydratedFilm}
-        popupOpen={popupOpen}
-        popupEntered={popupEntered}
-        originDelta={originDelta}
-        closePopup={closePopup}
-        setPopupOpen={setPopupOpen}
-        setPopupEntered={setPopupEntered}
-        historyPushedRef={historyPushedRef}
-      />
+      {popupOpen && (
+        <FilmLongPressPortal
+          film={hydratedFilm}
+          popupOpen={popupOpen}
+          popupEntered={popupEntered}
+          originDelta={originDelta}
+          closePopup={closePopup}
+          setPopupOpen={setPopupOpen}
+          setPopupEntered={setPopupEntered}
+          historyPushedRef={historyPushedRef}
+        />
+      )}
     </div>
   );
 }

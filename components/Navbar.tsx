@@ -4,7 +4,10 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Search, Settings, User, X } from "lucide-react";
-import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
+import {
+  useSearchSuggestions,
+  saveRecentSearch,
+} from "@/hooks/useSearchSuggestions";
 import SearchSuggestionDropdown from "@/components/SearchSuggestionDropdown";
 import Logo from "./logo";
 
@@ -201,6 +204,7 @@ export default function Navbar() {
     sugLoading,
     sugVisible,
     selectedIdx,
+    semanticMeta,
     setSugVisible,
     fetchSuggestions,
     clearSuggestions,
@@ -283,14 +287,26 @@ export default function Navbar() {
     e.preventDefault();
     const selected = suggestions[selectedIdx];
     if (selected) {
+      saveRecentSearch(
+        selected.nameEn || selected.nameOriginal || selected.nameRu || search,
+      );
       router.push(`/film/${selected.kinopoiskId ?? selected.filmId}`);
     } else if (search.trim()) {
+      saveRecentSearch(search.trim());
       router.push(`/search?q=${encodeURIComponent(search.trim())}`);
     }
     setSearch("");
     clearSuggestions();
     setSearchOpen(false);
   };
+
+  const showDropdown =
+    sugVisible &&
+    (suggestions.length > 0 ||
+      sugLoading ||
+      Boolean(semanticMeta?.correctedQuery) ||
+      Boolean(semanticMeta?.matchedConcept) ||
+      (semanticMeta?.relatedTerms?.length ?? 0) > 0);
 
   const isActive = (href: string) => {
     const base = href.split("?")[0];
@@ -342,8 +358,8 @@ export default function Navbar() {
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onFocus={() => search.trim().length >= 2 && setSugVisible(true)}
-                placeholder="Search films, series…"
-                className="bg-white/[0.06] border border-[var(--border)] rounded-full py-[7px] pl-9 pr-8 text-[var(--text)] text-[13px] outline-none placeholder:text-[var(--text-muted)] transition-[width,border-color,background-color] duration-300 w-[210px] focus:w-[280px] focus:border-[rgba(229,9,20,0.5)] focus:bg-white/[0.09]"
+                placeholder="Search films, series, vibes…"
+                className="bg-white/[0.06] border border-[var(--border)] rounded-full py-[7px] pl-9 pr-8 text-[var(--text)] text-[13px] outline-none placeholder:text-[var(--text-muted)] transition-[width,border-color,background-color] duration-300 w-[220px] focus:w-[300px] focus:border-[rgba(229,9,20,0.5)] focus:bg-white/[0.09]"
               />
               <Search
                 size={14}
@@ -365,15 +381,21 @@ export default function Navbar() {
               )}
             </div>
           </form>
-          {sugVisible && suggestions.length > 0 && (
+          {showDropdown && (
             <SearchSuggestionDropdown
               suggestions={suggestions}
               selectedIdx={selectedIdx}
               sugLoading={sugLoading}
               search={search}
+              semanticMeta={semanticMeta}
               onSelect={() => {
+                if (search.trim()) saveRecentSearch(search.trim());
                 clearSuggestions();
                 setSearch("");
+              }}
+              onQueryPick={(q: string) => {
+                setSearch(q);
+                fetchSuggestions(q, 6);
               }}
             />
           )}
@@ -435,7 +457,7 @@ export default function Navbar() {
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onFocus={() => search.trim().length >= 2 && setSugVisible(true)}
-                placeholder="Search films, series, actors…"
+                placeholder="Search films, series, vibes…"
                 className="w-full pl-10 pr-9 text-[14px] py-2.5 rounded-full input"
               />
               <Search
@@ -458,17 +480,23 @@ export default function Navbar() {
               )}
             </div>
           </form>
-          {sugVisible && suggestions.length > 0 && (
+          {showDropdown && (
             <div className="relative mt-1">
               <SearchSuggestionDropdown
                 suggestions={suggestions}
                 selectedIdx={selectedIdx}
                 sugLoading={sugLoading}
                 search={search}
+                semanticMeta={semanticMeta}
                 onSelect={() => {
+                  if (search.trim()) saveRecentSearch(search.trim());
                   clearSuggestions();
                   setSearch("");
                   setSearchOpen(false);
+                }}
+                onQueryPick={(q: string) => {
+                  setSearch(q);
+                  fetchSuggestions(q, 6);
                 }}
               />
             </div>
