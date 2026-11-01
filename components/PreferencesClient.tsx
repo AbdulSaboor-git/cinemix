@@ -32,11 +32,7 @@ import {
   clearApiCache,
   validateConfiguredApiKeys,
 } from "@/lib/kinopoisk";
-import {
-  clearFavorites,
-  clearHistory,
-  clearWatchLater,
-} from "@/lib/userLists";
+import { clearFavorites, clearHistory, clearWatchLater } from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import ApiKeyQuotaModal from "@/components/ApiKeyQuotaModal";
@@ -505,16 +501,14 @@ export default function PreferencesClient() {
           </SectionIcon>
           <SectionTitle>Watch History</SectionTitle>
         </div>
-        <div className="py-2">
-          <div className={row}>
-            <div className="min-w-0 flex-1">
-              <p className={lbl}>Enable watch history</p>
-            </div>
-            <Toggle
-              checked={prefs.historyEnabled ?? true}
-              onChange={(v) => updatePref((p) => ({ ...p, historyEnabled: v }))}
-            />
+        <div className={row}>
+          <div className="min-w-0 flex-1">
+            <p className={lbl}>Enable watch history</p>
           </div>
+          <Toggle
+            checked={prefs.historyEnabled ?? true}
+            onChange={(v) => updatePref((p) => ({ ...p, historyEnabled: v }))}
+          />
         </div>
       </div>
 
