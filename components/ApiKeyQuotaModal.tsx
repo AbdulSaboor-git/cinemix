@@ -28,15 +28,15 @@ export function getQuotaErrorMessage(error: unknown): string {
   if (status !== null) {
     switch (status) {
       case 400:
-        return "Malformed API key format.";
+        return "Malformed key format.";
       case 401:
-        return "Unauthorized API key.";
+        return "Unauthorized key.";
       case 402:
         return "Daily quota exhausted. This key has reached its limit for today; CineMix will rotate to your next available key.";
       case 403:
         return "Access forbidden.";
       case 404:
-        return "API key not found.";
+        return "Key not found.";
       case 429:
         return "Rate limit reached. Wait a couple of seconds and click Refresh.";
       case 500:
@@ -53,7 +53,7 @@ export function getQuotaErrorMessage(error: unknown): string {
   }
 
   if (/invalid api key/i.test(message)) {
-    return "This API key is invalid. Check the key format and try again.";
+    return "This key is invalid. Check the key format and try again.";
   }
 
   if (/quota exhausted/i.test(message)) {
@@ -229,7 +229,7 @@ export default function ApiKeyQuotaModal({ apiKeys, onClose }: Props) {
     <ModalShell
       open={true}
       onClose={onClose}
-      title="API KEY QUOTA"
+      title="KEY QUOTA"
       subtitle={`${validKeys.length} key${validKeys.length !== 1 ? "s" : ""} configured`}
       icon={<KeyRound size={15} strokeWidth={2} />}
       footer={
@@ -242,7 +242,7 @@ export default function ApiKeyQuotaModal({ apiKeys, onClose }: Props) {
       <div className="flex flex-col gap-3">
         {validKeys.length === 0 ? (
           <p className="text-[13px] text-[var(--text-muted)] text-center py-8">
-            No API keys configured.
+            No keys configured.
           </p>
         ) : (
           validKeys.map((key, i) => (
