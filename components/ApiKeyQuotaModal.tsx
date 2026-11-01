@@ -11,33 +11,6 @@ interface KeyQuotaState {
   error?: string;
 }
 
-function getQuotaErrorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : "";
-  const status = message.match(/^API error: (\d{3})$/)?.[1];
-
-  if (status) {
-    switch (Number(status)) {
-      case 400:
-      case 401:
-      case 403:
-      case 404:
-        return "This API key may be invalid or inactive. Check the key and try again.";
-      case 429:
-        return "Too many quota checks. Please wait a moment and try again.";
-      default:
-        if (Number(status) >= 500) {
-          return "The quota service is temporarily unavailable. Please try again later.";
-        }
-    }
-  }
-
-  if (message === "Invalid API key") {
-    return "This API key is invalid. Check the key and try again.";
-  }
-
-  return "Could not load quota. Check your connection and try again.";
-}
-
 const ACCOUNT_COLORS: Record<
   string,
   { bg: string; text: string; label: string }
@@ -46,6 +19,61 @@ const ACCOUNT_COLORS: Record<
   BASIC: { bg: "rgba(59,130,246,0.15)", text: "#60a5fa", label: "Basic" },
   EXTENDED: { bg: "rgba(34,197,94,0.15)", text: "#4ade80", label: "Extended" },
 };
+
+export function getQuotaErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message.trim() : "";
+  const statusMatch = message.match(/API error:\s*(\d{3})/i);
+  const status = statusMatch ? Number(statusMatch[1]) : null;
+
+  if (status !== null) {
+    switch (status) {
+      case 400:
+        return "Malformed API key format.";
+      case 401:
+        return "Unauthorized API key.";
+      case 402:
+        return "Daily quota exhausted. This key has reached its limit for today; CineMix will rotate to your next available key.";
+      case 403:
+        return "Access forbidden.";
+      case 404:
+        return "API key not found.";
+      case 429:
+        return "Rate limit reached. Wait a couple of seconds and click Refresh.";
+      case 500:
+      case 502:
+      case 503:
+      case 504:
+        return `The service is temporarily unavailable, please try again shortly.`;
+      default:
+        if (status >= 500) {
+          return `Please try again in a few minutes.`;
+        }
+        return `Error! Please verify your key and try again.`;
+    }
+  }
+
+  if (/invalid api key/i.test(message)) {
+    return "This API key is invalid. Check the key format and try again.";
+  }
+
+  if (/quota exhausted/i.test(message)) {
+    return "Daily quota exhausted for this key. It will reset automatically on the next daily cycle.";
+  }
+
+  if (/rate limit/i.test(message)) {
+    return "Rate limit reached. Please wait a couple of seconds and click Refresh.";
+  }
+
+  if (
+    /failed to fetch|networkerror|load failed|network request failed/i.test(
+      message,
+    )
+  ) {
+    return "Network connection failed. Check your internet connection try again.";
+  }
+
+  return "Could not load quota details. Check your connection and try again.";
+}
 
 function QuotaBar({
   used,
@@ -105,8 +133,12 @@ function SingleKeyQuota({ apiKey, index }: { apiKey: string; index: number }) {
   }, [apiKey]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    // Stagger requests by 550ms per key index to respect /v1/api_keys 2 req/sec rate limit
+    const timer = setTimeout(() => {
+      void load();
+    }, index * 550);
+    return () => clearTimeout(timer);
+  }, [load, index]);
 
   const truncated =
     apiKey.length > 16 ? `${apiKey.slice(0, 8)}…${apiKey.slice(-4)}` : apiKey;
@@ -146,9 +178,13 @@ function SingleKeyQuota({ apiKey, index }: { apiKey: string; index: number }) {
       )}
 
       {state.status === "error" && (
-        <div className="flex items-center gap-2 text-[12px] text-[var(--accent)]">
-          <CircleAlert size={13} strokeWidth={2} />
-          {state.error ?? "Could not load quota"}
+        <div className="flex items-start gap-2 text-[12px] text-[var(--accent)] leading-relaxed">
+          <CircleAlert
+            size={14}
+            strokeWidth={2}
+            className="flex-shrink-0 mt-0.5"
+          />
+          <span>{state.error ?? "Could not load quota"}</span>
         </div>
       )}
 
@@ -193,7 +229,7 @@ export default function ApiKeyQuotaModal({ apiKeys, onClose }: Props) {
     <ModalShell
       open={true}
       onClose={onClose}
-      title="KEY QUOTA"
+      title="API KEY QUOTA"
       subtitle={`${validKeys.length} key${validKeys.length !== 1 ? "s" : ""} configured`}
       icon={<KeyRound size={15} strokeWidth={2} />}
       footer={
@@ -206,7 +242,7 @@ export default function ApiKeyQuotaModal({ apiKeys, onClose }: Props) {
       <div className="flex flex-col gap-3">
         {validKeys.length === 0 ? (
           <p className="text-[13px] text-[var(--text-muted)] text-center py-8">
-            No keys configured.
+            No API keys configured.
           </p>
         ) : (
           validKeys.map((key, i) => (
