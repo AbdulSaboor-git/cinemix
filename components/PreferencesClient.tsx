@@ -501,7 +501,7 @@ export default function PreferencesClient() {
           </SectionIcon>
           <SectionTitle>Watch History</SectionTitle>
         </div>
-        <div className={row}>
+        <div className={rowLast}>
           <div className="min-w-0 flex-1">
             <p className={lbl}>Enable watch history</p>
           </div>
