@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Pencil,
@@ -7,25 +7,15 @@ import {
   Clock,
   History,
   Monitor,
-  CircleAlert,
   ChevronRight,
-  Download,
-  Upload,
 } from "lucide-react";
 import {
   getSession,
   getSessionName,
   saveSessionName,
-  exportSessionBackup,
-  importSessionBackup,
   SessionMeta,
 } from "@/lib/session";
-import {
-  getList,
-  clearFavorites,
-  clearWatchLater,
-  clearHistory,
-} from "@/lib/userLists";
+import { getList } from "@/lib/userLists";
 import { useTranslate } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useToast } from "@/lib/toast";
@@ -33,7 +23,6 @@ import { hasApiKeys, hasVerifiedApiKey } from "@/lib/preferences";
 import { verifyApiKeys } from "@/lib/kinopoisk";
 import PageContainer from "@/components/ui/PageContainer";
 import PosterImage from "@/components/ui/PosterImage";
-import ConfirmButton from "@/components/ui/ConfirmButton";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
 
 function StatCard({
@@ -172,7 +161,6 @@ export default function ProfileClient() {
   >([]);
   const [recentFavs, setRecentFavs] = useState<ReturnType<typeof getList>>([]);
   const [recentWL, setRecentWL] = useState<ReturnType<typeof getList>>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const clearDisplayedLists = () => {
@@ -244,43 +232,6 @@ export default function ProfileClient() {
     setName(nameInput.trim());
     setEditingName(false);
     toast.success("Name saved!");
-  };
-
-  const handleExportBackup = () => {
-    try {
-      const json = exportSessionBackup();
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      const dateStr = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `cinemix-backup-${dateStr}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success("Backup exported (.json)");
-    } catch {
-      toast.error("Failed to export session backup.");
-    }
-  };
-
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const raw = String(reader.result || "");
-      const res = importSessionBackup(raw);
-      if (res.ok) {
-        refresh();
-        toast.success("Session backup restored!");
-      } else {
-        toast.error(res.error || "Invalid backup file.");
-      }
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    };
-    reader.readAsText(file);
   };
 
   if (noKey) return <NoKeyBanner />;
@@ -457,71 +408,6 @@ export default function ProfileClient() {
           </div>
         </div>
       )} */}
-
-      {/* ── Data Management ── */}
-      <div className="bg-[var(--bg-card)] border border-[rgba(229,9,20,0.15)] rounded-[var(--radius-lg)] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 sm:px-5 py-[13px] border-b border-[var(--border)]">
-          <CircleAlert size={14} stroke="var(--accent)" strokeWidth={2} />
-          <span className="text-[11px] font-semibold uppercase tracking-[0.8px] text-[var(--text-dim)]">
-            Data Management
-          </span>
-        </div>
-
-        {/* Backup Export & Import */}
-        <div className="p-4 sm:p-5 border-b border-[var(--border)] flex flex-col sm:flex-row gap-3">
-          <button
-            type="button"
-            onClick={handleExportBackup}
-            className="flex-1 btn btn-ghost justify-center text-[12px] py-2.5"
-          >
-            <Download size={13} />
-            Export Backup (.json)
-          </button>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex-1 btn btn-ghost justify-center text-[12px] py-2.5"
-          >
-            <Upload size={13} />
-            Import Backup (.json)
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,application/json"
-            onChange={handleImportFile}
-            className="hidden"
-          />
-        </div>
-
-        {/* Clear Lists */}
-        <div className="p-4 sm:p-5 flex flex-col sm:flex-row gap-3">
-          <ConfirmButton
-            label="Clear History"
-            onConfirm={() => {
-              clearHistory();
-              refresh();
-              toast.info("Watch history cleared.");
-            }}
-          />
-          <ConfirmButton
-            label="Clear Favorites"
-            onConfirm={() => {
-              clearFavorites();
-              refresh();
-              toast.info("Favorites cleared.");
-            }}
-          />
-          <ConfirmButton
-            label="Clear Watch Later"
-            onConfirm={() => {
-              clearWatchLater();
-              refresh();
-              toast.info("Watch Later cleared.");
-            }}
-          />
-        </div>
-      </div>
     </PageContainer>
   );
 }

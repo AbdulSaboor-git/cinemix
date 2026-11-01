@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Settings,
   Check,
@@ -13,6 +13,8 @@ import {
   Monitor,
   Home,
   Film,
+  Download,
+  Upload,
 } from "lucide-react";
 import {
   Preferences,
@@ -20,13 +22,21 @@ import {
   getPreferences,
   savePreferences,
 } from "@/lib/preferences";
-import { saveApiKeys } from "@/lib/session";
+import {
+  exportSessionBackup,
+  importSessionBackup,
+  saveApiKeys,
+} from "@/lib/session";
 import {
   getApiKeyInfo,
   clearApiCache,
   validateConfiguredApiKeys,
 } from "@/lib/kinopoisk";
-import { clearHistory } from "@/lib/userLists";
+import {
+  clearFavorites,
+  clearHistory,
+  clearWatchLater,
+} from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import ApiKeyQuotaModal from "@/components/ApiKeyQuotaModal";
@@ -220,6 +230,7 @@ export default function PreferencesClient() {
   const [saving, setSaving] = useState(false);
   const [unsaved, setUnsaved] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { toast } = useToast();
 
@@ -294,6 +305,49 @@ export default function PreferencesClient() {
   const updatePref = (updater: (p: Preferences) => Preferences) => {
     setPrefs(updater);
     setUnsaved(true);
+  };
+
+  const handleExportBackup = () => {
+    try {
+      const json = exportSessionBackup();
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `cinemix-backup-${dateStr}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Backup exported (.json)");
+    } catch {
+      toast.error("Failed to export session backup.");
+    }
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const raw = String(reader.result || "");
+      const result = importSessionBackup(raw);
+      if (result.ok) {
+        setPrefs(getPreferences());
+        setUnsaved(false);
+        clearApiCache();
+        toast.success("Session backup restored!");
+      } else {
+        toast.error(result.error || "Invalid backup file.");
+      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.onerror = () => {
+      toast.error("Failed to read backup file.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsText(file);
   };
 
   if (!loaded) {
@@ -461,21 +515,64 @@ export default function PreferencesClient() {
               onChange={(v) => updatePref((p) => ({ ...p, historyEnabled: v }))}
             />
           </div>
-          <div className={rowLast}>
-            <div className="min-w-0 flex-1">
-              <p className={lbl}>Clear history</p>
-            </div>
-            <div className="flex-shrink-0">
-              <ConfirmButton
-                label="Clear"
-                className="flex-initial"
-                onConfirm={() => {
-                  clearHistory();
-                  toast.info("Watch history cleared.");
-                }}
-              />
-            </div>
-          </div>
+        </div>
+      </div>
+
+      {/* Data Management */}
+      <div className={card}>
+        <div className={cardHdr}>
+          <SectionIcon>
+            <CircleAlert size={15} strokeWidth={2} />
+          </SectionIcon>
+          <SectionTitle>Data Management</SectionTitle>
+        </div>
+        <div className="p-4 sm:p-5 border-b border-[var(--border)] flex flex-col sm:flex-row gap-3">
+          <button
+            type="button"
+            onClick={handleExportBackup}
+            className="flex-1 btn btn-ghost justify-center text-[12px] py-2.5"
+          >
+            <Download size={13} />
+            Export Backup (.json)
+          </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex-1 btn btn-ghost justify-center text-[12px] py-2.5"
+          >
+            <Upload size={13} />
+            Import Backup (.json)
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            onChange={handleImportFile}
+            className="hidden"
+          />
+        </div>
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row gap-3">
+          <ConfirmButton
+            label="Clear History"
+            onConfirm={() => {
+              clearHistory();
+              toast.info("Watch history cleared.");
+            }}
+          />
+          <ConfirmButton
+            label="Clear Favorites"
+            onConfirm={() => {
+              clearFavorites();
+              toast.info("Favorites cleared.");
+            }}
+          />
+          <ConfirmButton
+            label="Clear Watch Later"
+            onConfirm={() => {
+              clearWatchLater();
+              toast.info("Watch Later cleared.");
+            }}
+          />
         </div>
       </div>
 
