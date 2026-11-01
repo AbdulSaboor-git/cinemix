@@ -26,7 +26,11 @@ import {
 } from "@/lib/kinopoisk";
 import { getQuickCertBadge } from "@/lib/parentalGuide";
 import { Film, Season, SimilarFilm } from "@/types/kinopoisk";
-import { getPreferences, hasApiKeys } from "@/lib/preferences";
+import {
+  getPreferences,
+  hasApiKeys,
+  hasVerifiedApiKey,
+} from "@/lib/preferences";
 import {
   addToHistory,
   toggleFavorite,
@@ -228,19 +232,36 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   const autoTranslate = useAutoTranslate();
 
   const [noKey, setNoKey] = useState(false);
-  const [film, setFilm] = useState<Film | null>(() =>
-    buildInitialCachedWatchFilm(id),
-  );
+  const [film, setFilm] = useState<Film | null>(null);
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [activeSeason, setActiveSeason] = useState(0);
   const [episodeQuery, setEpisodeQuery] = useState("");
   const [visibleEpCount, setVisibleEpCount] = useState(EPISODES_PAGE_SIZE);
   const [similars, setSimilars] = useState<SimilarFilm[]>([]);
-  const [loading, setLoading] = useState(() => {
-    if (isNaN(id)) return false;
-    return buildInitialCachedWatchFilm(id) === null;
-  });
+  const [loading, setLoading] = useState(() => !isNaN(id));
   const [error, setError] = useState(isNaN(id));
+  const [keyEpoch, setKeyEpoch] = useState(0);
+
+  useEffect(() => {
+    const syncKeyState = () => {
+      if (!hasApiKeys()) {
+        setNoKey(true);
+        setFilm(null);
+        setLoading(false);
+      } else {
+        setNoKey((prev) => {
+          if (prev) setKeyEpoch((e) => e + 1);
+          return false;
+        });
+      }
+    };
+    window.addEventListener("cinemix-session-change", syncKeyState);
+    window.addEventListener("storage", syncKeyState);
+    return () => {
+      window.removeEventListener("cinemix-session-change", syncKeyState);
+      window.removeEventListener("storage", syncKeyState);
+    };
+  }, []);
 
   // Cinema Controls: Wide Theater & KinoDivBox Remapped Server Buttons
   const [wideTheater, setWideTheater] = useState(false);
@@ -384,17 +405,20 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   useEffect(() => {
     if (!hasApiKeys()) {
       setNoKey(true);
+      setFilm(null);
       setLoading(false);
       return;
     }
     if (isNaN(id)) return;
 
+    setNoKey(false);
     let mounted = true;
-    const seeded = buildInitialCachedWatchFilm(id);
+    const seeded = hasVerifiedApiKey() ? buildInitialCachedWatchFilm(id) : null;
     if (seeded) {
       setFilm(seeded);
       setLoading(false);
     } else {
+      setFilm(null);
       setLoading(true);
     }
     setError(false);
@@ -448,7 +472,12 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
       })
       .catch(() => {
         if (mounted) {
-          if (!seeded) setError(true);
+          if (!hasApiKeys()) {
+            setNoKey(true);
+            setFilm(null);
+          } else if (!seeded) {
+            setError(true);
+          }
           setLoading(false);
         }
       });
@@ -456,7 +485,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     return () => {
       mounted = false;
     };
-  }, [id]);
+  }, [id, keyEpoch]);
 
   // Keyboard shortcuts: W for Wide Theater
   useEffect(() => {
@@ -894,9 +923,28 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           </div>
         )}
         <div className="sm:hidden mt-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-2.5 shadow-[0_6px_20px_rgba(0,0,0,0.35)]">
-          <div className="grid grid-cols-3 gap-2 sm:hidden pt-0.5">
-            {/* 1: Rating */}
-            <div className="flex items-center min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]">
+          <div className="grid grid-cols-10 gap-2 sm:hidden pt-0.5">
+            {/* 1: Release Year */}
+            <div className="flex col-span-3 items-center min-w-fit text-[var(--text-dim)] justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]">
+              <CalendarIcon size={14} className="mb-0.5" />
+              <span className="font-display text-sm">{year ?? "—"}</span>
+            </div>
+            {/* 2: MPAA / Age Certification Badge  */}
+            <button
+              type="button"
+              onClick={() => setParentalOpen(true)}
+              title="View Parental Guide"
+              className={`flex col-span-4 items-center min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] backdrop-blur-md border bg-white/3 border-white/[0.07] shadow-lg active:scale-[0.98] cursor-pointer transition-all ${
+                certBadge?.isMature ? "text-red-500" : "text-[var(--text-dim)]"
+              }`}
+            >
+              <ShieldAlert size={14} className="mb-0.5" />
+              <span className="text-[11px] font-bold tracking-[0.5px] line-clamp-2">
+                {certBadge ? certBadge.label : "PG Guide"}
+              </span>
+            </button>
+            {/* 3: Rating */}
+            <div className="flex items-center col-span-3 min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]">
               <span className="font-display text-[15px] tracking-[0.5px] text-[#f5c518] leading-none">
                 {rating ? rating.toFixed(1) : "—"}
               </span>
@@ -906,25 +954,6 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                 fill="#f5c518"
                 stroke="#f5c518"
               />
-            </div>
-            {/* 2: MPAA / Age Certification Badge  */}
-            <button
-              type="button"
-              onClick={() => setParentalOpen(true)}
-              title="View Parental Guide"
-              className={`flex items-center min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] backdrop-blur-md border bg-white/3 border-white/[0.07] shadow-lg active:scale-[0.98] cursor-pointer transition-all ${
-                certBadge?.isMature ? "text-red-500" : "text-[var(--text-dim)]"
-              }`}
-            >
-              <ShieldAlert size={14} className="mb-0.5" />
-              <span className="text-[11px] font-bold tracking-[0.5px] line-clamp-2">
-                {certBadge ? certBadge.label : "PG Guide"}
-              </span>
-            </button>
-            {/* 3: Release Year */}
-            <div className="flex items-center min-w-fit text-[var(--text-dim)] justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]">
-              <CalendarIcon size={14} className="mb-0.5" />
-              <span className="font-display text-sm">{year ?? "—"}</span>
             </div>
           </div>
         </div>

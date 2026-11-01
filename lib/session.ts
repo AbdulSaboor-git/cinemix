@@ -180,12 +180,119 @@ export async function fetchGeo(): Promise<GeoInfo> {
 
 // ─── In-memory cache ──────────────────────────────────────────────────────────
 
+export const INVALID_KEYS_STORAGE = "cinemix_invalid_keys_v1";
+export const VALID_KEYS_STORAGE = "cinemix_valid_keys_v1";
+
 let _cache: CineMixSession | null = null;
+let _invalidKeys: Set<string> | null = null;
+let _validKeys: Set<string> | null = null;
 
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (e) => {
-    if (e.key === SESSION_KEY) _cache = null;
+    if (!e.key || e.key === SESSION_KEY) _cache = null;
+    if (!e.key || e.key === INVALID_KEYS_STORAGE) _invalidKeys = null;
+    if (!e.key || e.key === VALID_KEYS_STORAGE) _validKeys = null;
   });
+}
+
+function getInvalidKeysSet(): Set<string> {
+  if (_invalidKeys) return _invalidKeys;
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(INVALID_KEYS_STORAGE);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    _invalidKeys = new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((k): k is string => typeof k === "string")
+        : [],
+    );
+  } catch {
+    _invalidKeys = new Set();
+  }
+  return _invalidKeys;
+}
+
+function getValidKeysSet(): Set<string> {
+  if (_validKeys) return _validKeys;
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(VALID_KEYS_STORAGE);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    _validKeys = new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((k): k is string => typeof k === "string")
+        : [],
+    );
+  } catch {
+    _validKeys = new Set();
+  }
+  return _validKeys;
+}
+
+export function isKeyInvalid(key: string): boolean {
+  const clean = key.trim();
+  if (!clean) return true;
+  return getInvalidKeysSet().has(clean);
+}
+
+export function markKeyInvalid(key: string): void {
+  const clean = key.trim();
+  if (!clean || typeof window === "undefined") return;
+  const inv = getInvalidKeysSet();
+  const val = getValidKeysSet();
+  if (val.has(clean)) {
+    val.delete(clean);
+    try {
+      localStorage.setItem(VALID_KEYS_STORAGE, JSON.stringify(Array.from(val)));
+    } catch {
+      // ignore
+    }
+  }
+  if (!inv.has(clean)) {
+    inv.add(clean);
+    try {
+      localStorage.setItem(
+        INVALID_KEYS_STORAGE,
+        JSON.stringify(Array.from(inv)),
+      );
+    } catch {
+      // ignore
+    }
+    window.dispatchEvent(new CustomEvent("cinemix-cache-clear"));
+    window.dispatchEvent(new CustomEvent("cinemix-session-change"));
+  }
+}
+
+export function markKeyValid(key: string): void {
+  const clean = key.trim();
+  if (!clean || typeof window === "undefined") return;
+  const inv = getInvalidKeysSet();
+  const val = getValidKeysSet();
+  let changed = false;
+  if (inv.has(clean)) {
+    inv.delete(clean);
+    changed = true;
+    try {
+      localStorage.setItem(
+        INVALID_KEYS_STORAGE,
+        JSON.stringify(Array.from(inv)),
+      );
+    } catch {
+      // ignore
+    }
+  }
+  if (!val.has(clean)) {
+    val.add(clean);
+    changed = true;
+    try {
+      localStorage.setItem(VALID_KEYS_STORAGE, JSON.stringify(Array.from(val)));
+    } catch {
+      // ignore
+    }
+  }
+  if (changed) {
+    window.dispatchEvent(new CustomEvent("cinemix-session-change"));
+  }
 }
 
 // ─── Core read/write ──────────────────────────────────────────────────────────
@@ -425,9 +532,11 @@ export function saveSessionName(name: string): void {
   saveSession(s);
 }
 
-export function getApiKeys(): string[] {
+export function getRawApiKeys(): string[] {
   const s = getSession();
-  if (s.api_keys.keys.length > 0) return s.api_keys.keys;
+  if (s.api_keys.keys.length > 0) {
+    return s.api_keys.keys.map((k) => k.trim()).filter(Boolean);
+  }
   const env =
     process.env.NEXT_PUBLIC_KINOPOISK_API_KEYS ||
     process.env.NEXT_PUBLIC_KINOPOISK_API_KEY ||
@@ -438,13 +547,29 @@ export function getApiKeys(): string[] {
     .filter(Boolean);
 }
 
+export function getApiKeys(): string[] {
+  const raw = getRawApiKeys();
+  if (typeof window === "undefined") return raw;
+  const inv = getInvalidKeysSet();
+  return raw.filter((k) => !inv.has(k));
+}
+
 export function saveApiKeys(keys: string[]): void {
+  const cleaned = keys.map((k) => k.trim()).filter(Boolean);
   const s = getSession();
-  s.api_keys.keys = keys.filter(Boolean);
+  s.api_keys.keys = cleaned;
   s.api_keys.saved_at = new Date().toISOString();
   saveSession(s);
 }
 
 export function hasApiKeys(): boolean {
   return getApiKeys().length > 0;
+}
+
+export function hasVerifiedApiKey(): boolean {
+  const usable = getApiKeys();
+  if (usable.length === 0) return false;
+  if (typeof window === "undefined") return false;
+  const val = getValidKeysSet();
+  return usable.some((k) => val.has(k));
 }

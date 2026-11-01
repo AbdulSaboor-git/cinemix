@@ -32,10 +32,13 @@ import FilmCard, {
   FilmLongPressPortal,
   resolveRating,
 } from "@/components/FilmCard";
+import { hasApiKeys, hasVerifiedApiKey } from "@/lib/preferences";
+import { verifyApiKeys } from "@/lib/kinopoisk";
 import BackButton from "@/components/BackButton";
 import PageContainer from "@/components/ui/PageContainer";
 import PosterImage from "@/components/ui/PosterImage";
 import EmptyState from "@/components/ui/EmptyState";
+import NoKeyBanner from "@/components/ui/NoKeyBanner";
 
 const CONFIG = {
   favorites: {
@@ -238,6 +241,7 @@ export default function UserListPage({ type }: { type: ListType }) {
   useDocumentTitle(cfg.label);
   const router = useRouter();
 
+  const [noKey, setNoKey] = useState(false);
   const [entries, setEntries] = useState<FilmListEntry[]>([]);
   const [userName, setUserName] = useState("");
   const [query, setQuery] = useState("");
@@ -249,13 +253,40 @@ export default function UserListPage({ type }: { type: ListType }) {
   const { toast } = useToast();
 
   useEffect(() => {
+    let mounted = true;
     const sync = () => {
-      setEntries([...getList(type)]);
-      setUserName(getSessionName());
+      if (!hasApiKeys()) {
+        setNoKey(true);
+        setEntries([]);
+        return;
+      }
+      if (hasVerifiedApiKey()) {
+        setNoKey(false);
+        setEntries([...getList(type)]);
+        setUserName(getSessionName());
+        return;
+      }
+      setEntries([]);
+      verifyApiKeys().then((valid) => {
+        if (!mounted) return;
+        if (!valid || !hasApiKeys()) {
+          setNoKey(true);
+          setEntries([]);
+        } else {
+          setNoKey(false);
+          setEntries([...getList(type)]);
+          setUserName(getSessionName());
+        }
+      });
     };
     sync();
     window.addEventListener("cinemix-session-change", sync);
-    return () => window.removeEventListener("cinemix-session-change", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      mounted = false;
+      window.removeEventListener("cinemix-session-change", sync);
+      window.removeEventListener("storage", sync);
+    };
   }, [type]);
 
   const filteredEntries = useMemo(() => {
@@ -332,6 +363,8 @@ export default function UserListPage({ type }: { type: ListType }) {
       filteredEntries[Math.floor(Math.random() * filteredEntries.length)];
     router.push(`/film/${pick.film_id}`);
   };
+
+  if (noKey) return <NoKeyBanner />;
 
   const listTitle = userName ? `${userName}'s ${cfg.label}` : cfg.label;
 

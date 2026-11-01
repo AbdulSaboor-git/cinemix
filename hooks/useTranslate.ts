@@ -6,7 +6,6 @@ import {
   isRussian,
   stripHtml,
   getCachedTranslation,
-  getEnglishName,
 } from "@/lib/translate";
 import { getPreferences } from "@/lib/preferences";
 import { SESSION_KEY } from "@/lib/session";
@@ -146,14 +145,15 @@ export function useFilmTitle(
 ): string {
   const autoTranslateHook = useAutoTranslate();
   const autoTranslate = autoTranslateOverride ?? autoTranslateHook;
-  const baseName = film
-    ? getEnglishName(
-        film.nameRu,
-        film.nameEn,
-        film.nameOriginal,
-        autoTranslate,
-      )
-    : "Unknown";
+  const baseName = !film
+    ? "Unknown"
+    : !autoTranslate
+      ? film.nameRu || film.nameEn || film.nameOriginal || "Unknown"
+      : film.nameEn && !isRussian(film.nameEn)
+        ? film.nameEn
+        : film.nameOriginal && !isRussian(film.nameOriginal)
+          ? film.nameOriginal
+          : film.nameEn || film.nameOriginal || film.nameRu || "Unknown";
   const translated = useTranslate(baseName);
   return translated || baseName;
 }

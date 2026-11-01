@@ -7,7 +7,11 @@ import {
   deduplicateFilms,
 } from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
-import { getPreferences } from "@/lib/preferences";
+import {
+  getPreferences,
+  hasApiKeys,
+  hasVerifiedApiKey,
+} from "@/lib/preferences";
 
 const RECENT_SEARCHES_KEY = "cinemix_recent_searches_v1";
 const MAX_RECENT_SEARCHES = 6;
@@ -18,6 +22,12 @@ const suggestionQueryCache = new Map<
   { items: Film[]; ts: number }
 >();
 const CACHE_TTL_MS = 5 * 60 * 1000;
+
+if (typeof window !== "undefined") {
+  window.addEventListener("cinemix-cache-clear", () => {
+    suggestionQueryCache.clear();
+  });
+}
 
 export function getRecentSearches(): string[] {
   if (typeof window === "undefined") return [];
@@ -77,6 +87,15 @@ export function useSearchSuggestions() {
   }, []);
 
   const fetchSuggestions = useCallback((q: string, _limit?: number) => {
+    if (!hasApiKeys()) {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      reqIdRef.current += 1;
+      setSuggestions([]);
+      setSemanticMeta(null);
+      setSugVisible(false);
+      setSugLoading(false);
+      return;
+    }
     const prefs = getPreferences();
     if (!prefs.searchSuggestionsEnabled) return;
     const limit = _limit ?? prefs.suggestionLimit;
@@ -98,7 +117,9 @@ export function useSearchSuggestions() {
     setSemanticMeta(analysis);
 
     const cacheKey = `${trimmed.toLowerCase()}:${limit}`;
-    const cached = suggestionQueryCache.get(cacheKey);
+    const cached = hasVerifiedApiKey()
+      ? suggestionQueryCache.get(cacheKey)
+      : undefined;
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
       setSuggestions(cached.items);
       setSugVisible(true);
@@ -107,12 +128,13 @@ export function useSearchSuggestions() {
       return;
     }
 
-    // Show local fuzzy/semantic matches immediately in 0ms while network request is debounced
+    // Show local fuzzy/semantic matches immediately in 0ms only when a verified key is active
     if (
-      analysis.localMatches.length > 0 ||
-      analysis.correctedQuery ||
-      analysis.matchedConcept ||
-      analysis.relatedTerms.length > 0
+      hasVerifiedApiKey() &&
+      (analysis.localMatches.length > 0 ||
+        analysis.correctedQuery ||
+        analysis.matchedConcept ||
+        analysis.relatedTerms.length > 0)
     ) {
       if (analysis.localMatches.length > 0) {
         setSuggestions(analysis.localMatches.slice(0, limit));
@@ -141,8 +163,14 @@ export function useSearchSuggestions() {
         setSugVisible(true);
         setSelectedIdx(-1);
       } catch {
-        if (reqIdRef.current === currentReqId && analysis.localMatches.length === 0) {
-          setSuggestions([]);
+        if (reqIdRef.current === currentReqId) {
+          if (!hasApiKeys()) {
+            setSuggestions([]);
+            setSemanticMeta(null);
+            setSugVisible(false);
+          } else if (analysis.localMatches.length === 0) {
+            setSuggestions([]);
+          }
         }
       } finally {
         if (reqIdRef.current === currentReqId) {

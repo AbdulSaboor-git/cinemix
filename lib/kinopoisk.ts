@@ -22,7 +22,15 @@ import {
   SeriesStatusFilter,
   GalleryImageType,
 } from "@/types/kinopoisk";
-import { getApiKeys, getPreferences } from "@/lib/preferences";
+import {
+  getApiKeys,
+  getRawApiKeys,
+  hasApiKeys,
+  hasVerifiedApiKey,
+  markKeyInvalid,
+  markKeyValid,
+  getPreferences,
+} from "@/lib/preferences";
 import { getList } from "@/lib/userLists";
 import { translateCountry, translateGenre, isRussian } from "@/lib/translate";
 import { sanitizePosterUrl } from "@/components/posterFallback";
@@ -571,6 +579,11 @@ function markExhausted(key: string) {
 
 export function clearApiCache(): void {
   memoryCache.clear();
+  pendingSessionWrites.clear();
+  if (sessionWriteTimer) {
+    clearTimeout(sessionWriteTimer);
+    sessionWriteTimer = null;
+  }
   exhausted.clear();
   exhaustedSynced = false;
   if (typeof window !== "undefined") {
@@ -585,6 +598,7 @@ export function clearApiCache(): void {
     } catch {
       // ignore
     }
+    window.dispatchEvent(new CustomEvent("cinemix-cache-clear"));
   }
 }
 
@@ -674,8 +688,14 @@ async function apiFetch<T>(
   revalidate = 3600,
   priority: "high" | "low" = "high",
 ): Promise<T> {
-  const cached = getCachedApi<T>(path);
-  if (cached !== null) return cached;
+  if (!hasApiKeys()) {
+    throw new Error("No valid API key configured.");
+  }
+
+  if (hasVerifiedApiKey()) {
+    const cached = getCachedApi<T>(path);
+    if (cached !== null) return cached;
+  }
 
   const existing = inflightApi.get(path);
   if (existing) return existing as Promise<T>;
@@ -686,6 +706,9 @@ async function apiFetch<T>(
 
   const requestPromise = (async (): Promise<T> => {
     const keys = getApiKeys();
+    if (keys.length === 0) {
+      throw new Error("No valid API key configured.");
+    }
     let lastError: Error | null = null;
     const maxAttempts = Math.max(keys.length * 2, 3);
 
@@ -698,11 +721,29 @@ async function apiFetch<T>(
       }
 
       await waitRateLimitSlot(priority);
-      const res = await fetch(`${BASE_URL}${path}`, {
-        headers: { "X-API-KEY": key, "Content-Type": "application/json" },
-      });
+      let res: Response;
+      try {
+        res = await fetch(`${BASE_URL}${path}`, {
+          headers: { "X-API-KEY": key, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        // Malformed header value (e.g. non-ASCII characters in key) or network failure
+        if (err instanceof TypeError && !/^[ -~]+$/.test(key)) {
+          markKeyInvalid(key);
+          lastError = new Error("Invalid API key.");
+          continue;
+        }
+        throw err;
+      }
+
+      if (res.status === 401 || res.status === 403) {
+        markKeyInvalid(key);
+        lastError = new Error("Invalid API key.");
+        continue;
+      }
 
       if (res.status === 402) {
+        markKeyValid(key);
         markExhausted(key);
         lastError = new Error(
           `Daily quota exhausted for key ${key.slice(0, 8)}…`,
@@ -711,12 +752,14 @@ async function apiFetch<T>(
       }
 
       if (res.status === 429) {
+        markKeyValid(key);
         await sleep(240 * (attempt + 1));
         lastError = new Error("Rate limit reached, retrying…");
         continue;
       }
 
       if (!res.ok) throw new Error(`API error: ${res.status} ${path}`);
+      markKeyValid(key);
       const data = (await res.json()) as T;
       setCachedApi(path, data, revalidate);
       return data;
@@ -848,6 +891,7 @@ export function getCachedTopFilms(
   type: CollectionType = "TOP_POPULAR_ALL",
   page = 1,
 ): FilmsResponse | null {
+  if (!hasVerifiedApiKey()) return null;
   const resolvedType = COLLECTION_TYPE_MAP[type] ?? type;
   const path = `/v2.2/films/collections?type=${encodeURIComponent(resolvedType)}&page=${page}`;
   const raw = getCachedApi<Record<string, unknown>>(path);
@@ -1499,6 +1543,9 @@ export async function discoverTasteMatchedFilms(
   opts: DiscoverFilmsOptions = {},
   page = 1,
 ): Promise<FilmsResponse> {
+  if (!hasApiKeys()) {
+    throw new Error("No valid API key configured.");
+  }
   const safePage = Math.max(1, page);
   const randomSeed = (opts.randomSeed ?? 1) + SESSION_SHUFFLE_SEED;
 
@@ -1595,28 +1642,6 @@ export async function discoverTasteMatchedFilms(
         );
       }
     }
-
-    // Include unwatched Watch Later & Favorite items as their own shuffled bucket on page 1
-    if (safePage === 1) {
-      const savedBucket = seededShuffle(
-        [...watchLater, ...favs].slice(0, 12).map((item) =>
-          hydrateFilmWithCache({
-            kinopoiskId: item.film_id,
-            filmId: item.film_id,
-            nameEn: item.film_name,
-            nameRu: item.film_name,
-            posterUrl: item.poster_url || "",
-            posterUrlPreview: item.poster_url || "",
-            year: item.year ?? undefined,
-            ratingKinopoisk: item.rating ?? undefined,
-          }),
-        ),
-        randomSeed + 99,
-      );
-      if (savedBucket.length > 0) {
-        seedBuckets.push(savedBucket);
-      }
-    }
   }
 
   // Fetch page-specific genre-affinity & global acclaimed supplements so every "Load More" page has fresh items
@@ -1679,6 +1704,32 @@ export async function discoverTasteMatchedFilms(
     seedBuckets.push(
       seededShuffle(globalSupp.value.items, randomSeed + safePage * 47),
     );
+  }
+
+  if (!hasApiKeys() || seedBuckets.length === 0) {
+    return { items: [], total: 0, totalPages: 0 };
+  }
+
+  // Only mix in saved Watch Later / Favorites on page 1 when live API discovery succeeded
+  if (safePage === 1 && shuffledSeeds.length > 0) {
+    const savedBucket = seededShuffle(
+      [...watchLater, ...favs].slice(0, 12).map((item) =>
+        hydrateFilmWithCache({
+          kinopoiskId: item.film_id,
+          filmId: item.film_id,
+          nameEn: item.film_name,
+          nameRu: item.film_name,
+          posterUrl: item.poster_url || "",
+          posterUrlPreview: item.poster_url || "",
+          year: item.year ?? undefined,
+          ratingKinopoisk: item.rating ?? undefined,
+        }),
+      ),
+      randomSeed + 99,
+    );
+    if (savedBucket.length > 0) {
+      seedBuckets.push(savedBucket);
+    }
   }
 
   // Round-robin interleave across all seed & genre-affinity buckets
@@ -2923,6 +2974,7 @@ export function getCachedPremieres(
   year: number,
   month: string,
 ): FilmsResponse | null {
+  if (!hasVerifiedApiKey()) return null;
   const path = `/v2.2/films/premieres?year=${year}&month=${month}`;
   const raw = getCachedApi<Record<string, unknown>>(path);
   if (!raw) return null;
@@ -3035,9 +3087,73 @@ export async function getFilmDistributions(
 }
 
 export async function getApiKeyInfo(apiKey: string): Promise<ApiKeyResponse> {
-  const res = await fetch(`${BASE_URL}/v1/api_keys/${apiKey}`, {
-    headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
-  });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  const clean = apiKey.trim();
+  if (!clean || !/^[ -~]+$/.test(clean)) {
+    if (clean) markKeyInvalid(clean);
+    throw new Error("Invalid API key");
+  }
+  const res = await fetch(
+    `${BASE_URL}/v1/api_keys/${encodeURIComponent(clean)}`,
+    {
+      headers: { "X-API-KEY": clean, "Content-Type": "application/json" },
+    },
+  );
+  if (!res.ok) {
+    if (
+      res.status === 401 ||
+      res.status === 403 ||
+      res.status === 400 ||
+      res.status === 404
+    ) {
+      markKeyInvalid(clean);
+    }
+    throw new Error(`API error: ${res.status}`);
+  }
+  markKeyValid(clean);
   return res.json();
+}
+
+let inflightKeyVerification: Promise<boolean> | null = null;
+
+export async function validateConfiguredApiKeys(
+  keysToValidate?: string[],
+): Promise<boolean> {
+  const rawKeys = (keysToValidate ?? getRawApiKeys())
+    .map((k) => k.trim())
+    .filter(Boolean);
+  if (rawKeys.length === 0) {
+    clearApiCache();
+    return false;
+  }
+
+  let anyValid = false;
+  await Promise.all(
+    rawKeys.map(async (k) => {
+      try {
+        await getApiKeyInfo(k);
+        markKeyValid(k);
+        anyValid = true;
+      } catch {
+        markKeyInvalid(k);
+      }
+    }),
+  );
+
+  if (!anyValid) {
+    clearApiCache();
+  }
+  return anyValid;
+}
+
+export async function verifyApiKeys(): Promise<boolean> {
+  if (!hasApiKeys()) return false;
+  if (hasVerifiedApiKey()) return true;
+  if (inflightKeyVerification) return inflightKeyVerification;
+
+  inflightKeyVerification = validateConfiguredApiKeys(getApiKeys()).finally(
+    () => {
+      inflightKeyVerification = null;
+    },
+  );
+  return inflightKeyVerification;
 }

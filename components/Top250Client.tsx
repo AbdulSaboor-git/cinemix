@@ -22,7 +22,7 @@ import { translateGenre, translateCountry } from "@/lib/translate";
 import { useAutoTranslate, useFilmTitle } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useListStatus } from "@/hooks/useListStatus";
-import { hasApiKeys } from "@/lib/preferences";
+import { hasApiKeys, hasVerifiedApiKey } from "@/lib/preferences";
 import { getList, toggleFavorite, toggleWatchLater } from "@/lib/userLists";
 import { ToastOptions, useToast } from "@/lib/toast";
 import { Film } from "@/types/kinopoisk";
@@ -60,10 +60,17 @@ function getCacheKey(type: TopCollection, page: number): string {
   return `${type}:${page}`;
 }
 
+if (typeof window !== "undefined") {
+  window.addEventListener("cinemix-cache-clear", () => {
+    top250Cache.clear();
+  });
+}
+
 function getValidSnapshot(
   type: TopCollection,
   page: number,
 ): Top250Snapshot | null {
+  if (!hasVerifiedApiKey()) return null;
   const key = getCacheKey(type, page);
   const entry = top250Cache.get(key);
   if (entry) {
@@ -371,16 +378,13 @@ export default function Top250Client({
   }, [propPage, propType]);
 
   const { page, collectionType } = activeState;
-  const initialCached = getValidSnapshot(collectionType, page);
 
   const [noKey, setNoKey] = useState(false);
-  const [films, setFilms] = useState<Film[]>(() => initialCached?.items ?? []);
-  const [totalPages, setTotalPages] = useState(
-    () => initialCached?.totalPages ?? 13,
-  );
-  const [loading, setLoading] = useState<boolean>(() => !initialCached);
+  const [films, setFilms] = useState<Film[]>([]);
+  const [totalPages, setTotalPages] = useState(13);
+  const [loading, setLoading] = useState<boolean>(true);
   const [hideWatched] = useState(false);
-  const [watchedIds, setWatchedIds] = useState<Set<number>>(readWatchedSet);
+  const [watchedIds, setWatchedIds] = useState<Set<number>>(() => new Set());
 
   const isFirstMountRef = useRef(true);
   const autoTranslate = useAutoTranslate();
@@ -391,21 +395,41 @@ export default function Top250Client({
       : "Top 250 Movies",
   );
 
+  const [keyEpoch, setKeyEpoch] = useState(0);
+
   useEffect(() => {
     const syncHistory = () => {
+      if (!hasApiKeys()) {
+        top250Cache.clear();
+        setNoKey(true);
+        setFilms([]);
+        setLoading(false);
+        return;
+      }
+      setNoKey((prev) => {
+        if (prev) setKeyEpoch((e) => e + 1);
+        return false;
+      });
       setWatchedIds(readWatchedSet());
     };
+    syncHistory();
     window.addEventListener("cinemix-session-change", syncHistory);
-    return () =>
+    window.addEventListener("storage", syncHistory);
+    return () => {
       window.removeEventListener("cinemix-session-change", syncHistory);
+      window.removeEventListener("storage", syncHistory);
+    };
   }, []);
 
   useEffect(() => {
     if (!hasApiKeys()) {
+      top250Cache.clear();
       setNoKey(true);
+      setFilms([]);
       setLoading(false);
       return;
     }
+    setNoKey(false);
 
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false;
@@ -445,7 +469,13 @@ export default function Top250Client({
         setTotalPages(resolvedPages);
       })
       .catch(() => {
-        if (!cancelled) setFilms([]);
+        if (!cancelled) {
+          if (!hasApiKeys()) {
+            top250Cache.clear();
+            setNoKey(true);
+          }
+          setFilms([]);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -454,7 +484,7 @@ export default function Top250Client({
     return () => {
       cancelled = true;
     };
-  }, [page, collectionType]);
+  }, [page, collectionType, keyEpoch]);
 
   // Silently prefetch the opposite tab (Page 1) and next page in low priority after idle
   useEffect(() => {

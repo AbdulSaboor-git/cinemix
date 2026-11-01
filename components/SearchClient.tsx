@@ -16,6 +16,7 @@ import {
   searchFilms,
   isRussianDomesticFilm,
   analyzeSemanticQuery,
+  SemanticSearchAnalysis,
 } from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
 import {
@@ -108,26 +109,53 @@ export default function SearchClient({
     handleKeyNav,
   } = useSearchSuggestions();
 
-  const activeQuerySemantic = useMemo(
-    () => (query ? analyzeSemanticQuery(query) : null),
-    [query],
-  );
+  const [activeQuerySemantic, setActiveQuerySemantic] =
+    useState<SemanticSearchAnalysis | null>(null);
+  const [regionMode, setRegionMode] = useState<string>("GLOBAL_FIRST");
 
   useEffect(() => {
     setRecentTerms(getRecentSearches());
+    setRegionMode(getPreferences().contentRegionMode ?? "GLOBAL_FIRST");
+    setActiveQuerySemantic(query ? analyzeSemanticQuery(query) : null);
   }, [query]);
+
+  const [keyEpoch, setKeyEpoch] = useState(0);
+
+  useEffect(() => {
+    const syncKeyState = () => {
+      if (!hasApiKeys()) {
+        setNoKey(true);
+        setFilms([]);
+        setLoading(false);
+      } else {
+        setRegionMode(getPreferences().contentRegionMode ?? "GLOBAL_FIRST");
+        setNoKey((prev) => {
+          if (prev) setKeyEpoch((e) => e + 1);
+          return false;
+        });
+      }
+    };
+    window.addEventListener("cinemix-session-change", syncKeyState);
+    window.addEventListener("storage", syncKeyState);
+    return () => {
+      window.removeEventListener("cinemix-session-change", syncKeyState);
+      window.removeEventListener("storage", syncKeyState);
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasApiKeys()) {
       setNoKey(true);
+      setFilms([]);
       return;
     }
+    setNoKey(false);
     setSearch(query);
     clearSuggestions();
     if (query) {
       setRecentTerms(saveRecentSearch(query));
     }
-  }, [query, clearSuggestions]);
+  }, [query, clearSuggestions, keyEpoch]);
 
   useEffect(() => {
     if (!sugVisible) return;
@@ -170,7 +198,12 @@ export default function SearchClient({
         setTotal(d.total ?? 0);
       })
       .catch(() => {
-        if (!cancelled) setFilms([]);
+        if (!cancelled) {
+          if (!hasApiKeys()) {
+            setNoKey(true);
+          }
+          setFilms([]);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -178,20 +211,15 @@ export default function SearchClient({
     return () => {
       cancelled = true;
     };
-  }, [query, page]);
+  }, [query, page, keyEpoch]);
 
   const regionalPool = useMemo(() => {
-    const regionMode =
-      typeof window !== "undefined"
-        ? (getPreferences().contentRegionMode ?? "GLOBAL_FIRST")
-        : "GLOBAL_FIRST";
-
     if (regionMode === "GLOBAL_FIRST") {
       const globalOnly = films.filter((f) => !isRussianDomesticFilm(f));
       return globalOnly.length > 0 ? globalOnly : films;
     }
     return films;
-  }, [films]);
+  }, [films, regionMode]);
 
   const counts = useMemo(() => {
     const pool = hideUnrated

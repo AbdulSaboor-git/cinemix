@@ -29,9 +29,12 @@ import {
 import { useTranslate } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useToast } from "@/lib/toast";
+import { hasApiKeys, hasVerifiedApiKey } from "@/lib/preferences";
+import { verifyApiKeys } from "@/lib/kinopoisk";
 import PageContainer from "@/components/ui/PageContainer";
 import PosterImage from "@/components/ui/PosterImage";
 import ConfirmButton from "@/components/ui/ConfirmButton";
+import NoKeyBanner from "@/components/ui/NoKeyBanner";
 
 function StatCard({
   label,
@@ -154,6 +157,7 @@ function SectionCard({
 export default function ProfileClient() {
   useDocumentTitle("Profile");
 
+  const [noKey, setNoKey] = useState(false);
   const [name, setName] = useState("");
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
@@ -171,7 +175,19 @@ export default function ProfileClient() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  const clearDisplayedLists = () => {
+    setCounts({ favorites: 0, watchlater: 0, history: 0 });
+    setRecentHistory([]);
+    setRecentFavs([]);
+    setRecentWL([]);
+  };
+
   const refresh = () => {
+    if (!hasApiKeys()) {
+      setNoKey(true);
+      clearDisplayedLists();
+      return;
+    }
     const n = getSessionName();
     const s = getSession();
     setName(n);
@@ -188,7 +204,39 @@ export default function ProfileClient() {
   };
 
   useEffect(() => {
-    refresh();
+    let mounted = true;
+    const syncProfile = () => {
+      if (!hasApiKeys()) {
+        setNoKey(true);
+        clearDisplayedLists();
+        return;
+      }
+      if (hasVerifiedApiKey()) {
+        setNoKey(false);
+        refresh();
+        return;
+      }
+      clearDisplayedLists();
+      verifyApiKeys().then((valid) => {
+        if (!mounted) return;
+        if (!valid || !hasApiKeys()) {
+          setNoKey(true);
+          clearDisplayedLists();
+        } else {
+          setNoKey(false);
+          refresh();
+        }
+      });
+    };
+
+    syncProfile();
+    window.addEventListener("cinemix-session-change", syncProfile);
+    window.addEventListener("storage", syncProfile);
+    return () => {
+      mounted = false;
+      window.removeEventListener("cinemix-session-change", syncProfile);
+      window.removeEventListener("storage", syncProfile);
+    };
   }, []);
 
   const handleSaveName = () => {
@@ -234,6 +282,8 @@ export default function ProfileClient() {
     };
     reader.readAsText(file);
   };
+
+  if (noKey) return <NoKeyBanner />;
 
   const displayName = name || "Guest";
   const initial = displayName[0].toUpperCase();
@@ -367,7 +417,7 @@ export default function ProfileClient() {
       />
 
       {/* ── Session Info ── */}
-      {meta && (
+      {/* {meta && (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden mb-4">
           <div className="flex items-center gap-2 px-4 sm:px-5 py-[13px] border-b border-[var(--border)]">
             <Monitor size={14} stroke="var(--text-muted)" strokeWidth={2} />
@@ -406,7 +456,7 @@ export default function ProfileClient() {
             ))}
           </div>
         </div>
-      )}
+      )} */}
 
       {/* ── Data Management ── */}
       <div className="bg-[var(--bg-card)] border border-[rgba(229,9,20,0.15)] rounded-[var(--radius-lg)] overflow-hidden">

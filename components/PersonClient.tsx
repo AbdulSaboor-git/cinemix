@@ -197,9 +197,33 @@ export default function PersonClient({ personId }: { personId: string }) {
 
   useDocumentTitle(person ? name : "Person");
 
+  const [keyEpoch, setKeyEpoch] = useState(0);
+
+  useEffect(() => {
+    const syncKeyState = () => {
+      if (!hasApiKeys()) {
+        setNoKey(true);
+        setPerson(null);
+        setLoading(false);
+      } else {
+        setNoKey((prev) => {
+          if (prev) setKeyEpoch((e) => e + 1);
+          return false;
+        });
+      }
+    };
+    window.addEventListener("cinemix-session-change", syncKeyState);
+    window.addEventListener("storage", syncKeyState);
+    return () => {
+      window.removeEventListener("cinemix-session-change", syncKeyState);
+      window.removeEventListener("storage", syncKeyState);
+    };
+  }, []);
+
   useEffect(() => {
     if (!hasApiKeys()) {
       setNoKey(true);
+      setPerson(null);
       setLoading(false);
       return;
     }
@@ -208,6 +232,7 @@ export default function PersonClient({ personId }: { personId: string }) {
       setLoading(false);
       return;
     }
+    setNoKey(false);
     setLoading(true);
     getPerson(id, "high")
       .then((p) => {
@@ -220,9 +245,16 @@ export default function PersonClient({ personId }: { personId: string }) {
         }
         setMetaMap(seeded);
       })
-      .catch(() => setError(true))
+      .catch(() => {
+        if (!hasApiKeys()) {
+          setNoKey(true);
+          setPerson(null);
+        } else {
+          setError(true);
+        }
+      })
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, keyEpoch]);
 
   const allFilms = useMemo(() => person?.films || [], [person]);
 

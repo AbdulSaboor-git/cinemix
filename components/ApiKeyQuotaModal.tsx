@@ -11,6 +11,33 @@ interface KeyQuotaState {
   error?: string;
 }
 
+function getQuotaErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  const status = message.match(/^API error: (\d{3})$/)?.[1];
+
+  if (status) {
+    switch (Number(status)) {
+      case 400:
+      case 401:
+      case 403:
+      case 404:
+        return "This API key may be invalid or inactive. Check the key and try again.";
+      case 429:
+        return "Too many quota checks. Please wait a moment and try again.";
+      default:
+        if (Number(status) >= 500) {
+          return "The quota service is temporarily unavailable. Please try again later.";
+        }
+    }
+  }
+
+  if (message === "Invalid API key") {
+    return "This API key is invalid. Check the key and try again.";
+  }
+
+  return "Could not load quota. Check your connection and try again.";
+}
+
 const ACCOUNT_COLORS: Record<
   string,
   { bg: string; text: string; label: string }
@@ -72,7 +99,7 @@ function SingleKeyQuota({ apiKey, index }: { apiKey: string; index: number }) {
     } catch (e) {
       setState({
         status: "error",
-        error: e instanceof Error ? e.message : "Failed to load",
+        error: getQuotaErrorMessage(e),
       });
     }
   }, [apiKey]);
@@ -166,7 +193,7 @@ export default function ApiKeyQuotaModal({ apiKeys, onClose }: Props) {
     <ModalShell
       open={true}
       onClose={onClose}
-      title="API KEY QUOTA"
+      title="KEY QUOTA"
       subtitle={`${validKeys.length} key${validKeys.length !== 1 ? "s" : ""} configured`}
       icon={<KeyRound size={15} strokeWidth={2} />}
       footer={
@@ -179,7 +206,7 @@ export default function ApiKeyQuotaModal({ apiKeys, onClose }: Props) {
       <div className="flex flex-col gap-3">
         {validKeys.length === 0 ? (
           <p className="text-[13px] text-[var(--text-muted)] text-center py-8">
-            No API keys configured.
+            No keys configured.
           </p>
         ) : (
           validKeys.map((key, i) => (

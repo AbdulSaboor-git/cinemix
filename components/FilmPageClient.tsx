@@ -58,7 +58,11 @@ import {
   isRussian,
   formatDateSafe,
 } from "@/lib/translate";
-import { getPreferences, hasApiKeys } from "@/lib/preferences";
+import {
+  getPreferences,
+  hasApiKeys,
+  hasVerifiedApiKey,
+} from "@/lib/preferences";
 import {
   useTranslate,
   useTranslateHtml,
@@ -102,9 +106,7 @@ function buildInitialCachedFilm(id: number): Film | null {
 export default function FilmPageClient({ filmId }: { filmId: string }) {
   const id = parseInt(filmId, 10);
   const [noKey, setNoKey] = useState(false);
-  const [film, setFilm] = useState<Film | null>(() =>
-    buildInitialCachedFilm(id),
-  );
+  const [film, setFilm] = useState<Film | null>(null);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [related, setRelated] = useState<Film[]>([]);
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -115,27 +117,49 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
   const [awards, setAwards] = useState<Award[]>([]);
   const [images, setImages] = useState<ImageItem[]>([]);
   const [distributions, setDistributions] = useState<Distribution[]>([]);
-  const [loading, setLoading] = useState(() => {
-    if (isNaN(id)) return false;
-    return buildInitialCachedFilm(id) === null;
-  });
+  const [loading, setLoading] = useState(() => !isNaN(id));
   const [error, setError] = useState(isNaN(id));
+  const [keyEpoch, setKeyEpoch] = useState(0);
+
+  useEffect(() => {
+    const syncKeyState = () => {
+      if (!hasApiKeys()) {
+        setNoKey(true);
+        setFilm(null);
+        setLoading(false);
+      } else {
+        setNoKey((prev) => {
+          if (prev) setKeyEpoch((e) => e + 1);
+          return false;
+        });
+      }
+    };
+    window.addEventListener("cinemix-session-change", syncKeyState);
+    window.addEventListener("storage", syncKeyState);
+    return () => {
+      window.removeEventListener("cinemix-session-change", syncKeyState);
+      window.removeEventListener("storage", syncKeyState);
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasApiKeys()) {
       setNoKey(true);
+      setFilm(null);
       setLoading(false);
       return;
     }
     if (isNaN(id)) return;
+    setNoKey(false);
     let mounted = true;
     let stage2Timer: ReturnType<typeof setTimeout> | null = null;
 
-    const seeded = buildInitialCachedFilm(id);
+    const seeded = hasVerifiedApiKey() ? buildInitialCachedFilm(id) : null;
     if (seeded) {
       setFilm(seeded);
       setLoading(false);
     } else {
+      setFilm(null);
       setLoading(true);
     }
     setError(false);
@@ -227,7 +251,12 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
       })
       .catch(() => {
         if (mounted) {
-          if (!seeded) setError(true);
+          if (!hasApiKeys()) {
+            setNoKey(true);
+            setFilm(null);
+          } else if (!seeded) {
+            setError(true);
+          }
           setLoading(false);
         }
       });
@@ -236,7 +265,7 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
       mounted = false;
       if (stage2Timer) clearTimeout(stage2Timer);
     };
-  }, [id]);
+  }, [id, keyEpoch]);
 
   if (noKey) return <NoKeyBanner />;
   if (loading && !film) return <LoadingSkeleton />;

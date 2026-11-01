@@ -31,7 +31,11 @@ import {
 } from "@/lib/translate";
 import { useAutoTranslate, useFilmTitle } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
-import { hasApiKeys, getPreferences } from "@/lib/preferences";
+import {
+  hasApiKeys,
+  hasVerifiedApiKey,
+  getPreferences,
+} from "@/lib/preferences";
 import { getQuickCertBadge } from "@/lib/parentalGuide";
 import {
   useHydratedFilm,
@@ -111,10 +115,17 @@ function getCacheKey(year: number, monthStr: string): string {
   return `${year}:${monthStr}`;
 }
 
+if (typeof window !== "undefined") {
+  window.addEventListener("cinemix-cache-clear", () => {
+    premieresCache.clear();
+  });
+}
+
 function getValidPremieresSnapshot(
   year: number,
   monthIdx: number,
 ): PremieresSnapshot | null {
+  if (!hasVerifiedApiKey()) return null;
   const monthStr = MONTHS[monthIdx];
   const key = getCacheKey(year, monthStr);
   const existing = premieresCache.get(key);
@@ -160,26 +171,55 @@ export default function PremieresClient({
     0,
     11,
   );
-  const initialCache = getValidPremieresSnapshot(initYear, resolvedMonthIdx);
 
   const [noKey, setNoKey] = useState(false);
   const [year, setYear] = useState(initYear);
   const [monthIdx, setMonthIdx] = useState(resolvedMonthIdx);
-  const [films, setFilms] = useState<Film[]>(() => initialCache?.items ?? []);
-  const [loading, setLoading] = useState<boolean>(() => !initialCache);
+  const [films, setFilms] = useState<Film[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [sortBy, setSortBy] = useState<"DATE" | "RATING">("DATE");
+  const [regionMode, setRegionMode] = useState<string>("GLOBAL_FIRST");
   const [parentalModalFilm, setParentalModalFilm] = useState<Film | null>(null);
 
   const didMountRef = useRef(false);
 
   useDocumentTitle(`Premieres — ${MONTH_FULL[monthIdx]} ${year}`);
 
+  const [keyEpoch, setKeyEpoch] = useState(0);
+
   useEffect(() => {
+    const syncKeyState = () => {
+      if (!hasApiKeys()) {
+        premieresCache.clear();
+        setNoKey(true);
+        setFilms([]);
+        setLoading(false);
+      } else {
+        setRegionMode(getPreferences().contentRegionMode ?? "GLOBAL_FIRST");
+        setNoKey((prev) => {
+          if (prev) setKeyEpoch((e) => e + 1);
+          return false;
+        });
+      }
+    };
+    window.addEventListener("cinemix-session-change", syncKeyState);
+    window.addEventListener("storage", syncKeyState);
+    return () => {
+      window.removeEventListener("cinemix-session-change", syncKeyState);
+      window.removeEventListener("storage", syncKeyState);
+    };
+  }, []);
+
+  useEffect(() => {
+    setRegionMode(getPreferences().contentRegionMode ?? "GLOBAL_FIRST");
     if (!hasApiKeys()) {
+      premieresCache.clear();
       setNoKey(true);
+      setFilms([]);
       setLoading(false);
       return;
     }
+    setNoKey(false);
 
     const monthStr = MONTHS[monthIdx];
     const cached = getValidPremieresSnapshot(year, monthIdx);
@@ -200,7 +240,13 @@ export default function PremieresClient({
           setFilms(list);
         })
         .catch(() => {
-          if (!cancelled) setFilms([]);
+          if (!cancelled) {
+            if (!hasApiKeys()) {
+              premieresCache.clear();
+              setNoKey(true);
+            }
+            setFilms([]);
+          }
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -210,7 +256,7 @@ export default function PremieresClient({
         cancelled = true;
       };
     }
-  }, [year, monthIdx]);
+  }, [year, monthIdx, keyEpoch]);
 
   useEffect(() => {
     const targetMonth = MONTHS[monthIdx];
@@ -264,10 +310,6 @@ export default function PremieresClient({
 
   // Regional curation & sorting
   const displayedFilms = useMemo(() => {
-    const regionMode =
-      typeof window !== "undefined"
-        ? (getPreferences().contentRegionMode ?? "GLOBAL_FIRST")
-        : "GLOBAL_FIRST";
     const base =
       regionMode === "GLOBAL_FIRST"
         ? films.filter((f) => !isRussianDomesticFilm(f))
@@ -286,7 +328,7 @@ export default function PremieresClient({
       const dB = b.premiereRu ? new Date(b.premiereRu).getTime() || 0 : 0;
       return dA - dB;
     });
-  }, [films, sortBy]);
+  }, [films, sortBy, regionMode]);
 
   const handleCloseParentalGuide = useCallback(() => {
     setParentalModalFilm(null);

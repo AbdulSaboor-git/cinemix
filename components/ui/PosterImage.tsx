@@ -307,15 +307,19 @@ export default function PosterImage({
     [propFilmId, src],
   );
 
+  const [mounted, setMounted] = useState(false);
   const [metaTick, setMetaTick] = useState(0);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Only re-evaluate when THIS specific film's metadata updates
   useEffect(() => {
     if (isPerson || !kpFilmId) return;
     const onMetaUpdated = (e: Event) => {
-      const detail = (
-        e as CustomEvent<{ filmId?: number; filmIds?: number[] }>
-      ).detail;
+      const detail = (e as CustomEvent<{ filmId?: number; filmIds?: number[] }>)
+        .detail;
       if (
         detail?.filmId === kpFilmId ||
         (Array.isArray(detail?.filmIds) && detail.filmIds.includes(kpFilmId)) ||
@@ -330,9 +334,9 @@ export default function PosterImage({
   }, [isPerson, kpFilmId]);
 
   const cachedMeta: CompactFilmMeta | undefined = useMemo(
-    () => (kpFilmId > 0 ? getCachedFilmMeta(kpFilmId) : undefined),
+    () => (mounted && kpFilmId > 0 ? getCachedFilmMeta(kpFilmId) : undefined),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [kpFilmId, metaTick],
+    [mounted, kpFilmId, metaTick],
   );
 
   const resolvedImdbId = propImdbId || cachedMeta?.imdbId || null;
@@ -399,35 +403,11 @@ export default function PosterImage({
     resolvedYear,
   ]);
 
-  const synchronousCachedEntry = useMemo(
-    () =>
-      lookupKey
-        ? getCachedEnglishPoster(lookupKey, Boolean(resolvedImdbId))
-        : undefined,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lookupKey, resolvedImdbId, metaTick],
-  );
-
   const cleanOriginalKpSrc = sanitizePosterUrl(src);
   const optimizedKpSrc = optimizePosterUrl(src, size, fallbackType, priority);
 
-  const initialEnglishUrl = synchronousCachedEntry?.url
-    ? optimizePosterUrl(
-        synchronousCachedEntry.url,
-        size,
-        fallbackType,
-        priority,
-      )
-    : null;
-
-  const [resolvedEnRawUrl, setResolvedEnRawUrl] = useState<string | null>(
-    synchronousCachedEntry?.url ?? null,
-  );
-  // Show `initialEnglishUrl` (if cached) or `optimizedKpSrc` immediately so cards paint in 0ms without blocking!
-  const [activeSrc, setActiveSrc] = useState<string | null>(() => {
-    if (initialEnglishUrl) return initialEnglishUrl;
-    return optimizedKpSrc;
-  });
+  const [resolvedEnRawUrl, setResolvedEnRawUrl] = useState<string | null>(null);
+  const [activeSrc, setActiveSrc] = useState<string | null>(optimizedKpSrc);
   const [error, setError] = useState(false);
   const [loaded, setLoaded] = useState(false);
 

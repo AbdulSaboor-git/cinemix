@@ -14,20 +14,12 @@ export default function NoKeyBanner() {
         </div>
 
         <h2 className="font-display text-[clamp(20px,5vw,30px)] tracking-[2px] text-[var(--text)] mb-4">
-          API KEY REQUIRED
+          KEY REQUIRED
         </h2>
 
         <p className="text-[13px] sm:text-[14px] text-[var(--text-dim)] leading-[1.8] mb-8 px-2">
-          CineMix needs a Kinopoisk API key to load content. Get a free key at{" "}
-          <a
-            href="https://kinopoiskapiunofficial.tech"
-            target="_blank"
-            rel="noreferrer"
-            className="text-[var(--accent)] hover:underline break-all"
-          >
-            kinopoiskapiunofficial.tech
-          </a>{" "}
-          then add it in preferences.
+          CineMix needs a key to load content. Contact Cinemix team to get your
+          key.
         </p>
 
         <Link href="/preferences" className="no-underline inline-flex">

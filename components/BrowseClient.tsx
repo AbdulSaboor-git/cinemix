@@ -1,7 +1,6 @@
 "use client";
 import React, {
   useEffect,
-  useLayoutEffect,
   useState,
   useCallback,
   useMemo,
@@ -63,6 +62,7 @@ import { useListStatus } from "@/hooks/useListStatus";
 import {
   getPreferences,
   hasApiKeys,
+  hasVerifiedApiKey,
   getSavedExplorePresets,
   saveExplorePreset,
   deleteExplorePreset,
@@ -237,11 +237,6 @@ const SMART_LENSES: SmartLens[] = [
 
 // ── Multi-Query LRU Cache for instant 0ms tab/filter switching ──
 let cachedFilters: { genres: Genre[]; countries: Country[] } | null = null;
-let cachedUserPrefs: {
-  prefType: string;
-  prefOrder: ExploreSortOrder;
-} | null = null;
-
 interface BrowseSnapshot {
   queryKey: string;
   timestamp: number;
@@ -254,7 +249,14 @@ const BROWSE_SNAPSHOT_TTL = 5 * 60 * 1000; // 5 minutes
 const MAX_BROWSE_CACHE_ENTRIES = 25;
 const browseCacheMap = new Map<string, BrowseSnapshot>();
 
+if (typeof window !== "undefined") {
+  window.addEventListener("cinemix-cache-clear", () => {
+    browseCacheMap.clear();
+  });
+}
+
 function getValidBrowseSnapshot(queryKey: string): BrowseSnapshot | null {
+  if (!hasVerifiedApiKey()) return null;
   const entry = browseCacheMap.get(queryKey);
   if (!entry) return null;
   if (Date.now() - entry.timestamp > BROWSE_SNAPSHOT_TTL) {
@@ -270,23 +272,6 @@ function setBrowseSnapshot(snapshot: BrowseSnapshot): void {
     if (oldestKey) browseCacheMap.delete(oldestKey);
   }
   browseCacheMap.set(snapshot.queryKey, snapshot);
-}
-
-function readInitialUserPrefs() {
-  if (cachedUserPrefs) return cachedUserPrefs;
-  if (typeof window !== "undefined") {
-    try {
-      const p = getPreferences();
-      cachedUserPrefs = {
-        prefType: p.defaultExploreType || "ALL",
-        prefOrder: (p.defaultExploreOrder as ExploreSortOrder) || "NUM_VOTE",
-      };
-      return cachedUserPrefs;
-    } catch {
-      // ignore
-    }
-  }
-  return { prefType: "ALL", prefOrder: "NUM_VOTE" as ExploreSortOrder };
 }
 
 function hasNonNumericTokens(raw?: string): boolean {
@@ -565,9 +550,6 @@ const MemoizedFilmGrid = memo(function MemoizedFilmGrid({
   );
 });
 
-const useIsomorphicLayoutEffect =
-  typeof window !== "undefined" ? useLayoutEffect : useEffect;
-
 export default function BrowseClient(props: ExploreSearchParams) {
   const router = useRouter();
   const { toast } = useToast();
@@ -589,23 +571,13 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const page = Math.max(1, parseInt(p.page || "1", 10));
 
   const [noKey, setNoKey] = useState(false);
-  const [ready, setReady] = useState(() => cachedUserPrefs !== null);
-  const [prefType, setPrefType] = useState<string>(
-    () => readInitialUserPrefs().prefType,
-  );
-  const [prefOrder, setPrefOrder] = useState<ExploreSortOrder>(
-    () => readInitialUserPrefs().prefOrder,
-  );
+  const [ready, setReady] = useState(false);
+  const [prefType, setPrefType] = useState<string>("ALL");
+  const [prefOrder, setPrefOrder] = useState<ExploreSortOrder>("NUM_VOTE");
 
-  const [genres, setGenres] = useState<Genre[]>(
-    () => cachedFilters?.genres ?? [],
-  );
-  const [countries, setCountries] = useState<Country[]>(
-    () => cachedFilters?.countries ?? [],
-  );
-  const [filtersLoaded, setFiltersLoaded] = useState<boolean>(
-    () => cachedFilters !== null,
-  );
+  const [genres, setGenres] = useState<Genre[]>([]);
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [filtersLoaded, setFiltersLoaded] = useState<boolean>(false);
 
   const [deckExpanded, setDeckExpanded] = useState(false);
   const [mobileControlsExpanded, setMobileControlsExpanded] = useState(false);
@@ -636,20 +608,32 @@ export default function BrowseClient(props: ExploreSearchParams) {
     return () => unlockScroll();
   }, [mobileSheetOpen]);
 
-  useIsomorphicLayoutEffect(() => {
-    if (!hasApiKeys()) {
-      setNoKey(true);
-      return;
-    }
-    const prefs = getPreferences();
-    const nextPrefType = prefs.defaultExploreType || "ALL";
-    const nextPrefOrder =
-      (prefs.defaultExploreOrder as ExploreSortOrder) || "NUM_VOTE";
-    cachedUserPrefs = { prefType: nextPrefType, prefOrder: nextPrefOrder };
-    setPrefType(nextPrefType);
-    setPrefOrder(nextPrefOrder);
-    setSavedPresets(getSavedExplorePresets());
-    setReady(true);
+  useEffect(() => {
+    const syncKeyAndPrefs = () => {
+      if (!hasApiKeys()) {
+        browseCacheMap.clear();
+        setNoKey(true);
+        setFilms([]);
+        setReady(false);
+        return;
+      }
+      setNoKey(false);
+      const prefs = getPreferences();
+      const nextPrefType = prefs.defaultExploreType || "ALL";
+      const nextPrefOrder =
+        (prefs.defaultExploreOrder as ExploreSortOrder) || "NUM_VOTE";
+      setPrefType(nextPrefType);
+      setPrefOrder(nextPrefOrder);
+      setSavedPresets(getSavedExplorePresets());
+      setReady(true);
+    };
+    syncKeyAndPrefs();
+    window.addEventListener("cinemix-session-change", syncKeyAndPrefs);
+    window.addEventListener("storage", syncKeyAndPrefs);
+    return () => {
+      window.removeEventListener("cinemix-session-change", syncKeyAndPrefs);
+      window.removeEventListener("storage", syncKeyAndPrefs);
+    };
   }, []);
 
   const activeLens = p.lens;
@@ -703,25 +687,17 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const hideWatchLater = p.hideWatchLater === "1";
 
   const [resolvedIncludeGenres, setResolvedIncludeGenres] = useState<number[]>(
-    () => resolveGenreTokensFromList(p.genres, cachedFilters?.genres ?? []),
+    () => resolveGenreTokensFromList(p.genres, []),
   );
   const [resolvedExcludeGenres, setResolvedExcludeGenres] = useState<number[]>(
-    () =>
-      resolveGenreTokensFromList(p.excludeGenres, cachedFilters?.genres ?? []),
+    () => resolveGenreTokensFromList(p.excludeGenres, []),
   );
   const [resolvedIncludeCountries, setResolvedIncludeCountries] = useState<
     number[]
-  >(() =>
-    resolveCountryTokensFromList(p.countries, cachedFilters?.countries ?? []),
-  );
+  >(() => resolveCountryTokensFromList(p.countries, []));
   const [resolvedExcludeCountries, setResolvedExcludeCountries] = useState<
     number[]
-  >(() =>
-    resolveCountryTokensFromList(
-      p.excludeCountries,
-      cachedFilters?.countries ?? [],
-    ),
-  );
+  >(() => resolveCountryTokensFromList(p.excludeCountries, []));
 
   // Deterministic query key for caching active Explore results
   const activeQueryKey = useMemo(() => {
@@ -786,39 +762,19 @@ export default function BrowseClient(props: ExploreSearchParams) {
     randomSeed,
   ]);
 
-  const initialSnapshot = getValidBrowseSnapshot(activeQueryKey);
-
-  const [films, setFilms] = useState<Film[]>(
-    () => initialSnapshot?.films ?? [],
-  );
-  const [totalPages, setTotalPages] = useState(
-    () => initialSnapshot?.totalPages ?? 1,
-  );
-  const [loading, setLoading] = useState<boolean>(() => !initialSnapshot);
+  const [films, setFilms] = useState<Film[]>([]);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState<boolean>(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [streamedPage, setStreamedPage] = useState(
-    () => initialSnapshot?.streamedPage ?? page,
-  );
+  const [streamedPage, setStreamedPage] = useState(page);
 
   // Staged Draft State
   const [draft, setDraft] = useState<DraftFilterState>(() => ({
-    includeGenres: resolveGenreTokensFromList(
-      p.genres,
-      cachedFilters?.genres ?? [],
-    ),
-    excludeGenres: resolveGenreTokensFromList(
-      p.excludeGenres,
-      cachedFilters?.genres ?? [],
-    ),
+    includeGenres: resolveGenreTokensFromList(p.genres, []),
+    excludeGenres: resolveGenreTokensFromList(p.excludeGenres, []),
     genreMatchMode: p.genreMode === "OR" ? "OR" : "AND",
-    includeCountries: resolveCountryTokensFromList(
-      p.countries,
-      cachedFilters?.countries ?? [],
-    ),
-    excludeCountries: resolveCountryTokensFromList(
-      p.excludeCountries,
-      cachedFilters?.countries ?? [],
-    ),
+    includeCountries: resolveCountryTokensFromList(p.countries, []),
+    excludeCountries: resolveCountryTokensFromList(p.excludeCountries, []),
     ratingFrom: p.ratingFrom || "",
     ratingTo: p.ratingTo || "",
     ratingSource: (p.ratingSource as RatingSource) || "AUTO",
@@ -842,6 +798,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
   useEffect(() => {
     if (!hasApiKeys()) return;
     if (cachedFilters) {
+      setGenres(cachedFilters.genres);
+      setCountries(cachedFilters.countries);
       setFiltersLoaded(true);
       return;
     }
@@ -1345,6 +1303,12 @@ export default function BrowseClient(props: ExploreSearchParams) {
     })
       .then((res) => {
         if (cancelled) return;
+        if (!hasApiKeys()) {
+          browseCacheMap.clear();
+          setNoKey(true);
+          setFilms([]);
+          return;
+        }
         const items = res.items ?? [];
         const pages = res.totalPages ?? 1;
         setFilms(items);
@@ -1359,6 +1323,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
       })
       .catch(() => {
         if (cancelled) return;
+        if (!hasApiKeys()) {
+          browseCacheMap.clear();
+          setNoKey(true);
+        }
         setFilms([]);
         setTotalPages(1);
       })

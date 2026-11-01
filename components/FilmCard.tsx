@@ -138,21 +138,25 @@ export function useHydratedFilm(
   passiveOnly = false,
 ): Film {
   const id = rawFilm.kinopoiskId ?? rawFilm.filmId ?? 0;
+  const [mounted, setMounted] = useState(false);
   const [metaTick, setMetaTick] = useState(0);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const hydrated = useMemo(
-    () => hydrateFilmWithCache(rawFilm),
+    () => (mounted ? hydrateFilmWithCache(rawFilm) : rawFilm),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rawFilm, metaTick],
+    [rawFilm, metaTick, mounted],
   );
 
   // Listen only for metadata updates matching THIS film ID
   useEffect(() => {
     if (!id) return;
     const onMetaUpdated = (e: Event) => {
-      const detail = (
-        e as CustomEvent<{ filmId?: number; filmIds?: number[] }>
-      ).detail;
+      const detail = (e as CustomEvent<{ filmId?: number; filmIds?: number[] }>)
+        .detail;
       if (
         detail?.filmId === id ||
         (Array.isArray(detail?.filmIds) && detail.filmIds.includes(id)) ||
@@ -166,12 +170,14 @@ export function useHydratedFilm(
       window.removeEventListener("cinemix-meta-updated", onMetaUpdated);
   }, [id]);
 
-  const isAlreadyEnriched = Boolean(id > 0 && getCachedFilmMeta(id)?.enriched);
+  const isAlreadyEnriched = Boolean(
+    mounted && id > 0 && getCachedFilmMeta(id)?.enriched,
+  );
   const hasRating = resolveRating(hydrated) !== null;
   const hasCert = Boolean(hydrated.ratingAgeLimits || hydrated.ratingMpaa);
   const hasDuration = Boolean(
     (hydrated.filmLength && hydrated.filmLength > 0) ||
-      (hydrated.duration && hydrated.duration > 0),
+    (hydrated.duration && hydrated.duration > 0),
   );
 
   const needsHydration =
@@ -495,18 +501,15 @@ export function FilmLongPressPortal({
       if (typeof navigator !== "undefined" && navigator.vibrate) {
         navigator.vibrate(20);
       }
-      toast.success(
-        added ? "Added to Favorites" : "Removed from Favorites",
-        {
-          description: name,
-          posterUrl,
-          icon: "heart",
-          action: {
-            label: "Undo",
-            onClick: () => toggleFavorite(entry),
-          },
+      toast.success(added ? "Added to Favorites" : "Removed from Favorites", {
+        description: name,
+        posterUrl,
+        icon: "heart",
+        action: {
+          label: "Undo",
+          onClick: () => toggleFavorite(entry),
         },
-      );
+      });
     },
     [id, name, posterUrl, entryYear, entryRating, toast],
   );
@@ -526,18 +529,15 @@ export function FilmLongPressPortal({
       if (typeof navigator !== "undefined" && navigator.vibrate) {
         navigator.vibrate(20);
       }
-      toast.info(
-        added ? "Saved to Watch Later" : "Removed from Watch Later",
-        {
-          description: name,
-          posterUrl,
-          icon: "clock",
-          action: {
-            label: "Undo",
-            onClick: () => toggleWatchLater(entry),
-          },
+      toast.info(added ? "Saved to Watch Later" : "Removed from Watch Later", {
+        description: name,
+        posterUrl,
+        icon: "clock",
+        action: {
+          label: "Undo",
+          onClick: () => toggleWatchLater(entry),
         },
-      );
+      });
     },
     [id, name, posterUrl, entryYear, entryRating, toast],
   );
@@ -731,11 +731,7 @@ export function FilmLongPressPortal({
                 historyPushedRef.current = false;
                 const cleaned = { ...window.history.state };
                 delete cleaned.filmCardPopup;
-                window.history.replaceState(
-                  cleaned,
-                  "",
-                  window.location.href,
-                );
+                window.history.replaceState(cleaned, "", window.location.href);
               }
               setPopupEntered(false);
               setPopupOpen(false);
@@ -813,18 +809,15 @@ const FilmCard = memo(function FilmCard({
       if (typeof navigator !== "undefined" && navigator.vibrate) {
         navigator.vibrate(20);
       }
-      toast.success(
-        added ? "Added to Favorites" : "Removed from Favorites",
-        {
-          description: name,
-          posterUrl,
-          icon: "heart",
-          action: {
-            label: "Undo",
-            onClick: () => toggleFavorite(entry),
-          },
+      toast.success(added ? "Added to Favorites" : "Removed from Favorites", {
+        description: name,
+        posterUrl,
+        icon: "heart",
+        action: {
+          label: "Undo",
+          onClick: () => toggleFavorite(entry),
         },
-      );
+      });
     },
     [id, name, posterUrl, entryYear, entryRating, toast],
   );
@@ -844,18 +837,15 @@ const FilmCard = memo(function FilmCard({
       if (typeof navigator !== "undefined" && navigator.vibrate) {
         navigator.vibrate(20);
       }
-      toast.info(
-        added ? "Saved to Watch Later" : "Removed from Watch Later",
-        {
-          description: name,
-          posterUrl,
-          icon: "clock",
-          action: {
-            label: "Undo",
-            onClick: () => toggleWatchLater(entry),
-          },
+      toast.info(added ? "Saved to Watch Later" : "Removed from Watch Later", {
+        description: name,
+        posterUrl,
+        icon: "clock",
+        action: {
+          label: "Undo",
+          onClick: () => toggleWatchLater(entry),
         },
-      );
+      });
     },
     [id, name, posterUrl, entryYear, entryRating, toast],
   );

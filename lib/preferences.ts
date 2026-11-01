@@ -7,7 +7,12 @@ import {
   ContentRegionMode,
   DEFAULT_PREFERENCES as SESSION_DEFAULTS,
   getApiKeys as sessionGetApiKeys,
+  getRawApiKeys as sessionGetRawApiKeys,
   hasApiKeys as sessionHasApiKeys,
+  hasVerifiedApiKey as sessionHasVerifiedApiKey,
+  markKeyInvalid,
+  markKeyValid,
+  isKeyInvalid,
   getSession,
   saveSession,
 } from "./session";
@@ -119,9 +124,19 @@ export function getApiKeys(): string[] {
   return sessionGetApiKeys();
 }
 
+export function getRawApiKeys(): string[] {
+  return sessionGetRawApiKeys();
+}
+
 export function hasApiKeys(): boolean {
   return sessionHasApiKeys();
 }
+
+export function hasVerifiedApiKey(): boolean {
+  return sessionHasVerifiedApiKey();
+}
+
+export { markKeyInvalid, markKeyValid, isKeyInvalid };
 
 export function getSavedExplorePresets(): SavedExplorePreset[] {
   return getPreferences().savedExplorePresets ?? [];

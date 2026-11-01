@@ -13,7 +13,6 @@ import {
   Monitor,
   Home,
   Film,
-  ShieldCheck,
 } from "lucide-react";
 import {
   Preferences,
@@ -22,7 +21,11 @@ import {
   savePreferences,
 } from "@/lib/preferences";
 import { saveApiKeys } from "@/lib/session";
-import { getApiKeyInfo, clearApiCache } from "@/lib/kinopoisk";
+import {
+  getApiKeyInfo,
+  clearApiCache,
+  validateConfiguredApiKeys,
+} from "@/lib/kinopoisk";
 import { clearHistory } from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
@@ -215,7 +218,6 @@ export default function PreferencesClient() {
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFERENCES);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [savingKeys, setSavingKeys] = useState(false);
   const [unsaved, setUnsaved] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
 
@@ -226,38 +228,33 @@ export default function PreferencesClient() {
     setLoaded(true);
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
     try {
+      const keys = prefs.apiKeys.map((k) => k.trim()).filter(Boolean);
       const cleaned: Preferences = {
         ...prefs,
-        apiKeys: prefs.apiKeys.map((k) => k.trim()).filter(Boolean),
+        apiKeys: keys,
       };
+      saveApiKeys(keys);
       savePreferences(cleaned);
       clearApiCache();
       setPrefs(cleaned);
       setUnsaved(false);
+      if (keys.length > 0) {
+        const valid = await validateConfiguredApiKeys(keys);
+        if (!valid) {
+          toast.error(
+            "Invalid key — content will stay hidden until a valid key is added.",
+          );
+          return;
+        }
+      }
       toast.success("Preferences saved.");
     } catch {
       toast.error("Failed to save preferences.");
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleSaveKeys = () => {
-    setSavingKeys(true);
-    try {
-      const keys = prefs.apiKeys.map((k) => k.trim()).filter(Boolean);
-      saveApiKeys(keys);
-      savePreferences({ ...prefs, apiKeys: keys });
-      clearApiCache();
-      setPrefs((p) => ({ ...p, apiKeys: keys }));
-      toast.success("API keys saved.");
-    } catch {
-      toast.error("Failed to save keys.");
-    } finally {
-      setSavingKeys(false);
     }
   };
 
@@ -271,14 +268,20 @@ export default function PreferencesClient() {
     const u = [...prefs.apiKeys];
     u[i] = val;
     setPrefs((p) => ({ ...p, apiKeys: u }));
+    setUnsaved(true);
   };
   const removeKey = (i: number) => {
     setPrefs((p) => ({
       ...p,
       apiKeys: p.apiKeys.filter((_, idx) => idx !== i),
     }));
+    setUnsaved(true);
+    toast.info("Key removed — click Save to apply.");
   };
-  const addKey = () => setPrefs((p) => ({ ...p, apiKeys: [...p.apiKeys, ""] }));
+  const addKey = () => {
+    setPrefs((p) => ({ ...p, apiKeys: [...p.apiKeys, ""] }));
+    setUnsaved(true);
+  };
 
   const setSection = (key: keyof Preferences["homeSections"], val: boolean) => {
     setPrefs((p) => ({
@@ -380,18 +383,11 @@ export default function PreferencesClient() {
             <KeyRound size={15} strokeWidth={2} />
           </SectionIcon>
           <div className="flex-1 min-w-0">
-            <SectionTitle>API Keys</SectionTitle>
+            <SectionTitle>Keys Mangement</SectionTitle>
             <p className={`${hint} !mt-0`}>
-              Get free keys at{" "}
-              <a
-                href="https://kinopoiskapiunofficial.tech"
-                target="_blank"
-                rel="noreferrer"
-                className="text-[var(--accent)] no-underline hover:underline"
-              >
-                kinopoiskapiunofficial.tech
-              </a>{" "}
-              — keys rotate automatically when the daily limit is hit.
+              Contact Cinemix team to get your key(s). Each key has a daily
+              limit. More than one key can be added. Keys rotate automatically
+              when the daily limit is hit.
             </p>
           </div>
           {prefs.apiKeys.filter((k) => k.trim()).length > 0 && (
@@ -416,8 +412,8 @@ export default function PreferencesClient() {
                   className="flex-shrink-0 mt-[2px]"
                 />
                 <p className="text-[12px] sm:text-[13px] text-[var(--text-dim)] leading-[1.5] m-0">
-                  No API key configured. The app won&apos;t load content until
-                  you add one.
+                  No keys configured. The app won&apos;t load content until you
+                  add one.
                 </p>
               </div>
             </div>
@@ -439,36 +435,11 @@ export default function PreferencesClient() {
               className="inline-flex items-center gap-[7px] bg-transparent border border-dashed border-[var(--border-hover)] rounded-[var(--radius)] px-[12px] sm:px-[14px] py-[7px] text-[12px] font-semibold text-[var(--text-dim)] cursor-pointer transition-all duration-[180ms] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)] tracking-[0.3px]"
             >
               <Plus size={12} strokeWidth={2.5} />
-              Add another key
+              {prefs.apiKeys.filter((k) => k.trim()).length === 0
+                ? "Add Key"
+                : "Add Another Key"}
             </button>
-            {prefs.apiKeys.filter((k) => k.trim()).length > 0 && (
-              <button
-                type="button"
-                onClick={handleSaveKeys}
-                disabled={savingKeys}
-                className="inline-flex items-center gap-[7px] bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.4)] rounded-[var(--radius)] px-[12px] sm:px-[14px] py-[7px] text-[12px] font-semibold text-[var(--accent)] cursor-pointer transition-all duration-[180ms] hover:border-[rgba(229,9,20,0.7)] tracking-[0.3px] disabled:opacity-50"
-              >
-                <Check size={12} strokeWidth={2.5} />
-                {savingKeys ? "Saving…" : "Save Keys"}
-              </button>
-            )}
           </div>
-        </div>
-      </div>
-
-      {/* Safe Mode (Requirement 9: Minimal "Safe Mode" with toggle only, no RU/USSR text) */}
-      <div className={card}>
-        <div className="flex items-center justify-between px-4 sm:px-6 py-[14px] sm:py-[16px] gap-3">
-          <div className="flex items-center gap-3">
-            <SectionIcon>
-              <ShieldCheck size={15} strokeWidth={2} />
-            </SectionIcon>
-            <span className={lbl}>Safe Mode</span>
-          </div>
-          <Toggle
-            checked={prefs.safeModeEnabled ?? true}
-            onChange={(v) => updatePref((p) => ({ ...p, safeModeEnabled: v }))}
-          />
         </div>
       </div>
 
@@ -598,6 +569,17 @@ export default function PreferencesClient() {
               }
             />
           </div>
+          <div className={row}>
+            <div className="min-w-0 flex-1">
+              <p className={lbl}>Safe Mode</p>
+            </div>
+            <Toggle
+              checked={prefs.safeModeEnabled ?? true}
+              onChange={(v) =>
+                updatePref((p) => ({ ...p, safeModeEnabled: v }))
+              }
+            />
+          </div>
 
           {/* <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
             <p className={`${lbl} mb-2`}>Catalog Priority</p>
@@ -633,7 +615,7 @@ export default function PreferencesClient() {
                   o === "RATING"
                     ? "Top Rated"
                     : o === "NUM_VOTE"
-                      ? "Most Popular (Votes)"
+                      ? "Most Popular"
                       : "Newest";
                 return (
                   <button
