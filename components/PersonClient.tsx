@@ -38,6 +38,7 @@ import {
   translateCountry,
   isRussian,
   formatDateSafe,
+  getEnglishName,
 } from "@/lib/translate";
 import { hasApiKeys } from "@/lib/preferences";
 import { toggleFavorite, toggleWatchLater } from "@/lib/userLists";
@@ -200,9 +201,11 @@ export default function PersonClient({ personId }: { personId: string }) {
   useDocumentTitle(person ? name : "Person");
 
   const [keyEpoch, setKeyEpoch] = useState(0);
+  const [safeMode, setSafeMode] = useState<boolean>(() => isSafeModeActive());
 
   useEffect(() => {
     const syncKeyState = () => {
+      setSafeMode(isSafeModeActive());
       if (!hasApiKeys()) {
         setNoKey(true);
         setPerson(null);
@@ -260,12 +263,12 @@ export default function PersonClient({ personId }: { personId: string }) {
 
   const allFilms = useMemo(() => {
     const raw = person?.films || [];
-    if (!isSafeModeActive()) return raw;
+    if (!safeMode) return raw;
     return raw.filter((f) => {
       const m = metaMap[f.filmId] || getCachedFilmMeta(f.filmId);
       return !isAdultContentFilm(m);
     });
-  }, [person, metaMap]);
+  }, [person, metaMap, safeMode]);
 
   const profGroups = useMemo(() => {
     const groups: Record<string, PersonFilm[]> = {};
@@ -315,13 +318,19 @@ export default function PersonClient({ personId }: { personId: string }) {
       }
       if (mainRolesOnly && !f.general) return false;
       if (q) {
+        const m = metaMap[f.filmId];
+        const resolvedEn = getEnglishName(
+          f.nameRu,
+          f.nameEn || m?.nameEn,
+          m?.nameOriginal,
+          autoTranslate,
+        ).toLowerCase();
         const nEn = (f.nameEn || "").toLowerCase();
         const nRu = (f.nameRu || "").toLowerCase();
         const desc = (f.description || "").toLowerCase();
-        const metaYear = metaMap[f.filmId]?.year
-          ? String(metaMap[f.filmId].year)
-          : "";
+        const metaYear = m?.year ? String(m.year) : "";
         if (
+          !resolvedEn.includes(q) &&
           !nEn.includes(q) &&
           !nRu.includes(q) &&
           !desc.includes(q) &&
@@ -355,8 +364,18 @@ export default function PersonClient({ personId }: { personId: string }) {
         return (mB?.votes ?? 0) - (mA?.votes ?? 0) || rB - rA;
       }
       if (creditSort === "TITLE") {
-        const tA = (a.nameEn || a.nameRu || "").toLowerCase();
-        const tB = (b.nameEn || b.nameRu || "").toLowerCase();
+        const tA = getEnglishName(
+          a.nameRu,
+          a.nameEn || mA?.nameEn,
+          mA?.nameOriginal,
+          autoTranslate,
+        ).toLowerCase();
+        const tB = getEnglishName(
+          b.nameRu,
+          b.nameEn || mB?.nameEn,
+          mB?.nameOriginal,
+          autoTranslate,
+        ).toLowerCase();
         return tA.localeCompare(tB);
       }
       return rB - rA;
@@ -368,6 +387,7 @@ export default function PersonClient({ personId }: { personId: string }) {
     creditSearch,
     creditSort,
     metaMap,
+    autoTranslate,
   ]);
 
   const filmTotalPages = Math.max(

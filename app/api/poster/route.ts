@@ -183,10 +183,16 @@ async function fetchImdbSuggestions(
   }
 }
 
+const serverTranslationCache = new Map<string, string | null>();
+
 async function translateCyrillicToEnglishServer(
   text?: string | null,
 ): Promise<string | null> {
   if (!text || !hasCyrillic(text)) return null;
+  const key = text.trim().toLowerCase();
+  if (serverTranslationCache.has(key)) {
+    return serverTranslationCache.get(key) ?? null;
+  }
   try {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ru&tl=en&dt=t&q=${encodeURIComponent(text.trim())}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(2500) });
@@ -196,7 +202,12 @@ async function translateCyrillicToEnglishServer(
       .map((chunk) => chunk[0])
       .join("")
       .trim();
-    return translated && !hasCyrillic(translated) ? translated : null;
+    const result = translated && !hasCyrillic(translated) ? translated : null;
+    if (serverTranslationCache.size > 1500) {
+      serverTranslationCache.clear();
+    }
+    serverTranslationCache.set(key, result);
+    return result;
   } catch {
     return null;
   }

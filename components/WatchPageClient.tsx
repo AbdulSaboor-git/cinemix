@@ -244,6 +244,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
   useEffect(() => {
     const syncKeyState = () => {
+      setShowParentalGuide(getPreferences().filmSections.parentalGuide ?? true);
       if (!hasApiKeys()) {
         setNoKey(true);
         setFilm(null);
@@ -266,6 +267,9 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   // Cinema Controls: Wide Theater & KinoDivBox Remapped Server Buttons
   const [wideTheater, setWideTheater] = useState(false);
   const [parentalOpen, setParentalOpen] = useState(false);
+  const [showParentalGuide, setShowParentalGuide] = useState<boolean>(
+    () => getPreferences().filmSections.parentalGuide ?? true,
+  );
   const [kdbServers, setKdbServers] =
     useState<KinoDivBoxServer[]>(DEFAULT_KDB_SERVERS);
 
@@ -724,21 +728,23 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                       {rating.toFixed(1)}
                     </span>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => setParentalOpen(true)}
-                    title="View Parental Guide"
-                    className={`rounded-lg px-2.5 py-1 backdrop-blur-md border bg-white/3 border-white/[0.07] inline-flex items-center gap-1.5 shadow-lg transition-transform cursor-pointer active:scale-95 ${
-                      certBadge?.isMature
-                        ? "text-red-500"
-                        : "text-[var(--text-dim)]"
-                    }`}
-                  >
-                    <ShieldAlert size={12} className="mb-0.5 shrink-0" />
-                    <span className="text-[11px] font-bold tracking-[0.5px]">
-                      {certBadge ? certBadge.label : "PG Guide"}
-                    </span>
-                  </button>
+                  {showParentalGuide && (
+                    <button
+                      type="button"
+                      onClick={() => setParentalOpen(true)}
+                      title="View Parental Guide"
+                      className={`rounded-lg px-2.5 py-1 backdrop-blur-md border bg-white/3 border-white/[0.07] inline-flex items-center gap-1.5 shadow-lg transition-transform cursor-pointer active:scale-95 ${
+                        certBadge?.isMature
+                          ? "text-red-500"
+                          : "text-[var(--text-dim)]"
+                      }`}
+                    >
+                      <ShieldAlert size={12} className="mb-0.5 shrink-0" />
+                      <span className="text-[11px] font-bold tracking-[0.5px]">
+                        {certBadge ? certBadge.label : "PG Guide"}
+                      </span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -925,26 +931,28 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         <div className="sm:hidden mt-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-2.5 shadow-[0_6px_20px_rgba(0,0,0,0.35)]">
           <div className="grid grid-cols-10 gap-2 sm:hidden pt-0.5">
             {/* 1: Release Year */}
-            <div className="flex col-span-3 items-center min-w-fit text-[var(--text-dim)] justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]">
+            <div className={`flex ${showParentalGuide ? "col-span-3" : "col-span-5"} items-center min-w-fit text-[var(--text-dim)] justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]`}>
               <CalendarIcon size={14} className="mb-0.5" />
               <span className="font-display text-sm">{year ?? "—"}</span>
             </div>
             {/* 2: MPAA / Age Certification Badge  */}
-            <button
-              type="button"
-              onClick={() => setParentalOpen(true)}
-              title="View Parental Guide"
-              className={`flex col-span-4 items-center min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] backdrop-blur-md border bg-white/3 border-white/[0.07] shadow-lg active:scale-[0.98] cursor-pointer transition-all ${
-                certBadge?.isMature ? "text-red-500" : "text-[var(--text-dim)]"
-              }`}
-            >
-              <ShieldAlert size={14} className="mb-0.5" />
-              <span className="text-[11px] font-bold tracking-[0.5px] line-clamp-2">
-                {certBadge ? certBadge.label : "PG Guide"}
-              </span>
-            </button>
+            {showParentalGuide && (
+              <button
+                type="button"
+                onClick={() => setParentalOpen(true)}
+                title="View Parental Guide"
+                className={`flex col-span-4 items-center min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] backdrop-blur-md border bg-white/3 border-white/[0.07] shadow-lg active:scale-[0.98] cursor-pointer transition-all ${
+                  certBadge?.isMature ? "text-red-500" : "text-[var(--text-dim)]"
+                }`}
+              >
+                <ShieldAlert size={14} className="mb-0.5" />
+                <span className="text-[11px] font-bold tracking-[0.5px] line-clamp-2">
+                  {certBadge ? certBadge.label : "PG Guide"}
+                </span>
+              </button>
+            )}
             {/* 3: Rating */}
-            <div className="flex items-center col-span-3 min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]">
+            <div className={`flex items-center ${showParentalGuide ? "col-span-3" : "col-span-5"} min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]`}>
               <span className="font-display text-[15px] tracking-[0.5px] text-[#f5c518] leading-none">
                 {rating ? rating.toFixed(1) : "—"}
               </span>
@@ -1098,11 +1106,13 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         )}
       </div>
 
-      <ParentalGuideModal
-        open={parentalOpen}
-        onClose={() => setParentalOpen(false)}
-        film={film}
-      />
+      {showParentalGuide && (
+        <ParentalGuideModal
+          open={parentalOpen}
+          onClose={() => setParentalOpen(false)}
+          film={film}
+        />
+      )}
     </PageContainer>
   );
 }

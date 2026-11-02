@@ -422,8 +422,8 @@ export default function PosterImage({
     displayTitle,
   ]);
 
-  // Include year and imdbId in lookupKey so same-name remakes (e.g. Oldboy 2003 vs Oldboy 2013)
-  // never collide and unhydrated cards automatically upgrade once their year or imdbId arrives
+  // Keep lookupKey stable per film (kpFilmId + year) so asynchronous title translation
+  // or imdbId hydration upgrades in-place without flashing back to the Russian poster.
   const lookupKey = useMemo(() => {
     if (!shouldUseEnglishPoster) return "";
     const yPart = resolvedYear ? String(resolvedYear) : "noyear";
@@ -438,7 +438,7 @@ export default function PosterImage({
       .trim();
 
     if (kpFilmId > 0) {
-      return `kp:${kpFilmId}:y=${yPart}:i=${iPart}:t=${tPart}`;
+      return `kp:${kpFilmId}:y=${yPart}`;
     }
     if (iPart) return `imdb:${iPart}:y=${yPart}`;
     if (tPart) return `title:${tPart}:y=${yPart}`;
@@ -486,7 +486,12 @@ export default function PosterImage({
       setActiveSrc(nextUrl);
       setError(false);
     } else {
-      setActiveSrc(optimizedKpSrc);
+      setActiveSrc((prev) => {
+        if (resolvedEnRawUrl && prev && prev.includes("m.media-amazon.com")) {
+          return prev;
+        }
+        return optimizedKpSrc;
+      });
       setError(false);
     }
   }, [

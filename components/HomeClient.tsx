@@ -120,6 +120,7 @@ export default function HomeClient() {
   const [forYouFilms, setForYouFilms] = useState<Film[]>([]);
   const [forYouLoading, setForYouLoading] = useState(false);
   const forYouRequestRef = useRef(0);
+  const lastPersonalSigRef = useRef<string>("");
   const fetchTimestampRef = useRef<number>(homeCache?.timestamp ?? Date.now());
 
   const [loaded, setLoaded] = useState<boolean>(false);
@@ -223,6 +224,7 @@ export default function HomeClient() {
         return discoverTasteMatchedFilms(
           { lens: "FOR_YOU", hideWatched: true },
           1,
+          "low",
         ).then((res) => {
           if (requestId === forYouRequestRef.current) {
             if (!hasApiKeys()) {
@@ -264,9 +266,19 @@ export default function HomeClient() {
 
     let metaDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const computePersonalSig = () => {
+      const p = getPreferences();
+      const favIds = getList("favorites").slice(0, 16).map((x) => x.film_id).join(",");
+      const wlIds = getList("watchlater").slice(0, 16).map((x) => x.film_id).join(",");
+      const histIds = getList("history").slice(0, 16).map((x) => x.film_id).join(",");
+      return `${p.apiKeys.join(",")}|${p.safeModeEnabled}|${p.contentRegionMode}|${favIds}|${wlIds}|${histIds}`;
+    };
+    lastPersonalSigRef.current = computePersonalSig();
+
     const onSessionOrStorage = () => {
       if (!hasApiKeys()) {
         homeCache = null;
+        lastPersonalSigRef.current = "";
         setNoKey(true);
         setLoaded(false);
         setForYouFilms([]);
@@ -277,7 +289,11 @@ export default function HomeClient() {
           if (prev) setKeyEpoch((e) => e + 1);
           return false;
         });
-        syncPersonalRows();
+        const nextSig = computePersonalSig();
+        if (nextSig !== lastPersonalSigRef.current) {
+          lastPersonalSigRef.current = nextSig;
+          syncPersonalRows();
+        }
       }
     };
 
@@ -667,7 +683,7 @@ export default function HomeClient() {
           <FilmRow
             title="From Your Watch Later"
             films={watchLaterFilms}
-            href="/watchlater"
+            href="/profile/watchlater"
           />
         )}
         {s.recentReleases && recentReleaseFilms.length > 0 && (

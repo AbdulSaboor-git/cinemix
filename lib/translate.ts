@@ -395,7 +395,7 @@ export const INTERNATIONAL_TITLE_ALIASES: InternationalTitleAlias[] = [
     ru: ["Сука-любовь"],
   },
   {
-    en: "Y Tu Mamá Также",
+    en: "Y Tu Mamá También",
     orig: ["Y tu mamá también", "And Your Mother Too"],
     ru: ["И твою маму тоже"],
   },
@@ -659,73 +659,152 @@ export const INTERNATIONAL_TITLE_ALIASES: InternationalTitleAlias[] = [
   },
 ];
 
+const normAliasCache = new Map<string, string>();
+
 function normAliasKey(s?: string | null): string {
   if (!s) return "";
-  return s
+  const hit = normAliasCache.get(s);
+  if (hit !== undefined) return hit;
+  if (normAliasCache.size > 4000) normAliasCache.clear();
+  const res = s
     .toLowerCase()
+    .replace(/ё/g, "е")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9а-яё\s]/gi, " ")
+    .normalize("NFC")
+    .replace(/['’`]/g, "")
+    .replace(/[^\p{L}\p{N}\s+]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+  normAliasCache.set(s, res);
+  return res;
 }
 
-const ORIG_OR_RU_TO_EN_MAP = new Map<string, string>();
+const ORIG_TO_EN_MAP = new Map<string, string>();
+const RU_TO_EN_MAP = new Map<
+  string,
+  { en: string; origKeys: Set<string>; ambiguous: boolean }
+>();
+
+// Generic single-word Russian titles shared by multiple distinct Hollywood/international films
+const AMBIGUOUS_SINGLE_WORD_RU = new Set(
+  [
+    "бункер",
+    "таксист",
+    "служанка",
+    "тело",
+    "приют",
+    "охота",
+    "платформа",
+    "пылающий",
+    "преследователь",
+    "вопль",
+    "нигде",
+    "берлин",
+    "элита",
+  ].map((w) => normAliasKey(w)),
+);
+
 for (const entry of INTERNATIONAL_TITLE_ALIASES) {
+  const entryOrigKeys = new Set<string>();
+  const enKey = normAliasKey(entry.en);
+  if (enKey) entryOrigKeys.add(enKey);
+
   for (const o of entry.orig) {
     const k = normAliasKey(o);
-    if (k) ORIG_OR_RU_TO_EN_MAP.set(k, entry.en);
+    if (k) {
+      entryOrigKeys.add(k);
+      ORIG_TO_EN_MAP.set(k, entry.en);
+    }
   }
   for (const r of entry.ru) {
     const k = normAliasKey(r);
-    if (k) ORIG_OR_RU_TO_EN_MAP.set(k, entry.en);
+    if (!k) continue;
+    const existing = RU_TO_EN_MAP.get(k);
+    if (existing) {
+      existing.ambiguous = true;
+    } else {
+      RU_TO_EN_MAP.set(k, {
+        en: entry.en,
+        origKeys: entryOrigKeys,
+        ambiguous: AMBIGUOUS_SINGLE_WORD_RU.has(k),
+      });
+    }
   }
 }
 
 /**
  * Resolves a known English release title from a non-English original or Russian title.
+ * Never overrides a film that already has a distinct Latin/English nameOriginal
+ * (e.g. Martin Scorsese's "Taxi Driver" is never renamed to Korean "A Taxi Driver").
  */
 export function resolveEnglishAlias(
   nameRu?: string | null,
   nameOriginal?: string | null,
 ): string | null {
-  if (nameOriginal) {
-    const byOrig = ORIG_OR_RU_TO_EN_MAP.get(normAliasKey(nameOriginal));
+  const origKey = normAliasKey(nameOriginal);
+  if (origKey) {
+    const byOrig = ORIG_TO_EN_MAP.get(origKey);
     if (byOrig) return byOrig;
+    // If nameOriginal is already a non-Russian title not in ORIG_TO_EN_MAP, respect it as-is
+    if (nameOriginal && !isRussian(nameOriginal)) {
+      return null;
+    }
   }
-  if (nameRu) {
-    const byRu = ORIG_OR_RU_TO_EN_MAP.get(normAliasKey(nameRu));
-    if (byRu) return byRu;
+  const ruKey = normAliasKey(nameRu);
+  if (ruKey) {
+    const byRu = RU_TO_EN_MAP.get(ruKey);
+    if (byRu && !byRu.ambiguous) {
+      return byRu.en;
+    }
   }
   return null;
 }
 
 /**
  * Given a user search query (e.g. "Money Heist" or "La casa de papel"),
- * returns all known cross-language alias terms (English, Spanish/Original, Russian)
+ * returns known cross-language alias terms (English, Spanish/Original, Russian)
  * so the search engine can query Kinopoisk across all language representations.
  */
 export function getSearchQueryAliases(rawQuery: string): string[] {
   const qNorm = normAliasKey(rawQuery);
-  if (!qNorm || qNorm.length < 2) return [];
+  if (!qNorm || qNorm.length < 3) return [];
+  const qBare = qNorm.replace(/^(the|a|an|el|la|los|las|le|les)\s+/i, "").trim();
   const results = new Set<string>();
 
   for (const entry of INTERNATIONAL_TITLE_ALIASES) {
     const allForms = [entry.en, ...entry.orig, ...entry.ru];
     const matched = allForms.some((form) => {
       const fNorm = normAliasKey(form);
-      return (
-        fNorm === qNorm ||
-        (qNorm.length >= 4 && (fNorm.includes(qNorm) || qNorm.includes(fNorm)))
-      );
+      if (!fNorm || fNorm.length < 2) return false;
+      if (fNorm === qNorm) return true;
+      const fBare = fNorm.replace(/^(the|a|an|el|la|los|las|le|les)\s+/i, "").trim();
+      if (qBare.length >= 4 && fBare.length >= 4 && fBare === qBare) return true;
+      // Prefix match only when the user has typed at least 5 chars and >=60% of the target title
+      if (
+        qNorm.length >= 5 &&
+        qBare.length >= 4 &&
+        qNorm.length >= Math.ceil(fNorm.length * 0.6) &&
+        fNorm.startsWith(qNorm)
+      ) {
+        return true;
+      }
+      return false;
     });
     if (matched) {
-      results.add(entry.en);
-      entry.orig.forEach((o) => results.add(o));
-      entry.ru.forEach((r) => results.add(r));
+      if (normAliasKey(entry.en) !== qNorm) results.add(entry.en);
+      for (const o of entry.orig) {
+        if (/^[\x20-\x7E\u00A0-\u024F]+$/.test(o) && normAliasKey(o) !== qNorm) {
+          results.add(o);
+        }
+      }
+      for (const r of entry.ru) {
+        if (normAliasKey(r) !== qNorm) results.add(r);
+      }
     }
+    if (results.size >= 4) break;
   }
-  return Array.from(results);
+  return Array.from(results).slice(0, 4);
 }
 
 // ─── Russian relation labels ──────────────────────────────────────────────────

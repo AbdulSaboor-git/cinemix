@@ -30,7 +30,7 @@ export default function BackButton({
         if (depth > 1 && window.history.length > 1) {
           sessionStorage.setItem(
             NAV_DEPTH_KEY,
-            String(Math.max(1, depth - 2)),
+            String(Math.max(0, depth - 2)),
           );
           router.back();
           return;

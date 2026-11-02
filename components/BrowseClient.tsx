@@ -785,6 +785,13 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const [films, setFilms] = useState<Film[]>([]);
   const [matchedPerson, setMatchedPerson] =
     useState<MatchedPersonSummary | null>(null);
+  const rawMatchedPersonName =
+    autoTranslate && matchedPerson?.nameEn && !isRussian(matchedPerson.nameEn)
+      ? matchedPerson.nameEn
+      : matchedPerson?.nameRu || matchedPerson?.nameEn || "";
+  const matchedPersonDisplayName =
+    useTranslate(rawMatchedPersonName) || rawMatchedPersonName || p.keyword || "Actor";
+  const matchedPersonDisplayProf = useTranslate(matchedPerson?.profession);
   const [correctedQuery, setCorrectedQuery] = useState<string | null>(null);
   const [targetYear, setTargetYear] = useState<number | null>(null);
   const [totalPages, setTotalPages] = useState(1);
@@ -1366,6 +1373,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
           setNoKey(true);
         }
         setFilms([]);
+        setMatchedPerson(null);
+        setCorrectedQuery(null);
+        setTargetYear(null);
         setTotalPages(1);
       })
       .finally(() => {
@@ -3056,16 +3066,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
             <div className="w-12 h-16 sm:w-14 sm:h-[74px] rounded-[8px] overflow-hidden flex-shrink-0 bg-[var(--surface)] border border-white/15 relative">
               <PosterImage
                 src={matchedPerson.posterUrl}
-                alt={
-                  (autoTranslate && matchedPerson.nameEn && !isRussian(matchedPerson.nameEn)
-                    ? matchedPerson.nameEn
-                    : matchedPerson.nameRu || matchedPerson.nameEn) || "Actor"
-                }
-                title={
-                  (autoTranslate && matchedPerson.nameEn && !isRussian(matchedPerson.nameEn)
-                    ? matchedPerson.nameEn
-                    : matchedPerson.nameRu || matchedPerson.nameEn) || "Actor"
-                }
+                alt={matchedPersonDisplayName}
+                title={matchedPersonDisplayName}
                 fallbackType="person"
                 disableEnglishLookup
                 className="w-full h-full relative overflow-hidden bg-[var(--surface)]"
@@ -3077,11 +3079,14 @@ export default function BrowseClient(props: ExploreSearchParams) {
                   <User size={10} />
                   Matched Person
                 </span>
+                {matchedPersonDisplayProf && (
+                  <span className="text-[11.5px] text-[var(--text-muted)] font-medium">
+                    {matchedPersonDisplayProf}
+                  </span>
+                )}
               </div>
               <h2 className="font-display text-[20px] sm:text-[24px] tracking-[0.8px] text-white m-0 mt-1 leading-tight">
-                {(autoTranslate && matchedPerson.nameEn && !isRussian(matchedPerson.nameEn)
-                  ? matchedPerson.nameEn
-                  : matchedPerson.nameRu || matchedPerson.nameEn) || p.keyword}
+                {matchedPersonDisplayName}
               </h2>
               <p className="text-[12px] text-[var(--text-dim)] m-0 mt-0.5">
                 Showing {matchedPerson.creditsCount} film &amp; series credits below

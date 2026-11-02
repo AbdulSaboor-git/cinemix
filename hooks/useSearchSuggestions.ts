@@ -158,9 +158,8 @@ export function useSearchSuggestions() {
         analysis.targetYear !== null ||
         analysis.relatedTerms.length > 0)
     ) {
-      if (analysis.localMatches.length > 0) {
-        setSuggestions(analysis.localMatches.slice(0, limit));
-      }
+      setSuggestions(analysis.localMatches.slice(0, limit));
+      setMatchedPerson(null);
       setSugVisible(true);
     }
 
@@ -169,7 +168,7 @@ export function useSearchSuggestions() {
 
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await searchFilms(trimmed, 1);
+        const res = await searchFilms(trimmed, 1, { mode: "suggestions" });
         if (reqIdRef.current !== currentReqId) return;
         const merged = deduplicateFilms([
           ...res.items,

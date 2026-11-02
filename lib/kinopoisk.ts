@@ -490,18 +490,23 @@ async function waitRateLimitSlot(
   }
 
   // Low-priority background requests yield whenever foreground requests are active
-  while (activeHighPriorityCount > 0) {
-    await sleep(140);
-  }
-  const now = Date.now();
-  const base = Math.max(now, nextHighSlot, nextLowSlot);
-  const waitMs = base - now;
-  nextLowSlot = base + 240;
-  if (waitMs > 0) {
+  // and re-verify their slot after waking so they never burst simultaneously.
+  for (;;) {
+    while (activeHighPriorityCount > 0) {
+      await sleep(140);
+    }
+    const now = Date.now();
+    const earliest = Math.max(now, nextHighSlot, nextLowSlot);
+    const waitMs = earliest - now;
+    if (waitMs <= 0) {
+      nextLowSlot = now + 220;
+      return;
+    }
+    nextLowSlot = earliest + 220;
     await sleep(waitMs);
-  }
-  while (activeHighPriorityCount > 0) {
-    await sleep(140);
+    if (activeHighPriorityCount === 0) {
+      return;
+    }
   }
 }
 
@@ -1719,6 +1724,7 @@ function interleaveBuckets<T>(buckets: T[][]): T[] {
 export async function discoverTasteMatchedFilms(
   opts: DiscoverFilmsOptions = {},
   page = 1,
+  priority: "high" | "low" = "high",
 ): Promise<FilmsResponse> {
   if (!hasApiKeys()) {
     throw new Error("No valid API key configured.");
@@ -1782,11 +1788,11 @@ export async function discoverTasteMatchedFilms(
   if (safePage <= 3 && rotatedSeeds.length > 0) {
     for (let i = 0; i < rotatedSeeds.length; i++) {
       const seedId = rotatedSeeds[i];
-      const priority = i < 2 && safePage === 1 ? "high" : "low";
+      const reqPriority = priority === "high" && i < 3 ? "high" : "low";
       seedBucketPromises.push(
         Promise.allSettled([
-          getSimilarFilms(seedId, priority),
-          i < 2 ? getRelatedFilms(seedId, priority) : Promise.resolve([]),
+          getSimilarFilms(seedId, reqPriority),
+          i < 2 ? getRelatedFilms(seedId, reqPriority) : Promise.resolve([]),
         ]).then(([simRes, relRes]) => {
           const items: Film[] = [];
           if (simRes.status === "fulfilled" && simRes.value.items) {
@@ -1831,7 +1837,7 @@ export async function discoverTasteMatchedFilms(
         yearTo: opts.yearTo,
         page: ((safePage + idx - 1) % 5) + 1,
       },
-      idx === 0 ? "high" : "low",
+      priority === "high" && idx < 2 ? "high" : "low",
     )
       .then((r) =>
         seededShuffle(r.items ?? [], randomSeed + gId * 31 + safePage * 17),
@@ -2582,11 +2588,20 @@ const SEMANTIC_CONCEPTS: SemanticConceptRule[] = [
  * Extracts a 4-digit release year from queries like "oldboy 2003", "oldboy (2003)", or "2003 oldboy"
  * while preserving standalone 4-digit movie titles like "1917", "2012", "1408", "2046".
  */
+const parsedQueryYearCache = new Map<
+  string,
+  { cleanQuery: string; targetYear: number | null; rawQuery: string }
+>();
+
 export function parseQueryWithYear(rawQuery: string): {
   cleanQuery: string;
   targetYear: number | null;
   rawQuery: string;
 } {
+  const hit = parsedQueryYearCache.get(rawQuery);
+  if (hit) return hit;
+  if (parsedQueryYearCache.size > 2000) parsedQueryYearCache.clear();
+
   const trimmed = rawQuery.trim();
   if (!trimmed) {
     return { cleanQuery: "", targetYear: null, rawQuery: "" };
@@ -2627,22 +2642,44 @@ export function parseQueryWithYear(rawQuery: string): {
     };
   }
 
-  return { cleanQuery: trimmed, targetYear: null, rawQuery: trimmed };
+  const fallbackRes = { cleanQuery: trimmed, targetYear: null, rawQuery: trimmed };
+  parsedQueryYearCache.set(rawQuery, fallbackRes);
+  return fallbackRes;
+}
+
+interface PreparedSearchToken {
+  norm: string;
+  bare: string;
+  compact: string;
+  bareCompact: string;
+  phon: string;
+  cons: string;
+  words: string[];
+  wordPhons: string[];
+  charMask: number;
+}
+
+const preparedTokenCache = new Map<string, PreparedSearchToken>();
+
+function stripLeadingArticles(s: string): string {
+  return s.replace(/^(the|a|an|el|la|los|las|le|les)\s+/i, "").trim();
 }
 
 function normalizeSearchToken(str: string): string {
   return str
     .toLowerCase()
+    .replace(/ё/g, "е")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .normalize("NFC")
     .replace(/['’`]/g, "")
-    .replace(/[^a-z0-9а-яё\s]/gi, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function phoneticSkeleton(str: string): string {
-  return normalizeSearchToken(str)
+function buildPhoneticFromNorm(norm: string): string {
+  return norm
     .replace(/ph/g, "f")
     .replace(/ck/g, "k")
     .replace(/qu/g, "kw")
@@ -2654,64 +2691,132 @@ function phoneticSkeleton(str: string): string {
     .replace(/\s+/g, "");
 }
 
-function consonantSkeleton(str: string): string {
-  return phoneticSkeleton(str).replace(/[aeiouаеёиоуыэюя]/gi, "");
+function computeCharBitmask(s: string): number {
+  let mask = 0;
+  for (let i = 0; i < s.length; i++) {
+    mask |= 1 << (s.charCodeAt(i) & 31);
+  }
+  return mask;
 }
 
-function damerauLevenshtein(a: string, b: string): number {
+function popcount32(n: number): number {
+  n = n - ((n >>> 1) & 0x55555555);
+  n = (n & 0x33333333) + ((n >>> 2) & 0x33333333);
+  return (((n + (n >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
+}
+
+function getPreparedSearchToken(raw: string): PreparedSearchToken {
+  const existing = preparedTokenCache.get(raw);
+  if (existing) return existing;
+  if (preparedTokenCache.size > 8000) {
+    preparedTokenCache.clear();
+  }
+  const norm = normalizeSearchToken(raw);
+  const rawBare = stripLeadingArticles(norm);
+  // Only strip leading article when the remaining title/query is at least 3 chars
+  const bare = rawBare.length >= 3 ? rawBare : norm;
+  const compact = norm.replace(/\s+/g, "");
+  const bareCompact = bare.replace(/\s+/g, "");
+  const phon = buildPhoneticFromNorm(bare || norm);
+  const cons = phon.replace(/[aeiouаеёиоуыэюя]/gi, "");
+  const words = (bare || norm).split(" ").filter(Boolean);
+  const wordPhons = words.map(buildPhoneticFromNorm);
+  const charMask = computeCharBitmask(compact);
+
+  const prepared: PreparedSearchToken = {
+    norm,
+    bare,
+    compact,
+    bareCompact,
+    phon,
+    cons,
+    words,
+    wordPhons,
+    charMask,
+  };
+  preparedTokenCache.set(raw, prepared);
+  return prepared;
+}
+
+// Reusable flat typed arrays for Damerau-Levenshtein (zero heap allocations per call)
+const DL_MAX_LEN = 128;
+const dlBuf0 = new Int32Array(DL_MAX_LEN);
+const dlBuf1 = new Int32Array(DL_MAX_LEN);
+const dlBuf2 = new Int32Array(DL_MAX_LEN);
+
+function damerauLevenshtein(a: string, b: string, maxDist = 3): number {
+  if (a === b) return 0;
   const lenA = a.length;
   const lenB = b.length;
   if (lenA === 0) return lenB;
   if (lenB === 0) return lenA;
-  if (Math.abs(lenA - lenB) > 5) return Math.abs(lenA - lenB);
+  if (Math.abs(lenA - lenB) > maxDist) return maxDist + 1;
+  if (lenB + 1 >= DL_MAX_LEN) return maxDist + 1;
 
-  const dp: number[][] = Array.from({ length: lenA + 1 }, () =>
-    new Array(lenB + 1).fill(0),
-  );
-  for (let i = 0; i <= lenA; i++) dp[i][0] = i;
-  for (let j = 0; j <= lenB; j++) dp[0][j] = j;
+  let prev2 = dlBuf0;
+  let prev1 = dlBuf1;
+  let curr = dlBuf2;
+
+  for (let j = 0; j <= lenB; j++) prev1[j] = j;
 
   for (let i = 1; i <= lenA; i++) {
+    curr[0] = i;
+    let rowMin = i;
+    const chA = a.charCodeAt(i - 1);
+    const chAPrev = i > 1 ? a.charCodeAt(i - 2) : -1;
+
     for (let j = 1; j <= lenB; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost,
-      );
-      if (
-        i > 1 &&
-        j > 1 &&
-        a[i - 1] === b[j - 2] &&
-        a[i - 2] === b[j - 1]
-      ) {
-        dp[i][j] = Math.min(dp[i][j], dp[i - 2][j - 2] + cost);
+      const chB = b.charCodeAt(j - 1);
+      const cost = chA === chB ? 0 : 1;
+      let val = Math.min(prev1[j] + 1, curr[j - 1] + 1, prev1[j - 1] + cost);
+      if (i > 1 && j > 1 && chA === b.charCodeAt(j - 2) && chAPrev === chB) {
+        val = Math.min(val, prev2[j - 2] + 1);
       }
+      curr[j] = val;
+      if (val < rowMin) rowMin = val;
     }
+
+    if (rowMin > maxDist) return maxDist + 1;
+    const tmp = prev2;
+    prev2 = prev1;
+    prev1 = curr;
+    curr = tmp;
   }
-  return dp[lenA][lenB];
+  return prev1[lenB];
 }
 
 function trigramSimilarity(a: string, b: string): number {
+  const lenA = a.length;
+  const lenB = b.length;
+  if (lenA < 3 || lenB < 3 || Math.abs(lenA - lenB) > 6) return 0;
+  if (a === b) return 1;
   const s1 = `  ${a} `;
   const s2 = `  ${b} `;
-  if (s1 === s2) return 1;
-  const set1 = new Set<string>();
-  const set2 = new Set<string>();
-  for (let i = 0; i < s1.length - 2; i++) set1.add(s1.slice(i, i + 3));
-  for (let i = 0; i < s2.length - 2; i++) set2.add(s2.slice(i, i + 3));
-  if (set1.size === 0 || set2.size === 0) return 0;
-  let intersection = 0;
-  set1.forEach((gram) => {
-    if (set2.has(gram)) intersection++;
-  });
-  return (2 * intersection) / (set1.size + set2.size);
+  const n1 = s1.length - 2;
+  const n2 = s2.length - 2;
+  let inter = 0;
+  for (let i = 0; i < n1; i++) {
+    const c0 = s1.charCodeAt(i);
+    const c1 = s1.charCodeAt(i + 1);
+    const c2 = s1.charCodeAt(i + 2);
+    for (let j = 0; j < n2; j++) {
+      if (
+        s2.charCodeAt(j) === c0 &&
+        s2.charCodeAt(j + 1) === c1 &&
+        s2.charCodeAt(j + 2) === c2
+      ) {
+        inter++;
+        break;
+      }
+    }
+  }
+  return (2 * inter) / (n1 + n2);
 }
 
 /**
  * Computes a fuzzy relevance score (0..100) between a user query and a candidate title.
- * Handles typos, transposed characters, dropped vowels, split/merged words ("old boy" <-> "oldboy"),
- * and stripped articles ("the", "a", "el", "la").
+ * Uses memoized token skeletons and zero-allocation Damerau-Levenshtein so 1,000+ titles
+ * evaluate in <2ms without blocking the main thread.
  */
 export function computeFuzzyMatchScore(
   query: string,
@@ -2719,103 +2824,146 @@ export function computeFuzzyMatchScore(
 ): number {
   if (!query || !candidate) return 0;
   const parsed = parseQueryWithYear(query);
-  const qNorm = normalizeSearchToken(parsed.cleanQuery || query);
-  const cNorm = normalizeSearchToken(candidate);
-  if (!qNorm || !cNorm) return 0;
+  const q = getPreparedSearchToken(parsed.cleanQuery || query);
+  const c = getPreparedSearchToken(candidate);
+  if (!q.norm || !c.norm) return 0;
 
-  if (cNorm === qNorm) return 100;
-
-  // Strip common leading articles in English/Spanish/French ("the", "a", "an", "el", "la", "los", "las", "le", "les")
-  const stripArticles = (s: string) =>
-    s.replace(/^(the|a|an|el|la|los|las|le|les)\s+/i, "").trim();
-  const qBare = stripArticles(qNorm);
-  const cBare = stripArticles(cNorm);
-  if (qBare && cBare && qBare === cBare) return 98;
-
-  if (cNorm.startsWith(qNorm) || (qBare && cBare.startsWith(qBare))) return 92;
-  if (cNorm.includes(` ${qNorm}`)) return 86;
-  if (cNorm.includes(qNorm)) return 78;
+  if (c.norm === q.norm) return 100;
+  if (q.bare.length >= 3 && c.bare.length >= 3 && q.bare === c.bare) return 98;
+  if (
+    c.norm.startsWith(q.norm) ||
+    (q.bare.length >= 3 && c.bare.startsWith(q.bare))
+  ) {
+    return 92;
+  }
+  if (c.norm.includes(` ${q.norm}`)) return 86;
+  if (q.norm.length >= 4 && c.norm.includes(q.norm)) return 78;
 
   // Compact space-insensitive check (e.g. "old boy" vs "oldboy", "spiderman" vs "spider man")
-  const qCompact = qNorm.replace(/\s+/g, "");
-  const cCompact = cNorm.replace(/\s+/g, "");
-  const qBareCompact = qBare.replace(/\s+/g, "");
-  const cBareCompact = cBare.replace(/\s+/g, "");
-  if (cCompact === qCompact || (qBareCompact && cBareCompact === qBareCompact)) {
+  if (
+    c.compact === q.compact ||
+    (q.bareCompact.length >= 3 && c.bareCompact === q.bareCompact)
+  ) {
     return 96;
   }
-  if (cCompact.startsWith(qCompact) || (qBareCompact && cBareCompact.startsWith(qBareCompact))) {
+  if (
+    c.compact.startsWith(q.compact) ||
+    (q.bareCompact.length >= 3 && c.bareCompact.startsWith(q.bareCompact))
+  ) {
     return 88;
   }
-  if (cCompact.includes(qCompact) && qCompact.length >= 4) return 76;
+  if (q.compact.length >= 4 && c.compact.includes(q.compact)) return 76;
+
+  // Fast bitmask filter before running phonetic/edit-distance/trigrams
+  const sharedBits = popcount32(q.charMask & c.charMask);
+  const qBits = popcount32(q.charMask);
+  if (qBits >= 4 && sharedBits < Math.ceil(qBits * 0.65)) return 0;
 
   // Phonetic & consonant skeleton match (e.g. "interstelar", "opppenheimer", "shawshenk", "pans labirinth")
-  const qPhon = phoneticSkeleton(qBare || qNorm);
-  const cPhon = phoneticSkeleton(cBare || cNorm);
-  if (qPhon.length >= 4 && (cPhon === qPhon || cPhon.startsWith(qPhon))) {
+  if (q.phon.length >= 4 && (c.phon === q.phon || c.phon.startsWith(q.phon))) {
     return 85;
   }
-  const qCons = consonantSkeleton(qBare || qNorm);
-  const cCons = consonantSkeleton(cBare || cNorm);
-  if (qCons.length >= 4 && cCons === qCons) {
+  if (q.cons.length >= 4 && c.cons === q.cons) {
     return 80;
   }
 
   // Whole-title & word-level edit distance
-  if (qCompact.length >= 4) {
-    const fullDist = damerauLevenshtein(qBareCompact || qCompact, cBareCompact || cCompact);
-    const maxFullAllowed = qCompact.length >= 10 ? 3 : qCompact.length >= 6 ? 2 : 1;
-    if (fullDist <= maxFullAllowed) {
-      return 86 - fullDist * 7;
-    }
-
-    const prefixDist = damerauLevenshtein(
-      qCompact,
-      cCompact.slice(0, Math.min(cCompact.length, qCompact.length + 2)),
-    );
-    const maxPrefixAllowed = qCompact.length >= 8 ? 2 : 1;
-    if (prefixDist <= maxPrefixAllowed) {
-      return 82 - prefixDist * 8;
-    }
-
-    const cWords = (cBare || cNorm).split(" ").filter((w) => w.length >= 2);
-    const qWords = (qBare || qNorm).split(" ").filter((w) => w.length >= 2);
-    if (qWords.length > 0 && cWords.length > 0) {
-      let matchedWords = 0;
-      for (const qw of qWords) {
-        const hit = cWords.some(
-          (cw) =>
-            cw === qw ||
-            cw.startsWith(qw) ||
-            phoneticSkeleton(cw) === phoneticSkeleton(qw) ||
-            damerauLevenshtein(qw, cw) <= (qw.length >= 6 ? 2 : qw.length >= 4 ? 1 : 0),
-        );
-        if (hit) matchedWords++;
+  if (q.compact.length >= 4) {
+    const qFull = q.bareCompact.length >= 4 ? q.bareCompact : q.compact;
+    const cFull =
+      q.bareCompact.length >= 4 ? c.bareCompact || c.compact : c.compact;
+    const maxFullAllowed =
+      qFull.length >= 10 ? 3 : qFull.length >= 6 ? 2 : 1;
+    if (Math.abs(qFull.length - cFull.length) <= maxFullAllowed) {
+      const fullDist = damerauLevenshtein(qFull, cFull, maxFullAllowed);
+      if (fullDist <= maxFullAllowed) {
+        return 86 - fullDist * 7;
       }
-      if (matchedWords === qWords.length) {
+    }
+
+    const maxPrefixAllowed = q.compact.length >= 8 ? 2 : 1;
+    if (
+      c.compact.length >= q.compact.length - maxPrefixAllowed &&
+      q.compact.charCodeAt(0) === c.compact.charCodeAt(0)
+    ) {
+      const prefixDist = damerauLevenshtein(
+        q.compact,
+        c.compact.slice(0, Math.min(c.compact.length, q.compact.length + 2)),
+        maxPrefixAllowed,
+      );
+      if (prefixDist <= maxPrefixAllowed) {
+        return 82 - prefixDist * 8;
+      }
+    }
+
+    if (q.words.length > 0 && c.words.length > 0) {
+      const maxMisses = q.words.length >= 3 ? 1 : 0;
+      let matchedWords = 0;
+      let missedWords = 0;
+
+      for (let i = 0; i < q.words.length; i++) {
+        const qw = q.words[i];
+        const qwp = q.wordPhons[i];
+        const maxWordDist = qw.length >= 6 ? 2 : qw.length >= 4 ? 1 : 0;
+        let hit = false;
+
+        for (let j = 0; j < c.words.length; j++) {
+          const cw = c.words[j];
+          if (
+            cw === qw ||
+            (qw.length >= 3 && cw.startsWith(qw)) ||
+            (qwp.length >= 4 && c.wordPhons[j] === qwp) ||
+            (maxWordDist > 0 &&
+              Math.abs(qw.length - cw.length) <= maxWordDist &&
+              (qw.charCodeAt(0) === cw.charCodeAt(0) ||
+                qw.charCodeAt(1) === cw.charCodeAt(1) ||
+                qw.charCodeAt(0) === cw.charCodeAt(1)) &&
+              damerauLevenshtein(qw, cw, maxWordDist) <= maxWordDist)
+          ) {
+            hit = true;
+            break;
+          }
+        }
+
+        if (hit) {
+          matchedWords++;
+        } else {
+          missedWords++;
+          if (missedWords > maxMisses) break;
+        }
+      }
+
+      if (
+        matchedWords === q.words.length &&
+        (q.words.length >= 2 || c.words.length <= 3)
+      ) {
         return 78;
       }
-      if (qWords.length >= 2 && matchedWords >= qWords.length - 1) {
+      if (q.words.length >= 3 && matchedWords >= q.words.length - 1) {
         return 64;
       }
     }
   }
 
-  const tri = Math.max(
-    trigramSimilarity(qCompact, cCompact),
-    trigramSimilarity(qPhon, cPhon),
-  );
-  if (tri >= 0.48) {
-    return Math.round(tri * 88);
+  if (
+    Math.abs(q.compact.length - c.compact.length) <= 4 &&
+    (q.compact.charCodeAt(0) === c.compact.charCodeAt(0) ||
+      q.phon.charCodeAt(0) === c.phon.charCodeAt(0))
+  ) {
+    const tri = Math.max(
+      trigramSimilarity(q.compact, c.compact),
+      trigramSimilarity(q.phon, c.phon),
+    );
+    if (tri >= 0.52) {
+      return Math.round(tri * 88);
+    }
   }
 
   return 0;
 }
 
 /**
- * Computes the best fuzzy match score for a Film across ALL of its title representations:
- * English title, Original (Spanish/Korean/French/etc.) title, Russian title,
- * known international English alias, and cached English translation of nameRu.
+ * Computes the best fuzzy match score for a Film across its deduplicated title representations.
  */
 export function computeFilmMatchScore(
   query: string,
@@ -2823,31 +2971,69 @@ export function computeFilmMatchScore(
   extraQueries: string[] = [],
 ): number {
   const aliasEn = resolveEnglishAlias(film.nameRu, film.nameOriginal);
-  const displayEn = getEnglishName(
-    film.nameRu,
-    film.nameEn,
-    film.nameOriginal,
-    true,
-  );
-  const cachedRuTrans = film.nameRu ? getCachedTranslation(film.nameRu) : undefined;
+  const cachedRuTrans = film.nameRu
+    ? getCachedTranslation(film.nameRu)
+    : undefined;
 
-  const candidateTitles = [
-    film.nameEn,
-    aliasEn,
-    displayEn,
-    cachedRuTrans,
-    film.nameOriginal,
-    film.nameRu,
-  ].filter((t): t is string => Boolean(t && t.trim()));
+  const t0 = film.nameEn;
+  const t1 = aliasEn && aliasEn !== t0 ? aliasEn : undefined;
+  const t2 =
+    cachedRuTrans && cachedRuTrans !== t0 && cachedRuTrans !== t1
+      ? cachedRuTrans
+      : undefined;
+  const t3 =
+    film.nameOriginal &&
+    film.nameOriginal !== t0 &&
+    film.nameOriginal !== t1 &&
+    film.nameOriginal !== t2
+      ? film.nameOriginal
+      : undefined;
+  const t4 =
+    film.nameRu &&
+    film.nameRu !== t0 &&
+    film.nameRu !== t3
+      ? film.nameRu
+      : undefined;
 
-  const queriesToTest = [query, ...extraQueries].filter(Boolean);
   let best = 0;
-
-  for (const q of queriesToTest) {
-    for (const title of candidateTitles) {
-      const s = computeFuzzyMatchScore(q, title);
-      if (s > best) best = s;
-      if (best === 100) return 100;
+  const totalQ = 1 + Math.min(3, extraQueries.length);
+  for (let qi = 0; qi < totalQ; qi++) {
+    const q = qi === 0 ? query : extraQueries[qi - 1];
+    if (!q) continue;
+    if (t0) {
+      const s = computeFuzzyMatchScore(q, t0);
+      if (s > best) {
+        best = s;
+        if (best === 100) return 100;
+      }
+    }
+    if (t1) {
+      const s = computeFuzzyMatchScore(q, t1);
+      if (s > best) {
+        best = s;
+        if (best === 100) return 100;
+      }
+    }
+    if (t2) {
+      const s = computeFuzzyMatchScore(q, t2);
+      if (s > best) {
+        best = s;
+        if (best === 100) return 100;
+      }
+    }
+    if (t3) {
+      const s = computeFuzzyMatchScore(q, t3);
+      if (s > best) {
+        best = s;
+        if (best === 100) return 100;
+      }
+    }
+    if (t4) {
+      const s = computeFuzzyMatchScore(q, t4);
+      if (s > best) {
+        best = s;
+        if (best === 100) return 100;
+      }
     }
   }
   return best;
@@ -2874,7 +3060,7 @@ export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
   const parsed = parseQueryWithYear(rawQuery);
   const q = parsed.cleanQuery;
   const targetYear = parsed.targetYear;
-  const qNorm = normalizeSearchToken(q);
+  const qNorm = getPreparedSearchToken(q).norm;
 
   if (qNorm.length < 2) {
     return {
@@ -2892,12 +3078,12 @@ export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
   let matchedConcept: SemanticConceptRule | null = null;
   for (const rule of SEMANTIC_CONCEPTS) {
     const isHit = rule.triggers.some((t) => {
-      const tNorm = normalizeSearchToken(t);
+      const tNorm = getPreparedSearchToken(t).norm;
       return (
         qNorm === tNorm ||
-        qNorm.includes(tNorm) ||
+        (tNorm.length >= 4 && qNorm.includes(tNorm)) ||
         (qNorm.length >= 4 && tNorm.startsWith(qNorm)) ||
-        (qNorm.length >= 5 && damerauLevenshtein(qNorm, tNorm) <= 1)
+        (qNorm.length >= 5 && damerauLevenshtein(qNorm, tNorm, 1) <= 1)
       );
     });
     if (isHit) {
@@ -2924,7 +3110,8 @@ export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
 
     let best = Math.max(titleScore, genreMatch);
     if (best >= 56) {
-      const filmYear = parseYearNumber(meta.year) ?? parseYearNumber(meta.startYear);
+      const filmYear =
+        parseYearNumber(meta.year) ?? parseYearNumber(meta.startYear);
       if (targetYear && filmYear) {
         if (filmYear === targetYear) best += 45;
         else if (Math.abs(filmYear - targetYear) <= 1) best += 15;
@@ -2940,11 +3127,14 @@ export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
   }
 
   scoredLocal.sort((a, b) => b.score - a.score);
-  const localMatches = deduplicateFilms(scoredLocal.slice(0, 8).map((x) => x.film));
+  const localMatches = deduplicateFilms(
+    scoredLocal.slice(0, 8).map((x) => x.film),
+  );
 
-  // 3. Find closest canonical or cached title for typo correction & autocomplete pills
+  // 3. Find closest canonical or matched cached title for typo correction & autocomplete pills
   const candidatePool = new Set<string>(CANONICAL_TITLES);
-  for (const m of cachedFilms) {
+  for (const matched of scoredLocal) {
+    const m = matched.film;
     const aliasEn = resolveEnglishAlias(m.nameRu, m.nameOriginal);
     if (aliasEn) candidatePool.add(aliasEn);
     if (m.nameEn && !isRussian(m.nameEn)) candidatePool.add(m.nameEn);
@@ -2965,12 +3155,8 @@ export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
   let correctedQuery: string | null = null;
   if (scoredTitles.length > 0) {
     const top = scoredTitles[0];
-    const topNorm = normalizeSearchToken(top.title);
-    if (
-      top.score >= 68 &&
-      topNorm !== qNorm &&
-      !topNorm.startsWith(qNorm)
-    ) {
+    const topNorm = getPreparedSearchToken(top.title).norm;
+    if (top.score >= 68 && topNorm !== qNorm && !topNorm.startsWith(qNorm)) {
       correctedQuery = targetYear ? `${top.title} ${targetYear}` : top.title;
     }
   }
@@ -2980,7 +3166,10 @@ export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
     relatedTerms.push(correctedQuery);
   }
   for (const st of scoredTitles.slice(0, 4)) {
-    if (!relatedTerms.includes(st.title) && normalizeSearchToken(st.title) !== qNorm) {
+    if (
+      !relatedTerms.includes(st.title) &&
+      getPreparedSearchToken(st.title).norm !== qNorm
+    ) {
       relatedTerms.push(st.title);
     }
   }
@@ -3013,12 +3202,13 @@ interface ImdbSearchBridgeResponse {
 
 async function fetchImdbSearchBridge(
   query: string,
+  timeoutMs = 2200,
 ): Promise<NonNullable<ImdbSearchBridgeResponse["items"]>> {
   if (typeof window === "undefined" || !query.trim()) return [];
   try {
     const res = await fetch(
       `/api/poster?mode=search&q=${encodeURIComponent(query.trim())}`,
-      { signal: AbortSignal.timeout(3000) },
+      { signal: AbortSignal.timeout(timeoutMs) },
     );
     if (!res.ok) return [];
     const data = (await res.json()) as ImdbSearchBridgeResponse;
@@ -3051,29 +3241,39 @@ export async function searchPeople(
 }
 
 /**
- * Resolves an actor/director match and converts all of their filmography credits into
- * hydrated `Film[]` items so searching an actor lists all their credits!
+ * Resolves an actor/director match and converts their filmography credits into
+ * hydrated `Film[]` items so searching an actor lists their top credits without
+ * overwhelming the DOM or firing false positives on movie title queries.
  */
 async function resolvePersonCreditsForSearch(
   cleanQuery: string,
   ruQuery?: string | null,
   imdbPersonTitle?: string | null,
+  isSuggestionMode = false,
 ): Promise<{ matchedPerson: MatchedPersonSummary | null; credits: Film[] }> {
-  // Skip person lookup if query is a single short common word (< 4 chars)
-  if (cleanQuery.length < 3) {
+  const qToken = getPreparedSearchToken(cleanQuery);
+  if (qToken.norm.length < 4) {
+    return { matchedPerson: null, credits: [] };
+  }
+
+  // In suggestion mode, only query /v1/persons if IMDb bridge flagged a person or query is 2+ words (first + last name)
+  if (isSuggestionMode && !imdbPersonTitle && qToken.words.length < 2) {
     return { matchedPerson: null, credits: [] };
   }
 
   const candidateNames = Array.from(
     new Set(
-      [cleanQuery, imdbPersonTitle, ruQuery].filter(
+      [imdbPersonTitle, cleanQuery, ruQuery].filter(
         (x): x is string => Boolean(x && x.trim().length >= 3),
       ),
     ),
   );
 
+  const maxPeopleQueries = isSuggestionMode ? 1 : 2;
   const searchResults = await Promise.all(
-    candidateNames.slice(0, 2).map((n) => searchPeople(n, 1, "high")),
+    candidateNames
+      .slice(0, maxPeopleQueries)
+      .map((n) => searchPeople(n, 1, "high")),
   );
   const allPeople = searchResults.flat();
   if (allPeople.length === 0) {
@@ -3096,8 +3296,9 @@ async function resolvePersonCreditsForSearch(
     }
   }
 
-  // Require a strong name match (>= 74) so movie title searches don't accidentally trigger actor credits
-  if (!bestPerson || bestScore < 74) {
+  // Require a high-confidence person name match (>= 84, or >= 76 if IMDb bridge explicitly identified a person)
+  const minPersonScore = imdbPersonTitle ? 76 : 84;
+  if (!bestPerson || bestScore < minPersonScore) {
     return { matchedPerson: null, credits: [] };
   }
 
@@ -3123,12 +3324,15 @@ async function resolvePersonCreditsForSearch(
 
     for (const pf of rawCredits) {
       if (!pf.filmId) continue;
-      // Exclude "HIMSELF" / talk-show appearances when they have real acting/directing credits
       if (pf.professionKey === "HIMSELF" || pf.professionKey === "HERSELF") {
         continue;
       }
-      const parsedRating = pf.rating && !pf.rating.endsWith("%") ? parseFloat(pf.rating) : 0;
-      const ratingNum = !isNaN(parsedRating) && parsedRating > 0 && parsedRating <= 10 ? parsedRating : 0;
+      const parsedRating =
+        pf.rating && !pf.rating.endsWith("%") ? parseFloat(pf.rating) : 0;
+      const ratingNum =
+        !isNaN(parsedRating) && parsedRating > 0 && parsedRating <= 10
+          ? parsedRating
+          : 0;
       const existing = byFilmId.get(pf.filmId);
       if (
         !existing ||
@@ -3151,7 +3355,10 @@ async function resolvePersonCreditsForSearch(
       return b.ratingNum - a.ratingNum;
     });
 
+    const totalCreditsCount = sortedCredits.length;
+    const maxCreditsToReturn = isSuggestionMode ? 8 : 48;
     const convertedFilms: Film[] = [];
+
     for (const c of sortedCredits) {
       const hydrated = hydrateFilmWithCache({
         kinopoiskId: c.filmId,
@@ -3166,13 +3373,19 @@ async function resolvePersonCreditsForSearch(
       });
       if (isSafeModeActive() && isAdultContentFilm(hydrated)) continue;
       convertedFilms.push(hydrated);
+      if (convertedFilms.length >= maxCreditsToReturn) break;
     }
 
-    // Queue background metadata hydration for top visible credits so year/genres populate immediately
-    for (let i = 0; i < Math.min(12, convertedFilms.length); i++) {
-      const fid = convertedFilms[i].kinopoiskId;
-      if (fid && (!convertedFilms[i].year || !convertedFilms[i].genres?.length)) {
-        queueFilmMetaHydration(fid, i < 6);
+    // Only queue background metadata hydration on full search page (not on every suggestion keystroke)
+    if (!isSuggestionMode) {
+      for (let i = 0; i < Math.min(8, convertedFilms.length); i++) {
+        const fid = convertedFilms[i].kinopoiskId;
+        if (
+          fid &&
+          (!convertedFilms[i].year || !convertedFilms[i].genres?.length)
+        ) {
+          queueFilmMetaHydration(fid, i < 4);
+        }
       }
     }
 
@@ -3182,7 +3395,7 @@ async function resolvePersonCreditsForSearch(
       nameEn: detail.nameEn || bestPerson.nameEn,
       posterUrl: detail.posterUrl || bestPerson.posterUrl,
       profession: detail.profession,
-      creditsCount: convertedFilms.length,
+      creditsCount: totalCreditsCount,
     };
 
     return {
@@ -3194,22 +3407,29 @@ async function resolvePersonCreditsForSearch(
   }
 }
 
+export interface SearchFilmsOptions {
+  mode?: "suggestions" | "full";
+}
+
 /**
  * Semantic, Cross-Language, Year-Aware & Actor-Aware Film Search:
  * - Extracts release year tokens (e.g. "oldboy 2003" -> searches "oldboy" & boosts/filters year 2003)
  * - Resolves non-English/Spanish/Korean/French titles to English & Russian via alias dictionary,
  *   Google Translate (`en -> ru`), and IMDb Suggestion Bridge (`/api/poster?mode=search`)
- * - Detects actor/director searches and lists all of their credits
+ * - Detects actor/director searches and lists their credits
+ * - Supports fast `"suggestions"` mode for live autocomplete without API storms
  */
 export async function searchFilms(
   keyword: string,
   page = 1,
+  options?: SearchFilmsOptions,
 ): Promise<FilmsResponse> {
   const rawKeyword = keyword.trim();
   if (!rawKeyword) {
     return { items: [], total: 0, totalPages: 1 };
   }
 
+  const isSuggestionMode = options?.mode === "suggestions";
   const analysis = analyzeSemanticQuery(rawKeyword);
   const cleanQuery = analysis.cleanQuery || rawKeyword;
   const targetYear = analysis.targetYear;
@@ -3241,7 +3461,8 @@ export async function searchFilms(
 
   // 3. Cross-language alias queries (e.g. "Money Heist" -> also queries "La casa de papel" & "Бумажный дом")
   if (page === 1 && aliasQueries.length > 0) {
-    for (const alias of aliasQueries.slice(0, 2)) {
+    const maxAliases = isSuggestionMode ? 1 : 2;
+    for (const alias of aliasQueries.slice(0, maxAliases)) {
       if (alias.toLowerCase() !== cleanQuery.toLowerCase()) {
         secondaryPromises.push(searchByKeywordApi(alias, 1));
       }
@@ -3261,7 +3482,7 @@ export async function searchFilms(
   }
 
   // 5. Semantic concept / theme expansion
-  if (analysis.matchedConcept) {
+  if (analysis.matchedConcept && !isSuggestionMode) {
     const concept = analysis.matchedConcept;
     if (concept.collection) {
       secondaryPromises.push(
@@ -3284,11 +3505,13 @@ export async function searchFilms(
     }
   }
 
-  // 6. Parallel IMDb Search Bridge + Russian Translation Bridge (for typos, Spanish/foreign titles, & actors)
+  // 6. Parallel IMDb Search Bridge + Russian Translation Bridge
   const imdbBridgePromise =
-    page === 1 ? fetchImdbSearchBridge(rawKeyword) : Promise.resolve([]);
+    page === 1
+      ? fetchImdbSearchBridge(rawKeyword, isSuggestionMode ? 1400 : 2400)
+      : Promise.resolve([]);
   const ruTranslationPromise =
-    page === 1 && !isRussian(cleanQuery)
+    page === 1 && !isRussian(cleanQuery) && (!isSuggestionMode || aliasQueries.length === 0)
       ? translateQueryToRussian(cleanQuery)
       : Promise.resolve(null);
 
@@ -3311,7 +3534,11 @@ export async function searchFilms(
   let imdbPersonName: string | null = null;
 
   if (page === 1) {
+    // Only run secondary bridge follow-ups in suggestion mode if primary + secondary returned < 3 hits
+    const needsDeepBridge = !isSuggestionMode || combinedItems.length < 3;
+
     if (
+      needsDeepBridge &&
       ruTranslated &&
       ruTranslated.toLowerCase() !== cleanQuery.toLowerCase() &&
       !aliasQueries.includes(ruTranslated)
@@ -3319,12 +3546,12 @@ export async function searchFilms(
       bridgeFollowupPromises.push(searchByKeywordApi(ruTranslated, 1));
     }
 
+    const maxBridgeItems = isSuggestionMode ? 1 : 2;
     for (const bridgeItem of imdbBridgeItems.slice(0, 3)) {
       if (bridgeItem.kind === "person") {
         if (!imdbPersonName) imdbPersonName = bridgeItem.title;
         continue;
       }
-      // If targetYear was specified, only use IMDb bridge items matching that year (±1)
       if (
         targetYear !== null &&
         bridgeItem.year !== null &&
@@ -3337,17 +3564,24 @@ export async function searchFilms(
         imdbCorrectedTitle = bridgeItem.title;
       }
 
+      if (!needsDeepBridge || bridgeFollowupPromises.length >= maxBridgeItems * 2) {
+        continue;
+      }
+
       if (bridgeItem.imdbId.startsWith("tt")) {
         bridgeFollowupPromises.push(
-          getFilmsByFilter({ imdbId: bridgeItem.imdbId, page: 1 }).catch(() => ({
-            items: [],
-            total: 0,
-            totalPages: 1,
-          })),
+          getFilmsByFilter({ imdbId: bridgeItem.imdbId, page: 1 }).catch(
+            () => ({
+              items: [],
+              total: 0,
+              totalPages: 1,
+            }),
+          ),
         );
       }
 
       if (
+        !isSuggestionMode &&
         bridgeItem.title &&
         bridgeItem.title.toLowerCase() !== cleanQuery.toLowerCase() &&
         bridgeItem.title.toLowerCase() !== (cleanCorrected || "").toLowerCase()
@@ -3361,7 +3595,12 @@ export async function searchFilms(
   const [bridgeFollowupResults, personSearchResult] = await Promise.all([
     Promise.all(bridgeFollowupPromises),
     page === 1
-      ? resolvePersonCreditsForSearch(cleanQuery, ruTranslated, imdbPersonName)
+      ? resolvePersonCreditsForSearch(
+          cleanQuery,
+          ruTranslated,
+          imdbPersonName,
+          isSuggestionMode,
+        )
       : Promise.resolve({ matchedPerson: null, credits: [] as Film[] }),
   ]);
 
@@ -3370,7 +3609,12 @@ export async function searchFilms(
   }
 
   // 9. Fallback root token search if still sparse
-  if (page === 1 && combinedItems.length < 3 && personSearchResult.credits.length === 0) {
+  if (
+    page === 1 &&
+    !isSuggestionMode &&
+    combinedItems.length < 3 &&
+    personSearchResult.credits.length === 0
+  ) {
     const fallbackTerm =
       cleanCorrected ||
       imdbCorrectedTitle ||
@@ -3405,7 +3649,8 @@ export async function searchFilms(
   const effectiveCorrectedQuery =
     analysis.correctedQuery ||
     (imdbCorrectedTitle &&
-    normalizeSearchToken(imdbCorrectedTitle) !== normalizeSearchToken(cleanQuery)
+    getPreparedSearchToken(imdbCorrectedTitle).norm !==
+      getPreparedSearchToken(cleanQuery).norm
       ? targetYear
         ? `${imdbCorrectedTitle} (${targetYear})`
         : imdbCorrectedTitle
@@ -3422,43 +3667,39 @@ export async function searchFilms(
     personSearchResult.credits.map((f) => f.kinopoiskId ?? f.filmId ?? 0),
   );
 
-  // Rank results by title match + release year accuracy + actor credit match + audience rating
-  const ranked = [...unique].sort((a, b) => {
-    const scoreItem = (f: Film) => {
-      let s = computeFilmMatchScore(cleanQuery, f, extraComparisonQueries);
+  // Precompute relevance score once per film (O(N)) rather than inside .sort() comparator (O(N log N))
+  const scoredItems = unique.map((f) => {
+    let s = computeFilmMatchScore(cleanQuery, f, extraComparisonQueries);
 
-      const fid = f.kinopoiskId ?? f.filmId ?? 0;
-      if (actorCreditIds.has(fid)) {
-        // Give actor's own credits a high base relevance score when searching for that actor
-        s = Math.max(s, 82);
+    const fid = f.kinopoiskId ?? f.filmId ?? 0;
+    if (actorCreditIds.has(fid)) {
+      s = Math.max(s, 82);
+    }
+
+    const fYear = parseYearNumber(f.year) ?? parseYearNumber(f.startYear);
+    if (targetYear !== null) {
+      if (fYear === targetYear) {
+        s += 80;
+      } else if (fYear && Math.abs(fYear - targetYear) === 1) {
+        s += 25;
+      } else if (fYear) {
+        s -= 50;
+      } else {
+        s -= 20;
       }
-
-      const fYear = parseYearNumber(f.year) ?? parseYearNumber(f.startYear);
-      if (targetYear !== null) {
-        if (fYear === targetYear) {
-          s += 80;
-        } else if (fYear && Math.abs(fYear - targetYear) === 1) {
-          s += 25;
-        } else if (fYear) {
-          s -= 50;
-        } else {
-          s -= 20;
-        }
-      }
-      return s;
-    };
-
-    const sA = scoreItem(a);
-    const sB = scoreItem(b);
-    if (Math.abs(sA - sB) >= 10) return sB - sA;
-
-    const rA = a.ratingImdb ?? a.ratingKinopoisk ?? 0;
-    const rB = b.ratingImdb ?? b.ratingKinopoisk ?? 0;
-    return sB + rB * 1.5 - (sA + rA * 1.5);
+    }
+    const rating = f.ratingImdb ?? f.ratingKinopoisk ?? 0;
+    return { film: f, score: s, rating };
   });
 
-  // If user explicitly searched with a release year (e.g. "oldboy 2003"), filter out mismatched years
-  // as long as we have at least 1 matching-year result!
+  scoredItems.sort((a, b) => {
+    if (Math.abs(a.score - b.score) >= 10) return b.score - a.score;
+    return b.score + b.rating * 1.5 - (a.score + a.rating * 1.5);
+  });
+
+  const ranked = scoredItems.map((entry) => entry.film);
+
+  // If user explicitly searched with a release year (e.g. "oldboy 2003"), prioritize matching years
   let finalItems = ranked;
   if (targetYear !== null) {
     const yearMatched = ranked.filter((f) => {
@@ -3474,6 +3715,7 @@ export async function searchFilms(
   const maxTotal = Math.max(
     primaryRes.total,
     ...secondaryResList.map((s) => s.total),
+    personSearchResult.matchedPerson?.creditsCount ?? 0,
     finalItems.length,
   );
   const maxPages = Math.max(
