@@ -30,6 +30,10 @@ import {
   ChevronUp,
   Check,
   RotateCcw,
+  User,
+  Calendar,
+  ArrowUpRight,
+  Sparkles,
 } from "lucide-react";
 import {
   discoverFilms,
@@ -50,8 +54,9 @@ import {
   CollectionType,
   SavedExplorePreset,
   Staff,
+  MatchedPersonSummary,
 } from "@/types/kinopoisk";
-import { translateGenre, translateCountry } from "@/lib/translate";
+import { translateGenre, translateCountry, isRussian } from "@/lib/translate";
 import {
   useAutoTranslate,
   useFilmTitle,
@@ -75,7 +80,6 @@ import FilmCard, {
   FilmCardSkeleton,
   FilmCardSkeletonGrid,
 } from "@/components/FilmCard";
-import Pagination from "@/components/Pagination";
 import PageContainer from "@/components/ui/PageContainer";
 import PageHeader from "@/components/ui/PageHeader";
 import ModalShell from "@/components/ui/ModalShell";
@@ -101,6 +105,7 @@ const SORT_ORDERS: { value: ExploreSortOrder; label: string }[] = [
   { value: "YEAR", label: "Release Year" },
   { value: "HIDDEN_GEMS", label: "Hidden Gems" },
   { value: "CRITICS", label: "Critics Score" },
+  { value: "TITLE", label: "Title (A–Z)" },
   { value: "RANDOM", label: "Random Roulette" },
 ];
 
@@ -149,6 +154,17 @@ const SMART_LENSES: SmartLens[] = [
     params: {
       lens: "FOR_YOU",
       hideWatched: "1",
+    },
+  },
+  {
+    id: "RECENT_RELEASES",
+    label: "Recent Releases",
+    badge: "Now Playing",
+    params: {
+      lens: "RECENT_RELEASES",
+      type: "ALL",
+      order: "YEAR",
+      dir: "DESC",
     },
   },
   {
@@ -243,6 +259,9 @@ interface BrowseSnapshot {
   films: Film[];
   totalPages: number;
   streamedPage: number;
+  matchedPerson?: MatchedPersonSummary | null;
+  correctedQuery?: string | null;
+  targetYear?: number | null;
 }
 
 const BROWSE_SNAPSHOT_TTL = 5 * 60 * 1000; // 5 minutes
@@ -636,7 +655,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
     };
   }, []);
 
-  const activeLens = p.lens;
+  const activeLens =
+    p.lens === "recent_releases" ? "RECENT_RELEASES" : p.lens;
   const type = (
     p.type ? p.type : activeLens === "FOR_YOU" ? "ALL" : prefType || "ALL"
   ) as "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
@@ -763,6 +783,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
   ]);
 
   const [films, setFilms] = useState<Film[]>([]);
+  const [matchedPerson, setMatchedPerson] =
+    useState<MatchedPersonSummary | null>(null);
+  const [correctedQuery, setCorrectedQuery] = useState<string | null>(null);
+  const [targetYear, setTargetYear] = useState<number | null>(null);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1075,6 +1099,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
       // Trigger loading state immediately so film card skeletons render on the exact click frame
       setLoading(true);
       setLoadingMore(false);
+      setStreamedPage(1);
       setOptimisticParams(cleanNext as ExploreSearchParams);
 
       const qs = params.toString();
@@ -1196,6 +1221,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
     setMobileSheetOpen(false);
     setLoading(true);
     setLoadingMore(false);
+    setStreamedPage(1);
+    setMatchedPerson(null);
+    setCorrectedQuery(null);
+    setTargetYear(null);
     setOptimisticParams({});
     startTransition(() => {
       router.push("/explore", { scroll: false });
@@ -1259,6 +1288,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
     const cachedSnap = getValidBrowseSnapshot(activeQueryKey);
     if (cachedSnap) {
       setFilms(cachedSnap.films);
+      setMatchedPerson(cachedSnap.matchedPerson ?? null);
+      setCorrectedQuery(cachedSnap.correctedQuery ?? null);
+      setTargetYear(cachedSnap.targetYear ?? null);
       setTotalPages(cachedSnap.totalPages);
       setStreamedPage(cachedSnap.streamedPage);
       setLoading(false);
@@ -1312,6 +1344,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
         const items = res.items ?? [];
         const pages = res.totalPages ?? 1;
         setFilms(items);
+        setMatchedPerson(res.matchedPerson ?? null);
+        setCorrectedQuery(res.correctedQuery ?? null);
+        setTargetYear(res.targetYear ?? null);
         setTotalPages(pages);
         setBrowseSnapshot({
           queryKey: activeQueryKey,
@@ -1319,6 +1354,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
           films: items,
           totalPages: pages,
           streamedPage: page,
+          matchedPerson: res.matchedPerson ?? null,
+          correctedQuery: res.correctedQuery ?? null,
+          targetYear: res.targetYear ?? null,
         });
       })
       .catch(() => {
@@ -2982,6 +3020,85 @@ export default function BrowseClient(props: ExploreSearchParams) {
         </div>
       )}
 
+      {/* ── Smart Keyword Feedback & Matched Actor Banner on Explore ── */}
+      {p.keyword?.trim() && !loading && (correctedQuery || targetYear !== null) && (
+        <div className="mb-4 px-3.5 py-2.5 rounded-[12px] bg-[var(--bg-card)] border border-[var(--border)] flex items-center justify-between gap-2 flex-wrap text-[12px]">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Sparkles size={13} className="text-[var(--accent)] shrink-0" />
+            {correctedQuery && (
+              <span className="text-[var(--text-dim)]">
+                Including smart matches for{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft((d) => ({ ...d, keyword: correctedQuery }));
+                    pushFilters({ keyword: correctedQuery });
+                  }}
+                  className="font-bold text-white hover:text-[var(--accent)] underline bg-transparent border-none cursor-pointer p-0"
+                >
+                  “{correctedQuery}”
+                </button>
+              </span>
+            )}
+            {targetYear !== null && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#60a5fa] bg-[rgba(96,165,250,0.12)] border border-[rgba(96,165,250,0.3)] rounded-md px-2 py-0.5">
+                <Calendar size={11} />
+                Release Year: {targetYear}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {p.keyword?.trim() && !loading && matchedPerson && (
+        <div className="mb-5 bg-gradient-to-r from-[rgba(229,9,20,0.14)] via-[var(--bg-card)] to-[var(--bg-card)] border border-[rgba(229,9,20,0.35)] rounded-[14px] p-3.5 sm:p-4 flex items-center justify-between gap-4 flex-wrap shadow-[0_8px_32px_rgba(0,0,0,0.35)]">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-12 h-16 sm:w-14 sm:h-[74px] rounded-[8px] overflow-hidden flex-shrink-0 bg-[var(--surface)] border border-white/15 relative">
+              <PosterImage
+                src={matchedPerson.posterUrl}
+                alt={
+                  (autoTranslate && matchedPerson.nameEn && !isRussian(matchedPerson.nameEn)
+                    ? matchedPerson.nameEn
+                    : matchedPerson.nameRu || matchedPerson.nameEn) || "Actor"
+                }
+                title={
+                  (autoTranslate && matchedPerson.nameEn && !isRussian(matchedPerson.nameEn)
+                    ? matchedPerson.nameEn
+                    : matchedPerson.nameRu || matchedPerson.nameEn) || "Actor"
+                }
+                fallbackType="person"
+                disableEnglishLookup
+                className="w-full h-full relative overflow-hidden bg-[var(--surface)]"
+              />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-bold uppercase tracking-[0.8px] text-white bg-[var(--accent)] rounded px-2 py-0.5 inline-flex items-center gap-1">
+                  <User size={10} />
+                  Matched Person
+                </span>
+              </div>
+              <h2 className="font-display text-[20px] sm:text-[24px] tracking-[0.8px] text-white m-0 mt-1 leading-tight">
+                {(autoTranslate && matchedPerson.nameEn && !isRussian(matchedPerson.nameEn)
+                  ? matchedPerson.nameEn
+                  : matchedPerson.nameRu || matchedPerson.nameEn) || p.keyword}
+              </h2>
+              <p className="text-[12px] text-[var(--text-dim)] m-0 mt-0.5">
+                Showing {matchedPerson.creditsCount} film &amp; series credits below
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href={`/person/${matchedPerson.personId}`}
+            className="btn btn-primary py-2 px-4 text-[12px] rounded-[9px] no-underline shrink-0"
+          >
+            <span>Full Biography &amp; Filmography</span>
+            <ArrowUpRight size={13} />
+          </Link>
+        </div>
+      )}
+
       {/* ── LAYER 3: Poster Grid (Shows FilmCardSkeletonGrid whenever loading an uncached tab or filter) ── */}
       {loading ? (
         <FilmCardSkeletonGrid count={20} />
@@ -3001,27 +3118,17 @@ export default function BrowseClient(props: ExploreSearchParams) {
         />
       )}
 
-      {/* ── LAYER 4: Continuous Stream Button + Deep Pagination ── */}
-      {!loading && films.length > 0 && (
-        <div
-          className="mt-8 flex flex-col items-center gap-3"
-          onClickCapture={handleOptimisticPageClick}
-        >
-          {streamedPage < totalPages && (
-            <button
-              type="button"
-              onClick={handleLoadNextBatch}
-              disabled={loadingMore}
-              className="btn btn-ghost border-[rgba(229,9,20,0.4)] text-white px-6 py-3 text-[13px] font-semibold hover:bg-[var(--accent-dim)]"
-            >
-              {loadingMore ? "Loading More…" : "Load More"}
-            </button>
-          )}
-          <Pagination
-            page={page}
-            totalPages={totalPages}
-            buildHref={buildPageHref}
-          />
+      {/* ── LAYER 4: Unified Load More Stream Control (Bug #1 Fixed: Redundant <Pagination /> removed) ── */}
+      {!loading && films.length > 0 && streamedPage < totalPages && (
+        <div className="mt-8 flex justify-center">
+          <button
+            type="button"
+            onClick={handleLoadNextBatch}
+            disabled={loadingMore}
+            className="btn btn-ghost border-[rgba(229,9,20,0.4)] text-white px-6 py-3 text-[13px] font-semibold hover:bg-[var(--accent-dim)]"
+          >
+            {loadingMore ? "Loading More…" : "Load More"}
+          </button>
         </div>
       )}
 

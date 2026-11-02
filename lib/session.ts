@@ -102,6 +102,7 @@ export const DEFAULT_PREFERENCES: SessionPreferences = {
   homeSections: {
     popular: true,
     top250: true,
+    recentReleases: true,
     series: true,
     action: true,
     drama: true,

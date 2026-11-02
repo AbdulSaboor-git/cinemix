@@ -170,6 +170,9 @@ function UserListRow({
               src={film.posterUrlPreview || film.posterUrl || entry.poster_url}
               alt={displayName}
               title={displayName}
+              filmId={entry.film_id}
+              imdbId={film.imdbId}
+              year={year}
               size="sm"
               fallbackType="mini"
             />

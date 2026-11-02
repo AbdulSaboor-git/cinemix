@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
   getTopFilms,
   getPremieres,
+  getRecentReleases,
   getUpcomingPremieres,
   getCuratedHomeSection,
   discoverTasteMatchedFilms,
@@ -25,7 +26,6 @@ import {
 } from "@/lib/preferences";
 import { getList } from "@/lib/userLists";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
-import { SESSION_KEY } from "@/lib/session";
 
 const NOW = new Date();
 const CURRENT_MONTH = NOW.toLocaleString("en-US", {
@@ -33,18 +33,13 @@ const CURRENT_MONTH = NOW.toLocaleString("en-US", {
 }).toUpperCase();
 const CURRENT_YEAR = NOW.getFullYear();
 
-const NEXT_MONTH_DATE = new Date(CURRENT_YEAR, NOW.getMonth() + 1, 1);
-const NEXT_MONTH = NEXT_MONTH_DATE.toLocaleString("en-US", {
-  month: "long",
-}).toUpperCase();
-const NEXT_MONTH_YEAR = NEXT_MONTH_DATE.getFullYear();
-
 // ── In-memory snapshot so navigating back to Home via bottom navbar is 0ms instant ──
 interface HomeSnapshot {
   timestamp: number;
   sections: Preferences["homeSections"];
   popularFilms: Film[];
   top250Films: Film[];
+  recentReleaseFilms: Film[];
   premiereFilms: Film[];
   seriesFilms: Film[];
   actionFilms: Film[];
@@ -54,6 +49,7 @@ interface HomeSnapshot {
   comedyFilms: Film[];
   horrorFilms: Film[];
   forYouFilms: Film[];
+  watchLaterFilms: Film[];
   secondaryLoaded: boolean;
 }
 
@@ -109,6 +105,7 @@ export default function HomeClient() {
 
   const [popularFilms, setPopularFilms] = useState<Film[]>([]);
   const [top250Films, setTop250Films] = useState<Film[]>([]);
+  const [recentReleaseFilms, setRecentReleaseFilms] = useState<Film[]>([]);
   const [seriesFilms, setSeriesFilms] = useState<Film[]>([]);
   const [actionFilms, setActionFilms] = useState<Film[]>([]);
   const [dramaFilms, setDramaFilms] = useState<Film[]>([]);
@@ -118,11 +115,12 @@ export default function HomeClient() {
   const [horrorFilms, setHorrorFilms] = useState<Film[]>([]);
   const [premiereFilms, setPremiereFilms] = useState<Film[]>([]);
 
-  // Personalized rows
-  const [, setWatchLaterFilms] = useState<Film[]>([]);
+  // Personalized rows (Bug #6 Fixed: watchLaterFilms state is bound and rendered!)
+  const [watchLaterFilms, setWatchLaterFilms] = useState<Film[]>([]);
   const [forYouFilms, setForYouFilms] = useState<Film[]>([]);
   const [forYouLoading, setForYouLoading] = useState(false);
   const forYouRequestRef = useRef(0);
+  const fetchTimestampRef = useRef<number>(homeCache?.timestamp ?? Date.now());
 
   const [loaded, setLoaded] = useState<boolean>(false);
   const [secondaryLoaded, setSecondaryLoaded] = useState<boolean>(false);
@@ -132,13 +130,16 @@ export default function HomeClient() {
     null,
   );
 
+  // Bug #3 Fixed: Uses fetchTimestampRef (refreshed whenever network data is fetched)
+  // so expired timestamps are never preserved across fresh reloads.
   useEffect(() => {
     if (!loaded || !sections || noKey || !hasApiKeys()) return;
     homeCache = {
-      timestamp: homeCache?.timestamp ?? Date.now(),
+      timestamp: fetchTimestampRef.current,
       sections,
       popularFilms,
       top250Films,
+      recentReleaseFilms,
       premiereFilms,
       seriesFilms,
       actionFilms,
@@ -148,6 +149,7 @@ export default function HomeClient() {
       comedyFilms,
       horrorFilms,
       forYouFilms,
+      watchLaterFilms,
       secondaryLoaded,
     };
   }, [
@@ -156,6 +158,7 @@ export default function HomeClient() {
     noKey,
     popularFilms,
     top250Films,
+    recentReleaseFilms,
     premiereFilms,
     seriesFilms,
     actionFilms,
@@ -165,6 +168,7 @@ export default function HomeClient() {
     comedyFilms,
     horrorFilms,
     forYouFilms,
+    watchLaterFilms,
     secondaryLoaded,
   ]);
 
@@ -284,6 +288,9 @@ export default function HomeClient() {
         setForYouFilms((prev) =>
           prev.length > 0 ? prev.map((f) => hydrateFilmWithCache(f)) : prev,
         );
+        setWatchLaterFilms((prev) =>
+          prev.length > 0 ? prev.map((f) => hydrateFilmWithCache(f)) : prev,
+        );
       }, 300);
     };
 
@@ -320,8 +327,10 @@ export default function HomeClient() {
         : null;
 
     if (validSnap) {
+      fetchTimestampRef.current = validSnap.timestamp;
       setPopularFilms(validSnap.popularFilms);
       setTop250Films(validSnap.top250Films);
+      setRecentReleaseFilms(validSnap.recentReleaseFilms ?? []);
       setPremiereFilms(validSnap.premiereFilms);
       setSeriesFilms(validSnap.seriesFilms);
       setActionFilms(validSnap.actionFilms);
@@ -331,6 +340,7 @@ export default function HomeClient() {
       setComedyFilms(validSnap.comedyFilms);
       setHorrorFilms(validSnap.horrorFilms);
       setForYouFilms(validSnap.forYouFilms);
+      setWatchLaterFilms(validSnap.watchLaterFilms ?? []);
       setSecondaryLoaded(validSnap.secondaryLoaded);
       setLoaded(true);
       if (validSnap.secondaryLoaded) {
@@ -373,6 +383,9 @@ export default function HomeClient() {
           setLoaded(false);
           return;
         }
+        // Bug #3 Fixed: Always refresh fetchTimestampRef to Date.now() when fresh data arrives
+        fetchTimestampRef.current = Date.now();
+
         if (popular.status === "fulfilled" && popular.value) {
           setPopularFilms(popular.value);
         }
@@ -391,6 +404,9 @@ export default function HomeClient() {
           if (!mounted) return;
 
           Promise.allSettled([
+            s.recentReleases
+              ? getRecentReleases("low")
+              : Promise.resolve(null),
             s.premieres
               ? getPremieres(CURRENT_YEAR, CURRENT_MONTH, "low")
               : Promise.resolve(null),
@@ -453,6 +469,7 @@ export default function HomeClient() {
               : Promise.resolve(null),
           ]).then(
             ([
+              recentReleases,
               premieres,
               series,
               action,
@@ -463,12 +480,37 @@ export default function HomeClient() {
               horror,
             ]) => {
               if (!mounted) return;
+              fetchTimestampRef.current = Date.now();
+              const todayStr = new Date().toISOString().slice(0, 10);
+
+              if (
+                recentReleases.status === "fulfilled" &&
+                recentReleases.value
+              ) {
+                const rItems = recentReleases.value.items;
+                const globalR = rItems.filter((f) => !isRussianDomesticFilm(f));
+                const domesticR = rItems.filter((f) =>
+                  isRussianDomesticFilm(f),
+                );
+                const finalR =
+                  regionMode === "GLOBAL_FIRST"
+                    ? globalR.length >= 6
+                      ? globalR
+                      : [...globalR, ...domesticR]
+                    : rItems;
+                setRecentReleaseFilms(finalR);
+              }
 
               let shownPremiereIds = new Set<number>();
               if (premieres.status === "fulfilled" && premieres.value) {
+                // Exclude unreleased future dates (`premiereRu > todayStr`) from "New This Month"
                 const pItems = premieres.value.items.filter((f) => {
                   const yr = f.year ?? f.startYear;
-                  return !yr || yr >= CURRENT_YEAR;
+                  if (yr && yr < CURRENT_YEAR) return false;
+                  if (f.premiereRu && f.premiereRu.slice(0, 10) > todayStr) {
+                    return false;
+                  }
+                  return true;
                 });
                 const globalP = pItems.filter((f) => !isRussianDomesticFilm(f));
                 const domesticP = pItems.filter((f) =>
@@ -621,6 +663,20 @@ export default function HomeClient() {
             isLoading={forYouLoading}
           />
         )}
+        {watchLaterFilms.length > 0 && (
+          <FilmRow
+            title="From Your Watch Later"
+            films={watchLaterFilms}
+            href="/watchlater"
+          />
+        )}
+        {s.recentReleases && recentReleaseFilms.length > 0 && (
+          <FilmRow
+            title="Recent Releases"
+            films={recentReleaseFilms.slice(0, 20)}
+            href="/explore?lens=RECENT_RELEASES"
+          />
+        )}
         {s.top250 && top250Films.length > 0 && (
           <FilmRow
             title="Top 250 — All Time Greats"
@@ -711,12 +767,13 @@ export default function HomeClient() {
             />
           </LazySection>
         )}
+        {/* Bug #12 Fixed: Links to current month so remaining current-month upcoming releases are not skipped */}
         {s.upcoming && awaitFilms.length > 0 && (
           <LazySection>
             <FilmRow
               title="Coming Soon"
               films={awaitFilms.slice(0, 20)}
-              href={`/premieres?year=${NEXT_MONTH_YEAR}&month=${NEXT_MONTH}`}
+              href={`/premieres?year=${CURRENT_YEAR}&month=${CURRENT_MONTH}`}
             />
           </LazySection>
         )}
@@ -760,7 +817,7 @@ function HomeSkeleton() {
               {Array.from({ length: 7 }).map((_, j) => (
                 <div
                   key={j}
-                  className="skeleton flex-shrink-0 rounded-[10px] sm:rounded-[12px] w-[126px] h-[189px] sm:w-[175px] sm:h-[263px]"
+                  className="skeleton flex-shrink-0 rounded-[var(--radius-lg)] w-[112px] h-[168px] sm:w-[175px] sm:h-[263px]"
                 />
               ))}
             </div>

@@ -11,6 +11,9 @@ import {
   Star,
   Sparkles,
   History,
+  User,
+  Calendar,
+  ArrowUpRight,
 } from "lucide-react";
 import {
   searchFilms,
@@ -18,7 +21,7 @@ import {
   analyzeSemanticQuery,
   SemanticSearchAnalysis,
 } from "@/lib/kinopoisk";
-import { Film } from "@/types/kinopoisk";
+import { Film, MatchedPersonSummary } from "@/types/kinopoisk";
 import {
   useSearchSuggestions,
   getRecentSearches,
@@ -26,24 +29,26 @@ import {
   clearRecentSearches,
 } from "@/hooks/useSearchSuggestions";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { useAutoTranslate, useTranslate } from "@/hooks/useTranslate";
+import { isRussian } from "@/lib/translate";
 import { hasApiKeys, getPreferences } from "@/lib/preferences";
 import FilmCard, { FilmCardSkeletonGrid } from "@/components/FilmCard";
 import Pagination from "@/components/Pagination";
 import SearchSuggestionDropdown from "@/components/SearchSuggestionDropdown";
+import PosterImage from "@/components/ui/PosterImage";
 import PageContainer from "@/components/ui/PageContainer";
 import PageHeader from "@/components/ui/PageHeader";
 import EmptyState from "@/components/ui/EmptyState";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
 
 const QUICK_SEARCH_IDEAS = [
+  "Money Heist",
+  "Cillian Murphy",
   "Interstellar",
-  "Dune",
-  "The Dark Knight",
-  "Oppenheimer",
-  "Breaking Bad",
+  "Dune 2021",
   "Time Travel",
   "Mind Bending",
-  "Spider-Man",
+  "Pan's Labyrinth",
 ];
 
 function isSeriesFilm(f: Film): boolean {
@@ -74,8 +79,15 @@ export default function SearchClient({
 }) {
   const query = (q || "").trim();
   const page = Math.max(1, parseInt(pg || "1", 10));
+  const autoTranslate = useAutoTranslate();
   const [noKey, setNoKey] = useState(false);
   const [films, setFilms] = useState<Film[]>([]);
+  const [matchedPerson, setMatchedPerson] =
+    useState<MatchedPersonSummary | null>(null);
+  const [serverCorrectedQuery, setServerCorrectedQuery] = useState<
+    string | null
+  >(null);
+  const [serverTargetYear, setServerTargetYear] = useState<number | null>(null);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -99,6 +111,7 @@ export default function SearchClient({
 
   const {
     suggestions,
+    matchedPerson: sugMatchedPerson,
     semanticMeta,
     sugLoading,
     sugVisible,
@@ -126,6 +139,7 @@ export default function SearchClient({
       if (!hasApiKeys()) {
         setNoKey(true);
         setFilms([]);
+        setMatchedPerson(null);
         setLoading(false);
       } else {
         setRegionMode(getPreferences().contentRegionMode ?? "GLOBAL_FIRST");
@@ -147,6 +161,7 @@ export default function SearchClient({
     if (!hasApiKeys()) {
       setNoKey(true);
       setFilms([]);
+      setMatchedPerson(null);
       return;
     }
     setNoKey(false);
@@ -183,6 +198,9 @@ export default function SearchClient({
   useEffect(() => {
     if (!hasApiKeys() || !query) {
       setFilms([]);
+      setMatchedPerson(null);
+      setServerCorrectedQuery(null);
+      setServerTargetYear(null);
       setTotal(0);
       setTotalPages(1);
       return;
@@ -194,6 +212,9 @@ export default function SearchClient({
       .then((d) => {
         if (cancelled) return;
         setFilms(d.items ?? []);
+        setMatchedPerson(d.matchedPerson ?? null);
+        setServerCorrectedQuery(d.correctedQuery ?? null);
+        setServerTargetYear(d.targetYear ?? null);
         setTotalPages(d.totalPages ?? 1);
         setTotal(d.total ?? 0);
       })
@@ -203,6 +224,7 @@ export default function SearchClient({
             setNoKey(true);
           }
           setFilms([]);
+          setMatchedPerson(null);
         }
       })
       .finally(() => {
@@ -268,6 +290,13 @@ export default function SearchClient({
     return filtered;
   }, [regionalPool, mediaFilter, hideUnrated, sortBy]);
 
+  const rawPersonName =
+    autoTranslate && matchedPerson?.nameEn && !isRussian(matchedPerson.nameEn)
+      ? matchedPerson.nameEn
+      : matchedPerson?.nameRu || matchedPerson?.nameEn || "";
+  const personDisplayName = useTranslate(rawPersonName) || rawPersonName;
+  const personDisplayProf = useTranslate(matchedPerson?.profession);
+
   if (noKey) return <NoKeyBanner />;
 
   const handleChange = (val: string) => {
@@ -304,6 +333,11 @@ export default function SearchClient({
     setSortBy("RELEVANCE");
   };
 
+  const effectiveCorrected =
+    serverCorrectedQuery || activeQuerySemantic?.correctedQuery || null;
+  const effectiveYear =
+    serverTargetYear ?? activeQuerySemantic?.targetYear ?? null;
+
   return (
     <PageContainer>
       <PageHeader
@@ -314,11 +348,13 @@ export default function SearchClient({
         subtitle={
           query
             ? !loading && total > 0
-              ? `Found ${total.toLocaleString()} matching title${total !== 1 ? "s" : ""}`
+              ? matchedPerson
+                ? `Found ${matchedPerson.creditsCount} credits for ${personDisplayName || query}`
+                : `Found ${total.toLocaleString()} matching title${total !== 1 ? "s" : ""}`
               : loading
                 ? "Searching the CineMix catalog…"
                 : "No exact matches found for this query."
-            : "Search by title, franchise, or semantic theme (e.g. “time travel”, “mind bending”, “zombie”)."
+            : "Search by English or international title, release year, actor, or semantic theme."
         }
         className="mb-4 sm:mb-6"
         rightSlot={
@@ -360,12 +396,14 @@ export default function SearchClient({
                   onFocus={() => {
                     if (
                       search.trim().length >= 2 &&
-                      (suggestions.length > 0 || semanticMeta)
+                      (suggestions.length > 0 ||
+                        semanticMeta ||
+                        sugMatchedPerson)
                     ) {
                       setSugVisible(true);
                     }
                   }}
-                  placeholder="Search titles, typos (e.g. Interstelar), or vibes (e.g. time travel)…"
+                  placeholder="Search titles, release years, actors, or vibes…"
                   className="input w-full text-[14px] sm:text-[15px] py-2.5 sm:py-3 pl-10 pr-9 rounded-[10px] bg-[var(--bg-elevated)] border-[var(--border)] focus:border-[var(--accent)]"
                   autoFocus={!query}
                 />
@@ -399,6 +437,7 @@ export default function SearchClient({
             {sugVisible && (
               <SearchSuggestionDropdown
                 suggestions={suggestions}
+                matchedPerson={sugMatchedPerson}
                 semanticMeta={semanticMeta}
                 selectedIdx={selectedIdx}
                 sugLoading={sugLoading}
@@ -412,30 +451,38 @@ export default function SearchClient({
           </div>
         </form>
 
-        {/* Semantic / Fuzzy Correction Banner when active query was auto-enhanced */}
+        {/* Semantic / Fuzzy Correction & Release Year Banner */}
         {query &&
-          (activeQuerySemantic?.correctedQuery ||
+          (effectiveCorrected ||
+            effectiveYear !== null ||
             activeQuerySemantic?.matchedConcept) && (
             <div className="flex items-center justify-between gap-2 flex-wrap mt-3 pt-2.5 border-t border-[var(--border)] text-[12px]">
               <div className="flex items-center gap-2 flex-wrap">
                 <Sparkles size={13} className="text-[var(--accent)] shrink-0" />
-                {activeQuerySemantic.correctedQuery && (
+                {effectiveCorrected && (
                   <span className="text-[var(--text-dim)]">
                     Including smart matches for{" "}
                     <button
                       type="button"
                       onClick={() => {
-                        const c = activeQuerySemantic.correctedQuery!;
-                        setSearch(c);
-                        router.push(`/search?q=${encodeURIComponent(c)}`);
+                        setSearch(effectiveCorrected);
+                        router.push(
+                          `/search?q=${encodeURIComponent(effectiveCorrected)}`,
+                        );
                       }}
                       className="font-bold text-white hover:text-[var(--accent)] underline bg-transparent border-none cursor-pointer p-0"
                     >
-                      “{activeQuerySemantic.correctedQuery}”
+                      “{effectiveCorrected}”
                     </button>
                   </span>
                 )}
-                {activeQuerySemantic.matchedConcept && (
+                {effectiveYear !== null && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#60a5fa] bg-[rgba(96,165,250,0.12)] border border-[rgba(96,165,250,0.3)] rounded-md px-2 py-0.5">
+                    <Calendar size={11} />
+                    Release Year: {effectiveYear}
+                  </span>
+                )}
+                {activeQuerySemantic?.matchedConcept && (
                   <span className="text-[var(--text-dim)]">
                     · Semantic Theme:{" "}
                     <strong className="text-[#f5c518]">
@@ -445,9 +492,9 @@ export default function SearchClient({
                 )}
               </div>
 
-              {activeQuerySemantic.relatedTerms.length > 0 && (
+              {(activeQuerySemantic?.relatedTerms?.length ?? 0) > 0 && (
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  {activeQuerySemantic.relatedTerms.slice(0, 3).map((t) => (
+                  {activeQuerySemantic!.relatedTerms.slice(0, 3).map((t) => (
                     <button
                       key={t}
                       type="button"
@@ -636,12 +683,58 @@ export default function SearchClient({
         )}
       </div>
 
+      {/* Matched Actor / Director Credits Banner */}
+      {query && !loading && matchedPerson && (
+        <div className="mb-6 bg-gradient-to-r from-[rgba(229,9,20,0.14)] via-[var(--bg-card)] to-[var(--bg-card)] border border-[rgba(229,9,20,0.35)] rounded-[14px] p-3.5 sm:p-4 flex items-center justify-between gap-4 flex-wrap shadow-[0_8px_32px_rgba(0,0,0,0.35)]">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-12 h-16 sm:w-14 sm:h-[74px] rounded-[8px] overflow-hidden flex-shrink-0 bg-[var(--surface)] border border-white/15 relative">
+              <PosterImage
+                src={matchedPerson.posterUrl}
+                alt={personDisplayName}
+                title={personDisplayName}
+                fallbackType="person"
+                disableEnglishLookup
+                className="w-full h-full relative overflow-hidden bg-[var(--surface)]"
+              />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-bold uppercase tracking-[0.8px] text-white bg-[var(--accent)] rounded px-2 py-0.5 inline-flex items-center gap-1">
+                  <User size={10} />
+                  Matched Person
+                </span>
+                {personDisplayProf && (
+                  <span className="text-[11.5px] text-[var(--text-muted)] font-medium">
+                    {personDisplayProf}
+                  </span>
+                )}
+              </div>
+              <h2 className="font-display text-[20px] sm:text-[24px] tracking-[0.8px] text-white m-0 mt-1 leading-tight">
+                {personDisplayName}
+              </h2>
+              <p className="text-[12px] text-[var(--text-dim)] m-0 mt-0.5">
+                Showing {matchedPerson.creditsCount} film &amp; series credits
+                below
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href={`/person/${matchedPerson.personId}`}
+            className="btn btn-primary py-2 px-4 text-[12px] rounded-[9px] no-underline shrink-0"
+          >
+            <span>Full Biography &amp; Filmography</span>
+            <ArrowUpRight size={13} />
+          </Link>
+        </div>
+      )}
+
       {/* Results Grid / Empty States */}
       {!query ? (
         <EmptyState
           icon={<Search size={40} stroke="var(--accent)" strokeWidth={1.6} />}
           title="Explore the CineMix Catalog"
-          description="Type a film title, actor, or semantic concept above, or jump into Advanced Explore to filter by genre, country, era, and rating."
+          description="Type a film title, release year, actor name, or semantic concept above, or jump into Advanced Explore."
           actionLabel="Open Advanced Explore"
           actionHref="/explore"
         />

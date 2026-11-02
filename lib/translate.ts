@@ -296,6 +296,438 @@ export const COUNTRY_MAP: Record<string, string> = {
   "Гуам": "Guam",
 };
 
+// ─── Bidirectional International & Non-English Film Title Alias Dictionary ────
+// Maps non-English native titles (Spanish, Korean, French, Japanese, German, Italian, etc.)
+// and Russian Kinopoisk titles to their canonical English release titles so cross-language
+// searches (e.g. "Money Heist" <-> "La casa de papel" <-> "Бумажный дом") match in 0ms.
+
+export interface InternationalTitleAlias {
+  en: string;
+  orig: string[];
+  ru: string[];
+}
+
+export const INTERNATIONAL_TITLE_ALIASES: InternationalTitleAlias[] = [
+  // Spanish & Latin American hits
+  {
+    en: "Money Heist",
+    orig: ["La casa de papel", "Casa de papel"],
+    ru: ["Бумажный дом"],
+  },
+  {
+    en: "Pan's Labyrinth",
+    orig: ["El laberinto del fauno", "Laberinto del fauno"],
+    ru: ["Лабиринт Фавна"],
+  },
+  {
+    en: "The Platform",
+    orig: ["El hoyo"],
+    ru: ["Платформа"],
+  },
+  {
+    en: "The Invisible Guest",
+    orig: ["Contratiempo"],
+    ru: ["Невидимый гость"],
+  },
+  {
+    en: "The Secret in Their Eyes",
+    orig: ["El secreto de sus ojos"],
+    ru: ["Тайна в его глазах"],
+  },
+  {
+    en: "Wild Tales",
+    orig: ["Relatos salvajes"],
+    ru: ["Дикие истории"],
+  },
+  {
+    en: "Society of the Snow",
+    orig: ["La sociedad de la nieve"],
+    ru: ["Общество снега"],
+  },
+  {
+    en: "The Body",
+    orig: ["El cuerpo"],
+    ru: ["Тело"],
+  },
+  {
+    en: "The Orphanage",
+    orig: ["El orfanato"],
+    ru: ["Приют"],
+  },
+  {
+    en: "Mirage",
+    orig: ["Durante la tormenta"],
+    ru: ["Во время грозы"],
+  },
+  {
+    en: "The Skin I Live In",
+    orig: ["La piel que habito"],
+    ru: ["Кожа, в которой я живу"],
+  },
+  {
+    en: "Talk to Her",
+    orig: ["Hable con ella"],
+    ru: ["Поговори с ней"],
+  },
+  {
+    en: "All About My Mother",
+    orig: ["Todo sobre mi madre"],
+    ru: ["Все о моей матери"],
+  },
+  {
+    en: "The Hidden Face",
+    orig: ["La cara oculta"],
+    ru: ["Бункер"],
+  },
+  {
+    en: "Sleep Tight",
+    orig: ["Mientras duermes"],
+    ru: ["Крепкий сон"],
+  },
+  {
+    en: "Cell 211",
+    orig: ["Celda 211"],
+    ru: ["Камера 211"],
+  },
+  {
+    en: "Amores Perros",
+    orig: ["Amores perros", "Love's a Bitch"],
+    ru: ["Сука-любовь"],
+  },
+  {
+    en: "Y Tu Mamá Также",
+    orig: ["Y tu mamá también", "And Your Mother Too"],
+    ru: ["И твою маму тоже"],
+  },
+  {
+    en: "Elite",
+    orig: ["Élite"],
+    ru: ["Элита"],
+  },
+  {
+    en: "Locked Up",
+    orig: ["Vis a vis"],
+    ru: ["Визави"],
+  },
+  {
+    en: "Sky Rojo",
+    orig: ["Sky Rojo"],
+    ru: ["Красный дерматин"],
+  },
+  {
+    en: "Berlin",
+    orig: ["Berlín", "La casa de papel: Berlín"],
+    ru: ["Берлин"],
+  },
+  {
+    en: "Nowhere",
+    orig: ["Nowhere"],
+    ru: ["Нигде"],
+  },
+  {
+    en: "Through My Window",
+    orig: ["A través de mi ventana"],
+    ru: ["Из моего окна"],
+  },
+  {
+    en: "My Fault",
+    orig: ["Culpa mía"],
+    ru: ["Моя вина"],
+  },
+  {
+    en: "Your Fault",
+    orig: ["Culpa tuya"],
+    ru: ["Твоя вина"],
+  },
+  // Korean hits
+  {
+    en: "Oldboy",
+    orig: ["Oldeuboi", "올드보이"],
+    ru: ["Олдбой"],
+  },
+  {
+    en: "Parasite",
+    orig: ["Gisaengchung", "기생충"],
+    ru: ["Паразиты"],
+  },
+  {
+    en: "Squid Game",
+    orig: ["Ojingeo geim", "오징어 게임"],
+    ru: ["Игра в кальмара"],
+  },
+  {
+    en: "Train to Busan",
+    orig: ["Busanhaeng", "부산행"],
+    ru: ["Поезд в Пусан"],
+  },
+  {
+    en: "Memories of Murder",
+    orig: ["Salinui chueok", "살인의 추억"],
+    ru: ["Воспоминания об убийстве"],
+  },
+  {
+    en: "I Saw the Devil",
+    orig: ["Akmareul boatda", "악마를 보았다"],
+    ru: ["Я видел дьявола"],
+  },
+  {
+    en: "The Handmaiden",
+    orig: ["Ah-ga-ssi", "Agassi", "아가씨"],
+    ru: ["Служанка"],
+  },
+  {
+    en: "The Wailing",
+    orig: ["Gokseong", "곡성"],
+    ru: ["Вопль"],
+  },
+  {
+    en: "Burning",
+    orig: ["Beoning", "버닝"],
+    ru: ["Пылающий"],
+  },
+  {
+    en: "The Chaser",
+    orig: ["Chugyeokja", "추격자"],
+    ru: ["Преследователь"],
+  },
+  {
+    en: "A Taxi Driver",
+    orig: ["Taeksi unjeonsa", "택시운전사"],
+    ru: ["Таксист"],
+  },
+  {
+    en: "Decision to Leave",
+    orig: ["Heojil kyolshim", "헤어질 결심"],
+    ru: ["Решение уйти"],
+  },
+  {
+    en: "Sympathy for Mr. Vengeance",
+    orig: ["Boksuneun naui geot"],
+    ru: ["Сочувствие господину Месть"],
+  },
+  {
+    en: "Lady Vengeance",
+    orig: ["Chinjeolhan geumjassi"],
+    ru: ["Сочувствие госпоже Месть"],
+  },
+  {
+    en: "All of Us Are Dead",
+    orig: ["Jigeum 우리 학교는", "Jigeum uri hakgyoneun"],
+    ru: ["Мы все мертвы"],
+  },
+  // French, German, Italian & European hits
+  {
+    en: "The Intouchables",
+    orig: ["Intouchables"],
+    ru: ["1+1"],
+  },
+  {
+    en: "Amélie",
+    orig: ["Le Fabuleux Destin d'Amélie Poulain", "Amelie"],
+    ru: ["Амели"],
+  },
+  {
+    en: "La Haine",
+    orig: ["La Haine", "Hate"],
+    ru: ["Ненависть"],
+  },
+  {
+    en: "Anatomy of a Fall",
+    orig: ["Anatomie d'une chute"],
+    ru: ["Анатомия падения"],
+  },
+  {
+    en: "Portrait of a Lady on Fire",
+    orig: ["Portrait de la jeune fille en feu"],
+    ru: ["Портрет девушки в огне"],
+  },
+  {
+    en: "Lupin",
+    orig: ["Lupin"],
+    ru: ["Люпен"],
+  },
+  {
+    en: "All Quiet on the Western Front",
+    orig: ["Im Westen nichts Neues"],
+    ru: ["На Западном фронте без перемен"],
+  },
+  {
+    en: "The Lives of Others",
+    orig: ["Das Leben der Anderen"],
+    ru: ["Жизнь других"],
+  },
+  {
+    en: "Downfall",
+    orig: ["Der Untergang"],
+    ru: ["Бункер"],
+  },
+  {
+    en: "Run Lola Run",
+    orig: ["Lola rennt"],
+    ru: ["Беги, Лола, беги"],
+  },
+  {
+    en: "Life Is Beautiful",
+    orig: ["La vita è bella"],
+    ru: ["Жизнь прекрасна"],
+  },
+  {
+    en: "Cinema Paradiso",
+    orig: ["Nuovo Cinema Paradiso"],
+    ru: ["Новый кинотеатр «Парадизо»"],
+  },
+  {
+    en: "Another Round",
+    orig: ["Druk"],
+    ru: ["Еще по одной", "Ещё по одной"],
+  },
+  {
+    en: "The Hunt",
+    orig: ["Jagten"],
+    ru: ["Охота"],
+  },
+  {
+    en: "City of God",
+    orig: ["Cidade de Deus"],
+    ru: ["Город Бога"],
+  },
+  // Japanese & Asian hits
+  {
+    en: "Spirited Away",
+    orig: ["Sen to Chihiro no kamikakushi"],
+    ru: ["Унесённые призраками", "Унесенные призраками"],
+  },
+  {
+    en: "Your Name",
+    orig: ["Kimi no na wa.", "Kimi no na wa"],
+    ru: ["Твоё имя", "Твое имя"],
+  },
+  {
+    en: "Princess Mononoke",
+    orig: ["Mononoke-hime"],
+    ru: ["Принцесса Мононоке"],
+  },
+  {
+    en: "Howl's Moving Castle",
+    orig: ["Hauru no ugoku shiro"],
+    ru: ["Ходячий замок"],
+  },
+  {
+    en: "My Neighbor Totoro",
+    orig: ["Tonari no Totoro"],
+    ru: ["Мой сосед Тоторо"],
+  },
+  {
+    en: "Grave of the Fireflies",
+    orig: ["Hotaru no haka"],
+    ru: ["Могила светлячков"],
+  },
+  {
+    en: "Seven Samurai",
+    orig: ["Shichinin no samurai"],
+    ru: ["Семь самураев"],
+  },
+  {
+    en: "Attack on Titan",
+    orig: ["Shingeki no Kyojin"],
+    ru: ["Атака титанов"],
+  },
+  {
+    en: "Demon Slayer",
+    orig: ["Kimetsu no Yaiba"],
+    ru: ["Истребитель демонов"],
+  },
+  {
+    en: "Jujutsu Kaisen",
+    orig: ["Jujutsu Kaisen"],
+    ru: ["Магическая битва"],
+  },
+  {
+    en: "Death Note",
+    orig: ["Desu noto", "Death Note"],
+    ru: ["Тетрадь смерти"],
+  },
+  {
+    en: "Crouching Tiger, Hidden Dragon",
+    orig: ["Wo hu cang long"],
+    ru: ["Крадущийся тигр, затаившийся дракон"],
+  },
+  {
+    en: "In the Mood for Love",
+    orig: ["Fa yeung nin wa"],
+    ru: ["Любовное настроение"],
+  },
+];
+
+function normAliasKey(s?: string | null): string {
+  if (!s) return "";
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9а-яё\s]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const ORIG_OR_RU_TO_EN_MAP = new Map<string, string>();
+for (const entry of INTERNATIONAL_TITLE_ALIASES) {
+  for (const o of entry.orig) {
+    const k = normAliasKey(o);
+    if (k) ORIG_OR_RU_TO_EN_MAP.set(k, entry.en);
+  }
+  for (const r of entry.ru) {
+    const k = normAliasKey(r);
+    if (k) ORIG_OR_RU_TO_EN_MAP.set(k, entry.en);
+  }
+}
+
+/**
+ * Resolves a known English release title from a non-English original or Russian title.
+ */
+export function resolveEnglishAlias(
+  nameRu?: string | null,
+  nameOriginal?: string | null,
+): string | null {
+  if (nameOriginal) {
+    const byOrig = ORIG_OR_RU_TO_EN_MAP.get(normAliasKey(nameOriginal));
+    if (byOrig) return byOrig;
+  }
+  if (nameRu) {
+    const byRu = ORIG_OR_RU_TO_EN_MAP.get(normAliasKey(nameRu));
+    if (byRu) return byRu;
+  }
+  return null;
+}
+
+/**
+ * Given a user search query (e.g. "Money Heist" or "La casa de papel"),
+ * returns all known cross-language alias terms (English, Spanish/Original, Russian)
+ * so the search engine can query Kinopoisk across all language representations.
+ */
+export function getSearchQueryAliases(rawQuery: string): string[] {
+  const qNorm = normAliasKey(rawQuery);
+  if (!qNorm || qNorm.length < 2) return [];
+  const results = new Set<string>();
+
+  for (const entry of INTERNATIONAL_TITLE_ALIASES) {
+    const allForms = [entry.en, ...entry.orig, ...entry.ru];
+    const matched = allForms.some((form) => {
+      const fNorm = normAliasKey(form);
+      return (
+        fNorm === qNorm ||
+        (qNorm.length >= 4 && (fNorm.includes(qNorm) || qNorm.includes(fNorm)))
+      );
+    });
+    if (matched) {
+      results.add(entry.en);
+      entry.orig.forEach((o) => results.add(o));
+      entry.ru.forEach((r) => results.add(r));
+    }
+  }
+  return Array.from(results);
+}
+
 // ─── Russian relation labels ──────────────────────────────────────────────────
 export const RELATION_MAP: Record<string, string> = {
   "ЖЕН.": "wife",
@@ -489,34 +921,59 @@ export async function translateText(
   from = "ru",
   to = "en",
 ): Promise<string> {
-  if (!text || !isRussian(text)) return text;
-  const cached = getCachedTranslation(text);
+  if (!text) return text;
+  if (from === "ru" && to === "en" && !isRussian(text)) return text;
+  const cacheKey = from === "ru" && to === "en" ? text : `${from}->${to}:${text}`;
+  const cached = getCachedTranslation(cacheKey);
   if (cached) return cached;
 
-  const existing = inflightRequests.get(text);
+  const existing = inflightRequests.get(cacheKey);
   if (existing) return existing;
 
   const promise = (async () => {
     try {
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(3500) });
       if (!res.ok) return text;
       const json = await res.json();
       const translated = (json[0] as [string, string][])
         .map((chunk) => chunk[0])
         .join("");
-      const result = translated || text;
-      setCachedTranslation(text, result);
+      const result = (translated || text).trim();
+      setCachedTranslation(cacheKey, result);
       return result;
     } catch {
       return text;
     } finally {
-      inflightRequests.delete(text);
+      inflightRequests.delete(cacheKey);
     }
   })();
 
-  inflightRequests.set(text, promise);
+  inflightRequests.set(cacheKey, promise);
   return promise;
+}
+
+/**
+ * Translates any non-Russian search query (e.g. English or Spanish) into Russian
+ * so Kinopoisk's Russian title index (`nameRu`) can be queried in parallel.
+ */
+export async function translateQueryToRussian(query: string): Promise<string | null> {
+  const clean = query.trim();
+  if (!clean || clean.length < 2 || isRussian(clean)) return null;
+  const translated = await translateText(clean, "auto", "ru");
+  if (!translated || translated.toLowerCase() === clean.toLowerCase()) {
+    return null;
+  }
+  return translated;
+}
+
+/**
+ * Translates any foreign title (Spanish, French, German, Russian, etc.) into English.
+ */
+export async function translateAnyToEnglish(text: string): Promise<string> {
+  const clean = text.trim();
+  if (!clean) return "";
+  return translateText(clean, "auto", "en");
 }
 
 /** Strip HTML first, then translate — safe alternative to dangerouslySetInnerHTML */
@@ -535,6 +992,8 @@ export function isRussian(text?: string | null): boolean {
 
 /**
  * Returns the best synchronous display name for a film given the translate setting.
+ * Prioritizes verified English titles and known international English release aliases
+ * (e.g. "Money Heist" instead of "La casa de papel", "Oldboy" instead of "Oldeuboi").
  */
 export function getEnglishName(
   nameRu?: string,
@@ -545,7 +1004,23 @@ export function getEnglishName(
   if (!autoTranslateEnabled) {
     return nameRu || nameEn || nameOriginal || "Unknown";
   }
+
+  // 1. Check known international English title alias first (e.g., Spanish/Korean/French -> English)
+  const aliasEn = resolveEnglishAlias(nameRu, nameOriginal);
+  if (aliasEn) return aliasEn;
+
+  // 2. If nameEn is present and non-Russian, use it
   if (nameEn && !isRussian(nameEn)) return nameEn;
+
+  // 3. Check if we already have a cached English translation of nameRu
+  if (nameRu && isRussian(nameRu)) {
+    const cachedRuEn = getCachedTranslation(nameRu);
+    if (cachedRuEn && !isRussian(cachedRuEn)) {
+      return cachedRuEn;
+    }
+  }
+
+  // 4. Fallback to nameOriginal if Latin, or nameRu
   if (nameOriginal && !isRussian(nameOriginal)) return nameOriginal;
   const fallback = nameEn || nameOriginal || nameRu || "Unknown";
   if (isRussian(fallback)) {

@@ -89,7 +89,6 @@ function Top250NavIcon({ active, className }: NavIconProps) {
       fill="none"
       className={className}
     >
-      {/* Trophy Cup */}
       <path
         d="M6 4H18V9C18 12.3137 15.3137 15 12 15C8.68629 15 6 12.3137 6 9V4Z"
         fill={active ? "currentColor" : "none"}
@@ -98,21 +97,18 @@ function Top250NavIcon({ active, className }: NavIconProps) {
         strokeWidth={active ? 2.1 : 1.8}
         strokeLinejoin="round"
       />
-      {/* Handles */}
       <path
         d="M6 6H4C3.44772 6 3 6.44772 3 7V8C3 9.65685 4.34315 11 6 11M18 6H20C20.5523 6 21 6.44772 21 7V8C21 9.65685 19.6569 11 18 11"
         stroke="currentColor"
         strokeWidth={active ? 2.1 : 1.8}
         strokeLinecap="round"
       />
-      {/* Stem & Base */}
       <path
         d="M12 15V20M8 20H16"
         stroke="currentColor"
         strokeWidth={active ? 2.1 : 1.8}
         strokeLinecap="round"
       />
-      {/* Center Star Accent */}
       <circle cx="12" cy="9.2" r={active ? "1.6" : "1.2"} fill="currentColor" />
     </svg>
   );
@@ -127,7 +123,6 @@ function PremieresNavIcon({ active, className }: NavIconProps) {
       fill="none"
       className={className}
     >
-      {/* Perforated Cinema Ticket */}
       <path
         d="M3 8.5C3 7.39543 3.89543 6.5 5 6.5H19C20.1046 6.5 21 7.39543 21 8.5V10C19.8954 10 19 10.8954 19 12C19 13.1046 19.8954 14 21 14V15.5C21 16.6046 20.1046 17.5 19 17.5H5C3.89543 17.5 3 16.6046 3 15.5V14C4.10457 14 5 13.1046 5 12C5 10.8954 4.10457 10 3 10V8.5Z"
         fill={active ? "currentColor" : "none"}
@@ -136,7 +131,6 @@ function PremieresNavIcon({ active, className }: NavIconProps) {
         strokeWidth={active ? 2.1 : 1.8}
         strokeLinejoin="round"
       />
-      {/* Premiere Star in Center */}
       <path
         d="M12 9.2L12.8 11.1L14.8 11.3L13.3 12.6L13.7 14.6L12 13.5L10.3 14.6L10.7 12.6L9.2 11.3L11.2 11.1L12 9.2Z"
         fill="currentColor"
@@ -201,6 +195,7 @@ export default function Navbar() {
 
   const {
     suggestions,
+    matchedPerson,
     sugLoading,
     sugVisible,
     selectedIdx,
@@ -303,9 +298,11 @@ export default function Navbar() {
   const showDropdown =
     sugVisible &&
     (suggestions.length > 0 ||
+      Boolean(matchedPerson) ||
       sugLoading ||
       Boolean(semanticMeta?.correctedQuery) ||
       Boolean(semanticMeta?.matchedConcept) ||
+      Boolean(semanticMeta?.targetYear) ||
       (semanticMeta?.relatedTerms?.length ?? 0) > 0);
 
   const isActive = (href: string) => {
@@ -358,8 +355,8 @@ export default function Navbar() {
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onFocus={() => search.trim().length >= 2 && setSugVisible(true)}
-                placeholder="Search films, series, vibes…"
-                className="bg-white/[0.06] border border-[var(--border)] rounded-full py-[7px] pl-9 pr-8 text-[var(--text)] text-[13px] outline-none placeholder:text-[var(--text-muted)] transition-[width,border-color,background-color] duration-300 w-[220px] focus:w-[300px] focus:border-[rgba(229,9,20,0.5)] focus:bg-white/[0.09]"
+                placeholder="Search titles, actors, years (e.g. Oldboy 2003)…"
+                className="bg-white/[0.06] border border-[var(--border)] rounded-full py-[7px] pl-9 pr-8 text-[var(--text)] text-[13px] outline-none placeholder:text-[var(--text-muted)] transition-[width,border-color,background-color] duration-300 w-[235px] focus:w-[320px] focus:border-[rgba(229,9,20,0.5)] focus:bg-white/[0.09]"
               />
               <Search
                 size={14}
@@ -384,6 +381,7 @@ export default function Navbar() {
           {showDropdown && (
             <SearchSuggestionDropdown
               suggestions={suggestions}
+              matchedPerson={matchedPerson}
               selectedIdx={selectedIdx}
               sugLoading={sugLoading}
               search={search}
@@ -457,7 +455,7 @@ export default function Navbar() {
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onFocus={() => search.trim().length >= 2 && setSugVisible(true)}
-                placeholder="Search films, series, vibes…"
+                placeholder="Search titles, actors, years (e.g. Oldboy 2003)…"
                 className="w-full pl-10 pr-9 text-[14px] py-2.5 rounded-full input"
               />
               <Search
@@ -484,6 +482,7 @@ export default function Navbar() {
             <div className="relative mt-1">
               <SearchSuggestionDropdown
                 suggestions={suggestions}
+                matchedPerson={matchedPerson}
                 selectedIdx={selectedIdx}
                 sugLoading={sugLoading}
                 search={search}
@@ -504,7 +503,7 @@ export default function Navbar() {
         </div>
       )}
 
-      {/* ── Mobile Bottom Navigation Bar (Concentric Pill, Custom Filled/Stroked Icons) ── */}
+      {/* ── Mobile Bottom Navigation Bar ── */}
       <nav
         aria-label="Mobile bottom navigation"
         className="md:hidden fixed z-[200] flex items-center justify-between gap-1 p-1.5 bg-[#08080a]/20 backdrop-blur-[24px] [-webkit-backdrop-filter:blur(24px)] border border-white/[0.12] shadow-[0_12px_36px_rgba(0,0,0,0.65)] select-none [-webkit-touch-callout:none] rounded-full w-[90%] max-w-[360px] left-1/2 -translate-x-1/2"

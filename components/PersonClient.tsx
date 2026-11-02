@@ -18,6 +18,8 @@ import {
   getFilm,
   getCachedFilmMeta,
   hydrateFilmWithCache,
+  isSafeModeActive,
+  isAdultContentFilm,
   CompactFilmMeta,
 } from "@/lib/kinopoisk";
 import { PersonDetail, PersonFilm, Film } from "@/types/kinopoisk";
@@ -256,7 +258,14 @@ export default function PersonClient({ personId }: { personId: string }) {
       .finally(() => setLoading(false));
   }, [id, keyEpoch]);
 
-  const allFilms = useMemo(() => person?.films || [], [person]);
+  const allFilms = useMemo(() => {
+    const raw = person?.films || [];
+    if (!isSafeModeActive()) return raw;
+    return raw.filter((f) => {
+      const m = metaMap[f.filmId] || getCachedFilmMeta(f.filmId);
+      return !isAdultContentFilm(m);
+    });
+  }, [person, metaMap]);
 
   const profGroups = useMemo(() => {
     const groups: Record<string, PersonFilm[]> = {};
@@ -688,6 +697,7 @@ export default function PersonClient({ personId }: { personId: string }) {
                 <option value="YEAR_DESC">Newest Release Year</option>
                 <option value="YEAR_ASC">Oldest Release Year</option>
                 <option value="VOTES">Most Popular (Votes)</option>
+                <option value="TITLE">Title (A–Z)</option>
               </select>
             </div>
           </div>
@@ -935,6 +945,9 @@ function FilmEntry({
           src={meta?.posterUrlPreview}
           alt={name}
           title={name}
+          filmId={film.filmId}
+          imdbId={meta?.imdbId}
+          year={meta?.year ?? meta?.startYear}
           fallbackType="mini"
           className="w-[64px] rounded-[7px] hidden sm:block overflow-hidden bg-[var(--surface)] relative border border-white/5"
         />

@@ -104,10 +104,22 @@ export interface Film {
   lastSync?: string;
 }
 
+export interface MatchedPersonSummary {
+  personId: number;
+  nameRu?: string;
+  nameEn?: string;
+  posterUrl?: string;
+  profession?: string;
+  creditsCount: number;
+}
+
 export interface FilmsResponse {
   total: number;
   totalPages: number;
   items: Film[];
+  matchedPerson?: MatchedPersonSummary | null;
+  correctedQuery?: string | null;
+  targetYear?: number | null;
 }
 
 export type StaffMember = Staff;
@@ -120,6 +132,20 @@ export interface Staff {
   posterUrl?: string;
   professionText?: string;
   professionKey?: string;
+}
+
+export interface PersonSearchItem {
+  kinopoiskId: number;
+  webUrl?: string;
+  nameRu?: string;
+  nameEn?: string;
+  sex?: "MALE" | "FEMALE" | "UNKNOWN";
+  posterUrl?: string;
+}
+
+export interface PersonSearchResponse {
+  total: number;
+  items: PersonSearchItem[];
 }
 
 export interface PersonDetail {

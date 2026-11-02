@@ -32,6 +32,7 @@ export type Preferences = {
   homeSections: {
     popular: boolean;
     top250: boolean;
+    recentReleases: boolean;
     series: boolean;
     action: boolean;
     drama: boolean;
@@ -88,7 +89,19 @@ export function getPreferences(): Preferences {
     historyEnabled: prefs.historyEnabled ?? true,
     safeModeEnabled: prefs.safeModeEnabled ?? true,
     contentRegionMode: prefs.contentRegionMode ?? "GLOBAL_FIRST",
-    homeSections: prefs.homeSections as Preferences["homeSections"],
+    homeSections: {
+      popular: prefs.homeSections?.popular ?? true,
+      top250: prefs.homeSections?.top250 ?? true,
+      recentReleases: prefs.homeSections?.recentReleases ?? true,
+      series: prefs.homeSections?.series ?? true,
+      action: prefs.homeSections?.action ?? true,
+      drama: prefs.homeSections?.drama ?? true,
+      scifi: prefs.homeSections?.scifi ?? true,
+      upcoming: prefs.homeSections?.upcoming ?? true,
+      comedy: prefs.homeSections?.comedy ?? true,
+      horror: prefs.homeSections?.horror ?? true,
+      premieres: prefs.homeSections?.premieres ?? true,
+    },
     filmSections: {
       cast: prefs.filmSections?.cast ?? true,
       awards: prefs.filmSections?.awards ?? true,
@@ -112,11 +125,17 @@ export function getPreferences(): Preferences {
   };
 }
 
+/**
+ * Atomically saves both preferences and API keys in a single localStorage write
+ * and single `cinemix-session-change` event dispatch (resolves Bug #14).
+ */
 export function savePreferences(prefs: Preferences): void {
   const { apiKeys, ...rest } = prefs;
+  const cleanedKeys = apiKeys.map((k) => k.trim()).filter(Boolean);
   const s = getSession();
   s.preferences = rest as SessionPreferences;
-  s.api_keys.keys = apiKeys.filter(Boolean);
+  s.api_keys.keys = cleanedKeys;
+  s.api_keys.saved_at = new Date().toISOString();
   saveSession(s);
 }
 

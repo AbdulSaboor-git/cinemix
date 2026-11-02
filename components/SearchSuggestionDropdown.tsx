@@ -9,11 +9,13 @@ import {
   ArrowUpRight,
   Sparkles,
   Play,
+  User,
+  Calendar,
 } from "lucide-react";
-import { Film } from "@/types/kinopoisk";
+import { Film, MatchedPersonSummary } from "@/types/kinopoisk";
 import { SemanticSearchAnalysis } from "@/lib/kinopoisk";
-import { translateGenre, translateCountry } from "@/lib/translate";
-import { useAutoTranslate, useFilmTitle } from "@/hooks/useTranslate";
+import { translateGenre, translateCountry, isRussian } from "@/lib/translate";
+import { useAutoTranslate, useFilmTitle, useTranslate } from "@/hooks/useTranslate";
 import { saveRecentSearch } from "@/hooks/useSearchSuggestions";
 import PosterImage from "@/components/ui/PosterImage";
 
@@ -84,13 +86,15 @@ function SuggestionRow({
         }}
         className="flex items-center gap-3 flex-1 min-w-0 no-underline active:scale-[0.99] transition-transform"
       >
-        {/* Fast Direct Thumbnail (skips /api/poster batch inside dropdown for <50ms paint) */}
+        {/* Fast Direct Thumbnail */}
         <div className="w-9 h-[52px] rounded-[6px] overflow-hidden flex-shrink-0 bg-[var(--surface)] relative border border-white/[0.08] [&>*]:!min-h-0">
           <PosterImage
             src={poster}
             alt={name}
             title={name}
             filmId={id}
+            imdbId={film.imdbId}
+            year={film.year ?? film.startYear}
             size="sm"
             fallbackType="mini"
             disableEnglishLookup
@@ -133,7 +137,7 @@ function SuggestionRow({
         </div>
       </Link>
 
-      {/* Right-aligned Rating Badge + Quick Watch Action (sibling Link, no nested interactive elements) */}
+      {/* Right-aligned Rating Badge + Quick Watch Action */}
       <div className="flex items-center gap-1.5 flex-shrink-0 pl-1">
         {hasValidRating && (
           <div className="flex items-center gap-1 bg-black/45 border border-[rgba(245,197,24,0.3)] rounded-[6px] px-1.5 py-0.5">
@@ -163,6 +167,7 @@ function SuggestionRow({
 
 export interface SearchSuggestionDropdownProps {
   suggestions: Film[];
+  matchedPerson?: MatchedPersonSummary | null;
   semanticMeta?: SemanticSearchAnalysis | null;
   selectedIdx: number;
   sugLoading: boolean;
@@ -174,6 +179,7 @@ export interface SearchSuggestionDropdownProps {
 
 export default function SearchSuggestionDropdown({
   suggestions,
+  matchedPerson,
   semanticMeta,
   selectedIdx,
   sugLoading,
@@ -185,14 +191,27 @@ export default function SearchSuggestionDropdown({
   const autoTranslate = useAutoTranslate();
   const router = useRouter();
 
+  const rawPersonName =
+    autoTranslate && matchedPerson?.nameEn && !isRussian(matchedPerson.nameEn)
+      ? matchedPerson.nameEn
+      : matchedPerson?.nameRu || matchedPerson?.nameEn || "";
+  const personName = useTranslate(rawPersonName) || rawPersonName;
+  const personProf = useTranslate(matchedPerson?.profession);
+
   const corrected = semanticMeta?.correctedQuery;
   const concept = semanticMeta?.matchedConcept;
+  const targetYear = semanticMeta?.targetYear;
   const relatedPills = semanticMeta?.relatedTerms ?? [];
   const hasTopStrip = Boolean(
-    corrected || concept || relatedPills.length > 0,
+    corrected || concept || targetYear || relatedPills.length > 0,
   );
 
-  if (!sugLoading && suggestions.length === 0 && !hasTopStrip) {
+  if (
+    !sugLoading &&
+    suggestions.length === 0 &&
+    !hasTopStrip &&
+    !matchedPerson
+  ) {
     return null;
   }
 
@@ -208,22 +227,31 @@ export default function SearchSuggestionDropdown({
 
   return (
     <div className="absolute top-[calc(100%+8px)] left-0 right-0 w-full min-w-[280px] z-[200] flex flex-col overflow-hidden slide-down bg-[#101014]/98 backdrop-blur-[24px] [-webkit-backdrop-filter:blur(24px)] border border-white/[0.12] rounded-[12px] shadow-[0_24px_64px_rgba(0,0,0,0.88)]">
-      {/* Tier 1: Netflix / Apple TV+ Style Instant Query & Semantic Concept Strip (0ms text-only pills) */}
+      {/* Tier 1: Instant Query, Year Filter & Semantic Concept Strip */}
       {hasTopStrip && (
         <div className="px-3 py-2 bg-white/[0.02] border-b border-[var(--border)] flex flex-col gap-1.5">
-          {corrected && (
-            <div className="flex items-center gap-1.5 text-[11.5px] text-[var(--text-dim)]">
-              <Sparkles size={11} className="text-[var(--accent)] shrink-0" />
-              <span>Showing smart matches for</span>
-              <button
-                type="button"
-                onClick={() => handlePickTerm(corrected)}
-                className="font-bold text-white hover:text-[var(--accent)] underline bg-transparent border-none cursor-pointer p-0"
-              >
-                {corrected}
-              </button>
-            </div>
-          )}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            {corrected && (
+              <div className="flex items-center gap-1.5 text-[11.5px] text-[var(--text-dim)]">
+                <Sparkles size={11} className="text-[var(--accent)] shrink-0" />
+                <span>Showing smart matches for</span>
+                <button
+                  type="button"
+                  onClick={() => handlePickTerm(corrected)}
+                  className="font-bold text-white hover:text-[var(--accent)] underline bg-transparent border-none cursor-pointer p-0"
+                >
+                  {corrected}
+                </button>
+              </div>
+            )}
+
+            {targetYear && (
+              <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-[#60a5fa] bg-[rgba(96,165,250,0.12)] border border-[rgba(96,165,250,0.3)] rounded-md px-2 py-0.5">
+                <Calendar size={10} />
+                Release Year: {targetYear}
+              </span>
+            )}
+          </div>
 
           {concept && (
             <div className="flex items-center justify-between gap-2 text-[11px] text-[#f5c518] bg-[rgba(245,197,24,0.08)] border border-[rgba(245,197,24,0.22)] rounded-[7px] px-2.5 py-1">
@@ -263,6 +291,53 @@ export default function SearchSuggestionDropdown({
         </div>
       )}
 
+      {/* Matched Actor / Director Quick Banner */}
+      {matchedPerson && (
+        <div className="px-3.5 py-2 bg-[rgba(229,9,20,0.08)] border-b border-[var(--border)] flex items-center justify-between gap-2.5">
+          <Link
+            href={`/person/${matchedPerson.personId}`}
+            onClick={() => {
+              if (personName) saveRecentSearch(personName);
+              onSelect();
+            }}
+            className="flex items-center gap-2.5 min-w-0 flex-1 no-underline group"
+          >
+            <div className="w-8 h-10 rounded-[6px] overflow-hidden flex-shrink-0 bg-[var(--surface)] border border-white/15 relative">
+              <PosterImage
+                src={matchedPerson.posterUrl}
+                alt={personName}
+                title={personName}
+                fallbackType="person"
+                disableEnglishLookup
+                className="w-full h-full relative overflow-hidden bg-[var(--surface)]"
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9.5px] font-bold uppercase tracking-[0.5px] text-[var(--accent)] bg-[rgba(229,9,20,0.18)] border border-[rgba(229,9,20,0.35)] rounded px-1.5 py-[1px] inline-flex items-center gap-1">
+                  <User size={9} />
+                  Person
+                </span>
+                <p className="text-[13px] font-bold text-white group-hover:text-[var(--accent)] truncate m-0">
+                  {personName}
+                </p>
+              </div>
+              <p className="text-[11px] text-[var(--text-muted)] truncate m-0 mt-0.5">
+                {personProf ? `${personProf} · ` : ""}
+                {matchedPerson.creditsCount} credits listed below
+              </p>
+            </div>
+          </Link>
+          <Link
+            href={`/person/${matchedPerson.personId}`}
+            onClick={onSelect}
+            className="text-[11px] font-semibold text-white bg-white/[0.08] hover:bg-[var(--accent)] border border-white/15 rounded-[7px] px-2.5 py-1 no-underline whitespace-nowrap transition-colors"
+          >
+            Profile →
+          </Link>
+        </div>
+      )}
+
       {sugLoading && suggestions.length === 0 && (
         <div className="px-3.5 py-2.5 text-[11.5px] font-medium text-[var(--text-muted)] border-b border-[var(--border)] flex items-center justify-between">
           <span>Searching catalog…</span>
@@ -270,14 +345,14 @@ export default function SearchSuggestionDropdown({
         </div>
       )}
 
-      {/* Tier 2: Rich Visual Title Matches */}
+      {/* Tier 2: Rich Visual Title & Credit Matches */}
       {suggestions.length > 0 && (
         <div className="flex flex-col w-full max-h-[360px] overflow-y-auto">
           {suggestions.map((film, i) => (
             <SuggestionRow
               key={film.kinopoiskId ?? film.filmId ?? i}
               film={film}
-              query={corrected || search}
+              query={corrected || semanticMeta?.cleanQuery || search}
               active={i === selectedIdx}
               isLast={i === suggestions.length - 1 && !showSeeAllLink}
               autoTranslate={autoTranslate}
@@ -300,7 +375,9 @@ export default function SearchSuggestionDropdown({
             <span className="inline-flex items-center gap-1.5 truncate">
               <Search size={12} />
               <span className="truncate">
-                See all results for &ldquo;{search.trim()}&rdquo;
+                {matchedPerson
+                  ? `See all ${matchedPerson.creditsCount} credits for “${personName || search.trim()}”`
+                  : `See all results for “${search.trim()}”`}
               </span>
             </span>
             <ArrowUpRight size={13} className="flex-shrink-0" />

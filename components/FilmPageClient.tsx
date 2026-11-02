@@ -417,6 +417,21 @@ function FilmDetail({
 
   const { isFav, isWL } = useListStatus(filmId);
   const [parentalOpen, setParentalOpen] = useState(false);
+  const [showParentalGuide, setShowParentalGuide] = useState<boolean>(
+    () => getPreferences().filmSections.parentalGuide ?? true,
+  );
+
+  useEffect(() => {
+    const syncPG = () => {
+      setShowParentalGuide(getPreferences().filmSections.parentalGuide ?? true);
+    };
+    window.addEventListener("cinemix-session-change", syncPG);
+    window.addEventListener("storage", syncPG);
+    return () => {
+      window.removeEventListener("cinemix-session-change", syncPG);
+      window.removeEventListener("storage", syncPG);
+    };
+  }, []);
   const { toast } = useToast();
 
   const posterThumb = film.posterUrlPreview || film.posterUrl || null;
@@ -563,6 +578,9 @@ function FilmDetail({
                 src={film.posterUrlPreview || film.posterUrl}
                 alt={name}
                 title={name}
+                filmId={filmId}
+                imdbId={film.imdbId}
+                year={primaryYear}
                 priority
               />
             </div>
@@ -642,15 +660,17 @@ function FilmDetail({
                 {Math.floor(film.filmLength / 60)}h {film.filmLength % 60}m
               </MetaTag>
             )}
-            <MetaTag
-              clickable
-              onClick={() => setParentalOpen(true)}
-              title="View Parental Guide"
-              className={certTextColor}
-            >
-              <ShieldAlert size={11} className="mr-1 opacity-85" />
-              {certBadge ? certBadge.label : "Parents Guide"}
-            </MetaTag>
+            {showParentalGuide && (
+              <MetaTag
+                clickable
+                onClick={() => setParentalOpen(true)}
+                title="View Parental Guide"
+                className={certTextColor}
+              >
+                <ShieldAlert size={11} className="mr-1 opacity-85" />
+                {certBadge ? certBadge.label : "Parents Guide"}
+              </MetaTag>
+            )}
             {film.countries?.slice(0, 3).map((c) => (
               <Link
                 key={c.country}
@@ -1042,11 +1062,13 @@ function FilmDetail({
         </div>
       )}
 
-      <ParentalGuideModal
-        open={parentalOpen}
-        onClose={() => setParentalOpen(false)}
-        film={film}
-      />
+      {showParentalGuide && (
+        <ParentalGuideModal
+          open={parentalOpen}
+          onClose={() => setParentalOpen(false)}
+          film={film}
+        />
+      )}
     </PageContainer>
   );
 }

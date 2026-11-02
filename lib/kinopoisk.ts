@@ -4,6 +4,9 @@ import {
   Staff,
   VideosResponse,
   PersonDetail,
+  PersonSearchItem,
+  PersonSearchResponse,
+  MatchedPersonSummary,
   FiltersResponse,
   FactsResponse,
   BoxOfficeResponse,
@@ -32,7 +35,16 @@ import {
   getPreferences,
 } from "@/lib/preferences";
 import { getList } from "@/lib/userLists";
-import { translateCountry, translateGenre, isRussian } from "@/lib/translate";
+import {
+  translateCountry,
+  translateGenre,
+  isRussian,
+  getEnglishName,
+  resolveEnglishAlias,
+  getSearchQueryAliases,
+  translateQueryToRussian,
+  getCachedTranslation,
+} from "@/lib/translate";
 import { sanitizePosterUrl } from "@/components/posterFallback";
 
 const BASE_URL =
@@ -93,10 +105,31 @@ const WESTERN_GLOBAL_COUNTRIES = new Set([
 ]);
 
 /**
+ * Safely parses a year field (which may arrive as a number or string like "2003" or "null")
+ * into a valid 4-digit release year.
+ */
+export function parseYearNumber(raw?: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === "" || raw === "null") {
+    return undefined;
+  }
+  if (typeof raw === "number") {
+    return !isNaN(raw) && raw >= 1888 && raw <= 2035 ? raw : undefined;
+  }
+  if (typeof raw === "string") {
+    const m = raw.match(/\b(18\d{2}|19\d{2}|20\d{2})\b/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      return !isNaN(n) && n >= 1888 && n <= 2035 ? n : undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Checks whether a film object is tagged as Adult (id 28) or Erotic (id 25) or NC-17.
  */
 export function isAdultContentFilm(
-  film?: Partial<Film> | { genres?: { genre: string }[]; ratingMpaa?: string } | null,
+  film?: Partial<Film> | { genres?: { genre: string }[]; ratingMpaa?: string; ratingAgeLimits?: string } | null,
 ): boolean {
   if (!film) return false;
   if (film.genres && Array.isArray(film.genres)) {
@@ -150,6 +183,7 @@ export function sanitizeFilmsForSafeMode<T extends Partial<Film>>(items: T[]): T
 export interface CompactFilmMeta extends Partial<Film> {
   votes?: number;
   enriched?: boolean;
+  updatedAt?: number;
 }
 
 let memoryFilmMetaCache: Record<number, CompactFilmMeta> | null = null;
@@ -181,6 +215,10 @@ export function getAllCachedFilms(): CompactFilmMeta[] {
   return Object.values(getFilmMetaStore());
 }
 
+/**
+ * Evicts the OLDEST entries by `updatedAt` timestamp rather than V8 ascending integer key order
+ * (resolves Bug #5 where low-ID classics like ID 301 The Matrix were repeatedly evicted first).
+ */
 function schedulePersistFilmMetaStore(): void {
   if (typeof window === "undefined" || persistMetaTimer) return;
   persistMetaTimer = setTimeout(() => {
@@ -189,8 +227,13 @@ function schedulePersistFilmMetaStore(): void {
       const store = getFilmMetaStore();
       const keys = Object.keys(store);
       if (keys.length > 1000) {
+        const sortedByAge = keys.sort(
+          (a, b) =>
+            (store[Number(a)]?.updatedAt ?? 0) -
+            (store[Number(b)]?.updatedAt ?? 0),
+        );
         for (let i = 0; i < 180; i++) {
-          delete store[Number(keys[i])];
+          delete store[Number(sortedByAge[i])];
         }
       }
       localStorage.setItem(FILM_META_CACHE_KEY, JSON.stringify(store));
@@ -230,11 +273,18 @@ export function hydrateFilmWithCache(
 ): Film {
   const id = film.kinopoiskId ?? film.filmId ?? 0;
   const cached = id > 0 ? getCachedFilmMeta(id) : undefined;
+  const parsedFilmYear = parseYearNumber(film.year);
+  const parsedStartYear = parseYearNumber(film.startYear);
+  const parsedEndYear = parseYearNumber(film.endYear);
+
   if (!cached) {
     return {
       ...film,
       kinopoiskId: id,
       filmId: film.filmId ?? id,
+      year: parsedFilmYear,
+      startYear: parsedStartYear,
+      endYear: parsedEndYear,
       posterUrl: film.posterUrl || film.posterUrlPreview || "",
       posterUrlPreview: film.posterUrlPreview || film.posterUrl || "",
     } as Film;
@@ -286,9 +336,9 @@ export function hydrateFilmWithCache(
     posterUrl: film.posterUrl || cached.posterUrl || film.posterUrlPreview || "",
     posterUrlPreview:
       film.posterUrlPreview || cached.posterUrlPreview || film.posterUrl || "",
-    year: film.year ?? cached.year,
-    startYear: film.startYear ?? cached.startYear,
-    endYear: film.endYear ?? cached.endYear,
+    year: parsedFilmYear ?? cached.year,
+    startYear: parsedStartYear ?? cached.startYear,
+    endYear: parsedEndYear ?? cached.endYear,
     filmLength,
     duration: filmLength ?? film.duration ?? cached.duration,
     premiereRu: film.premiereRu || cached.premiereRu,
@@ -316,7 +366,9 @@ export function saveCompactFilmMeta(film: Film, fromFullDetail = false): void {
   const hadPrev = Boolean(prev);
   const safePrev = prev ?? {};
 
-  const nextYear = film.year ?? safePrev.year;
+  const nextYear = parseYearNumber(film.year) ?? safePrev.year;
+  const nextStartYear = parseYearNumber(film.startYear) ?? safePrev.startYear;
+  const nextEndYear = parseYearNumber(film.endYear) ?? safePrev.endYear;
   const nextGenres =
     film.genres && film.genres.length > 0
       ? film.genres.slice(0, 4)
@@ -377,8 +429,8 @@ export function saveCompactFilmMeta(film: Film, fromFullDetail = false): void {
     posterUrl: film.posterUrl || safePrev.posterUrl || "",
     posterUrlPreview: film.posterUrlPreview || safePrev.posterUrlPreview || "",
     year: nextYear,
-    startYear: film.startYear ?? safePrev.startYear,
-    endYear: film.endYear ?? safePrev.endYear,
+    startYear: nextStartYear,
+    endYear: nextEndYear,
     serial: film.serial ?? safePrev.serial,
     completed: film.completed ?? safePrev.completed,
     type: film.type ?? safePrev.type,
@@ -402,6 +454,7 @@ export function saveCompactFilmMeta(film: Film, fromFullDetail = false): void {
     countries: nextCountries,
     genres: nextGenres,
     enriched: Boolean(fromFullDetail || safePrev.enriched),
+    updatedAt: Date.now(),
   };
 
   schedulePersistFilmMetaStore();
@@ -498,7 +551,6 @@ export function queueFilmMetaHydration(filmId: number, priority = false): void {
     }
     return;
   }
-  // Cap background queue length so rapid scrolling never builds a huge backlog
   if (hydrationQueue.length > 36 && !priority) {
     return;
   }
@@ -727,7 +779,6 @@ async function apiFetch<T>(
           headers: { "X-API-KEY": key, "Content-Type": "application/json" },
         });
       } catch (err) {
-        // Malformed header value (e.g. non-ASCII characters in key) or network failure
         if (err instanceof TypeError && !/^[ -~]+$/.test(key)) {
           markKeyInvalid(key);
           lastError = new Error("Invalid API key.");
@@ -847,10 +898,24 @@ function normalizeFilmItem(
         ? (f as { premiere?: string }).premiere
         : undefined;
 
+  const parsedYear = parseYearNumber(f.year);
+  const parsedStartYear = parseYearNumber(f.startYear);
+  const parsedEndYear = parseYearNumber(f.endYear);
+
+  // Enrich nameEn with known international English release title if missing
+  const resolvedAliasEn =
+    (!f.nameEn || isRussian(f.nameEn as string))
+      ? resolveEnglishAlias(f.nameRu as string | undefined, f.nameOriginal as string | undefined)
+      : null;
+
   const normalized: Film = {
     ...f,
     kinopoiskId: id,
     filmId: f.filmId ?? id,
+    nameEn: (f.nameEn as string | undefined) || resolvedAliasEn || undefined,
+    year: parsedYear,
+    startYear: parsedStartYear,
+    endYear: parsedEndYear,
     posterUrlPreview,
     posterUrl,
     ratingKinopoisk,
@@ -1161,7 +1226,8 @@ function getFilmAgeTier(film: Film): AgeTierFilter | null {
 /**
  * Partitioned & Multi-Constraint Discovery Engine that breaks past the 100-item
  * single-query ceiling, supports 3+ simultaneous genres (AND/OR), negative filters,
- * bidirectional ASC/DESC sorting, rating brackets, and personalized "For You" taste matching.
+ * bidirectional ASC/DESC sorting, rating brackets, personalized "For You" taste matching,
+ * "Recent Releases" lens, and unified Smart Search when `keyword` is provided.
  */
 export async function discoverFilms(
   opts: DiscoverFilmsOptions,
@@ -1171,12 +1237,68 @@ export async function discoverFilms(
   const order: ExploreSortOrder = opts.order ?? "NUM_VOTE";
   const ratingSource: RatingSource = opts.ratingSource ?? "AUTO";
 
-  // 1. Handle Personalized "FOR_YOU" Taste-Match Lens (shared by Home "For You" row & Explore "For You" preset)
+  // 1. Handle Personalized "FOR_YOU" Taste-Match Lens
   if (opts.lens === "FOR_YOU") {
     return discoverTasteMatchedFilms(opts, page);
   }
 
-  // 2. Handle Curated Theme Collection Presets
+  // 2. Handle "RECENT_RELEASES" / "recent_releases" Smart Lens (Past 90 days already-released titles)
+  if (
+    opts.lens === "RECENT_RELEASES" ||
+    opts.lens === "recent_releases"
+  ) {
+    const curYear = new Date().getFullYear();
+    const [recentPremieresRes, recentPopularRes] = await Promise.allSettled([
+      getRecentReleases("high"),
+      page > 1
+        ? getFilmsByFilter({
+            type:
+              opts.type === "ALL" || !opts.type
+                ? undefined
+                : (opts.type as "FILM" | "TV_SHOW" | "TV_SERIES" | "MINI_SERIES"),
+            yearFrom: curYear - 1,
+            yearTo: curYear,
+            order: "NUM_VOTE",
+            page,
+          })
+        : Promise.resolve({ items: [] as Film[], total: 0, totalPages: 1 }),
+    ]);
+
+    const pool: Film[] = [];
+    if (recentPremieresRes.status === "fulfilled") {
+      pool.push(...recentPremieresRes.value.items);
+    }
+    if (recentPopularRes.status === "fulfilled") {
+      pool.push(...recentPopularRes.value.items);
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const nonFuturePool = deduplicateFilms(pool).filter(
+      (f) => !f.premiereRu || f.premiereRu.slice(0, 10) <= todayStr,
+    );
+
+    const filtered = applyClientDiscoveryFilters(
+      nonFuturePool,
+      opts,
+      ratingSource,
+    );
+
+    const sliceStart = page === 1 ? 0 : (page - 1) * 24;
+    const pageItems =
+      page === 1
+        ? filtered.slice(0, 24)
+        : filtered.slice(sliceStart, sliceStart + 24).length > 0
+          ? filtered.slice(sliceStart, sliceStart + 24)
+          : filtered.slice(0, 24);
+
+    return {
+      items: pageItems,
+      total: Math.max(filtered.length, 48),
+      totalPages: Math.max(2, Math.ceil(filtered.length / 24) + 1),
+    };
+  }
+
+  // 3. Handle Curated Theme Collection Presets (Bug #13 Fixed: returns 24 items per page)
   if (opts.collectionPreset) {
     const pagesToFetch = [page, Math.min(25, page + 1)];
     const responses = await Promise.allSettled(
@@ -1207,13 +1329,20 @@ export async function discoverFilms(
       opts.randomSeed,
     );
     return {
-      items: sorted.slice(0, 20),
+      items: sorted.slice(0, 24),
       total: reportedTotal,
-      totalPages: Math.max(reportedPages, page + (sorted.length >= 20 ? 1 : 0)),
+      totalPages: Math.max(reportedPages, page + (sorted.length >= 24 ? 1 : 0)),
     };
   }
 
-  // 3. Determine base API order & server-side window slicing to break the 100-item limit
+  // 4. Unified Smart Search when `opts.keyword` is active on Explore:
+  // Uses the exact same smart search pipeline (year parsing, typo tolerance, cross-language
+  // translation, IMDb bridge, and actor credits) as the main Search bar, then applies Explore filters!
+  const rawKeyword = opts.keyword?.trim();
+  const parsedKeyword = rawKeyword ? parseQueryWithYear(rawKeyword) : null;
+  const effectiveKeyword = parsedKeyword ? parsedKeyword.cleanQuery : undefined;
+
+  // 5. Determine base API order & server-side window slicing to break the 100-item limit
   const apiOrder: "RATING" | "NUM_VOTE" | "YEAR" =
     order === "YEAR"
       ? "YEAR"
@@ -1227,8 +1356,14 @@ export async function discoverFilms(
   const minR = opts.ratingFrom !== undefined ? Math.max(0, opts.ratingFrom) : 0;
   const maxR = opts.ratingTo !== undefined ? Math.min(10, opts.ratingTo) : 10;
   const currentYear = new Date().getFullYear();
-  const minY = opts.yearFrom !== undefined ? opts.yearFrom : undefined;
-  const maxY = opts.yearTo !== undefined ? opts.yearTo : undefined;
+  const minY =
+    opts.yearFrom !== undefined
+      ? opts.yearFrom
+      : (parsedKeyword?.targetYear ?? undefined);
+  const maxY =
+    opts.yearTo !== undefined
+      ? opts.yearTo
+      : (parsedKeyword?.targetYear ?? undefined);
 
   let queryRatingFrom: number | undefined = opts.ratingFrom;
   let queryRatingTo: number | undefined = opts.ratingTo;
@@ -1326,48 +1461,56 @@ export async function discoverFilms(
 
   const queriesToRun: Parameters<typeof getFilmsByFilter>[0][] = [];
 
+  // Bug #9 Fixed: Fan out across both multiple genres AND multiple countries when selected
+  const countryTargets =
+    incCountries.length > 1 ? incCountries.slice(0, 3) : [incCountries[0]];
+
   if (incGenres.length > 1 && opts.genreMatchMode === "OR") {
     for (const gId of incGenres.slice(0, 4)) {
-      queriesToRun.push({
-        type: baseType,
-        genres: gId,
-        countries: incCountries[0],
-        order: apiOrder,
-        ratingFrom: queryRatingFrom,
-        ratingTo: queryRatingTo,
-        yearFrom: queryYearFrom,
-        yearTo: queryYearTo,
-        keyword: opts.keyword,
-        page: apiPage,
-      });
-    }
-  } else if (incGenres.length > 1 && opts.genreMatchMode !== "OR") {
-    for (const gId of incGenres.slice(0, 2)) {
-      queriesToRun.push({
-        type: baseType,
-        genres: gId,
-        countries: incCountries[0],
-        order: apiOrder,
-        ratingFrom: queryRatingFrom,
-        ratingTo: queryRatingTo,
-        yearFrom: queryYearFrom,
-        yearTo: queryYearTo,
-        keyword: opts.keyword,
-        page: apiPage,
-      });
-      if (apiPage < 5) {
+      for (const cId of countryTargets.slice(0, 2)) {
         queriesToRun.push({
           type: baseType,
           genres: gId,
-          countries: incCountries[0],
+          countries: cId,
           order: apiOrder,
           ratingFrom: queryRatingFrom,
           ratingTo: queryRatingTo,
           yearFrom: queryYearFrom,
           yearTo: queryYearTo,
-          keyword: opts.keyword,
-          page: apiPage + 1,
+          keyword: effectiveKeyword,
+          page: apiPage,
         });
+      }
+    }
+  } else if (incGenres.length > 1 && opts.genreMatchMode !== "OR") {
+    for (const gId of incGenres.slice(0, 2)) {
+      for (const cId of countryTargets.slice(0, 2)) {
+        queriesToRun.push({
+          type: baseType,
+          genres: gId,
+          countries: cId,
+          order: apiOrder,
+          ratingFrom: queryRatingFrom,
+          ratingTo: queryRatingTo,
+          yearFrom: queryYearFrom,
+          yearTo: queryYearTo,
+          keyword: effectiveKeyword,
+          page: apiPage,
+        });
+        if (apiPage < 5 && countryTargets.length === 1) {
+          queriesToRun.push({
+            type: baseType,
+            genres: gId,
+            countries: cId,
+            order: apiOrder,
+            ratingFrom: queryRatingFrom,
+            ratingTo: queryRatingTo,
+            yearFrom: queryYearFrom,
+            yearTo: queryYearTo,
+            keyword: effectiveKeyword,
+            page: apiPage + 1,
+          });
+        }
       }
     }
   } else if (incCountries.length > 1) {
@@ -1381,7 +1524,7 @@ export async function discoverFilms(
         ratingTo: queryRatingTo,
         yearFrom: queryYearFrom,
         yearTo: queryYearTo,
-        keyword: opts.keyword,
+        keyword: effectiveKeyword,
         page: apiPage,
       });
     }
@@ -1395,7 +1538,7 @@ export async function discoverFilms(
       ratingTo: queryRatingTo,
       yearFrom: queryYearFrom,
       yearTo: queryYearTo,
-      keyword: opts.keyword,
+      keyword: effectiveKeyword,
       page: apiPage,
     });
     if (needsExtraClientFiltering && apiPage < 5) {
@@ -1408,22 +1551,38 @@ export async function discoverFilms(
         ratingTo: queryRatingTo,
         yearFrom: queryYearFrom,
         yearTo: queryYearTo,
-        keyword: opts.keyword,
+        keyword: effectiveKeyword,
         page: apiPage + 1,
       });
     }
   }
 
-  const settled = await Promise.allSettled(
-    queriesToRun.map((q) => getFilmsByFilter(q)),
-  );
+  // Run smart search in parallel whenever a keyword is present so Explore & Search Bar behave identically!
+  const [smartSearchRes, ...settled] = await Promise.all([
+    rawKeyword
+      ? searchFilms(rawKeyword, page).catch(() => null)
+      : Promise.resolve(null),
+    ...queriesToRun.map((q) =>
+      getFilmsByFilter(q).then(
+        (v) => ({ status: "fulfilled" as const, value: v }),
+        () => ({ status: "rejected" as const, value: null }),
+      ),
+    ),
+  ]);
 
   const pool: Film[] = [];
   let maxApiTotal = 0;
   let maxApiPages = 1;
 
+  // Put smartSearchRes items first so exact title/typo/translated/actor matches lead the pool
+  if (smartSearchRes) {
+    pool.push(...smartSearchRes.items);
+    maxApiTotal = Math.max(maxApiTotal, smartSearchRes.total ?? 0);
+    maxApiPages = Math.max(maxApiPages, smartSearchRes.totalPages ?? 1);
+  }
+
   for (const res of settled) {
-    if (res.status === "fulfilled") {
+    if (res.status === "fulfilled" && res.value) {
       pool.push(...res.value.items);
       maxApiTotal = Math.max(maxApiTotal, res.value.total ?? 0);
       maxApiPages = Math.max(maxApiPages, res.value.totalPages ?? 1);
@@ -1431,32 +1590,62 @@ export async function discoverFilms(
   }
 
   const uniquePool = deduplicateFilms(pool);
-  const filteredPool = applyClientDiscoveryFilters(
+  const effectiveOptsForClientFilter: DiscoverFilmsOptions =
+    parsedKeyword?.targetYear &&
+    opts.yearFrom === undefined &&
+    opts.yearTo === undefined
+      ? {
+          ...opts,
+          yearFrom: parsedKeyword.targetYear,
+          yearTo: parsedKeyword.targetYear,
+        }
+      : opts;
+
+  let filteredPool = applyClientDiscoveryFilters(
     uniquePool,
-    opts,
+    effectiveOptsForClientFilter,
     ratingSource,
-  );
-  const sortedPool = sortDiscoveryPool(
-    filteredPool,
-    order,
-    direction,
-    ratingSource,
-    opts.randomSeed,
   );
 
+  // If strict year from keyword yielded 0 due to unhydrated years on partial cards, fallback to base opts
+  if (
+    filteredPool.length === 0 &&
+    parsedKeyword?.targetYear &&
+    opts.yearFrom === undefined &&
+    opts.yearTo === undefined
+  ) {
+    filteredPool = applyClientDiscoveryFilters(uniquePool, opts, ratingSource);
+  }
+
+  // When a keyword is active, keep smart search relevance order unless the user chose a specific sort
+  const sortedPool =
+    rawKeyword && order === "NUM_VOTE" && direction === "DESC"
+      ? filteredPool
+      : sortDiscoveryPool(
+          filteredPool,
+          order,
+          direction,
+          ratingSource,
+          opts.randomSeed,
+        );
+
   const canPartitionDeep =
-    maxApiPages >= 5 || maxApiTotal >= 80 || page > 1;
+    !rawKeyword && (maxApiPages >= 5 || maxApiTotal >= 80 || page > 1);
   const effectiveTotalPages = canPartitionDeep
     ? Math.max(25, page + (sortedPool.length >= 12 ? 2 : 0))
     : Math.max(1, maxApiPages);
   const effectiveTotal = canPartitionDeep
     ? Math.max(maxApiTotal, effectiveTotalPages * 20)
-    : filteredPool.length;
+    : Math.max(filteredPool.length, maxApiTotal);
 
   return {
     items: sortedPool.slice(0, 24),
     total: sortedPool.length === 0 && page === 1 ? 0 : effectiveTotal,
     totalPages: sortedPool.length === 0 && page === 1 ? 1 : effectiveTotalPages,
+    matchedPerson: smartSearchRes?.matchedPerson ?? null,
+    correctedQuery: smartSearchRes?.correctedQuery ?? null,
+    targetYear:
+      smartSearchRes?.targetYear ?? parsedKeyword?.targetYear ?? null,
   };
 }
 
@@ -1514,10 +1703,6 @@ function seededShuffle<T>(items: T[], seedInput: number): T[] {
   return arr;
 }
 
-/**
- * Interleaves multiple arrays round-robin so items from a single seed
- * (e.g., all Spider-Man movies) are never grouped sequentially.
- */
 function interleaveBuckets<T>(buckets: T[][]): T[] {
   const result: T[] = [];
   const maxLen = buckets.reduce((max, b) => Math.max(max, b.length), 0);
@@ -1531,14 +1716,6 @@ function interleaveBuckets<T>(buckets: T[][]): T[] {
   return result;
 }
 
-/**
- * Unified "For You" Taste-Match Engine (used by both Home "For You" row and Explore "For You" preset).
- * - Uses up to 16 user seeds across Favorites, Watch Later, and Recently Watched.
- * - Eliminates sequential franchise clumping by shuffling each seed's recommendations into its own bucket,
- *   round-robin interleaving across all seed buckets + genre-affinity pools, and applying a stratified shuffle.
- * - Supports true multi-page pagination (`page = 1, 2, 3...`) so clicking "Load More" on Explore
- *   continuously streams fresh, non-duplicate recommendations.
- */
 export async function discoverTasteMatchedFilms(
   opts: DiscoverFilmsOptions = {},
   page = 1,
@@ -1549,201 +1726,161 @@ export async function discoverTasteMatchedFilms(
   const safePage = Math.max(1, page);
   const randomSeed = (opts.randomSeed ?? 1) + SESSION_SHUFFLE_SEED;
 
-  const favs = getList("favorites");
-  const watchLater = getList("watchlater");
-  const history = getList("history");
+  const favList = getList("favorites");
+  const wlList = getList("watchlater");
+  const histList = getList("history");
 
-  // Interleave seeds from Favorites (highest weight), Watch Later, and History so all 3 lists drive recommendations
-  const maxSeedLen = Math.max(favs.length, watchLater.length, history.length);
-  const interleavedRawSeeds: typeof favs = [];
-  for (let i = 0; i < maxSeedLen; i++) {
-    if (i < favs.length) interleavedRawSeeds.push(favs[i]);
-    if (i < watchLater.length) interleavedRawSeeds.push(watchLater[i]);
-    if (i < history.length) interleavedRawSeeds.push(history[i]);
+  const libraryAll = [...favList, ...wlList, ...histList];
+  const libraryIds = new Set(libraryAll.map((e) => e.film_id));
+
+  const uniqueSeeds: number[] = [];
+  const seenSeed = new Set<number>();
+  for (const entry of [...favList, ...wlList, ...histList]) {
+    if (entry.film_id && !seenSeed.has(entry.film_id)) {
+      seenSeed.add(entry.film_id);
+      uniqueSeeds.push(entry.film_id);
+      if (uniqueSeeds.length >= 16) break;
+    }
   }
 
-  const seenSeedIds = new Set<number>();
-  const uniqueSeeds: typeof favs = [];
-  for (const entry of interleavedRawSeeds) {
-    if (!entry.film_id || seenSeedIds.has(entry.film_id)) continue;
-    seenSeedIds.add(entry.film_id);
-    uniqueSeeds.push(entry);
-    if (uniqueSeeds.length >= 16) break;
-  }
-
-  // Shuffle seed order deterministically per session so no single favorite monopolizes the top slot
-  const shuffledSeeds = seededShuffle(uniqueSeeds, randomSeed);
-
-  // Extract user's top genre affinities from cached metadata of their seeds
-  const genreWeights = new Map<number, number>();
-  for (const s of uniqueSeeds) {
-    const meta = getCachedFilmMeta(s.film_id);
+  const genreFreq = new Map<number, number>();
+  for (const id of uniqueSeeds) {
+    const meta = getCachedFilmMeta(id);
     if (meta?.genres) {
       for (const g of meta.genres) {
-        const gId = GENRE_NAME_TO_ID[(g.genre || "").trim().toLowerCase()];
-        if (gId) {
-          genreWeights.set(gId, (genreWeights.get(gId) ?? 0) + 1);
+        const gLower = g.genre.trim().toLowerCase();
+        const gEn = translateGenre(g.genre, true).trim().toLowerCase();
+        const gId = GENRE_NAME_TO_ID[gLower] ?? GENRE_NAME_TO_ID[gEn];
+        if (gId && (!isSafeModeActive() || (gId !== 28 && gId !== 25))) {
+          genreFreq.set(gId, (genreFreq.get(gId) ?? 0) + 1);
         }
       }
     }
   }
-  const topUserGenres = Array.from(genreWeights.entries())
+
+  const topUserGenres = Array.from(genreFreq.entries())
     .sort((a, b) => b[1] - a[1])
-    .map(([id]) => id);
-  const affinityGenres =
-    topUserGenres.length >= 2 ? topUserGenres.slice(0, 4) : [11, 6, 2, 1, 13];
+    .map(([id]) => id)
+    .slice(0, 3);
 
-  const seedBuckets: Film[][] = [];
+  const effectiveGenres =
+    opts.includeGenres && opts.includeGenres.length > 0
+      ? opts.includeGenres
+      : topUserGenres.length > 0
+        ? topUserGenres
+        : [11, 6, 1, 2];
 
-  if (shuffledSeeds.length > 0) {
-    // Rotate which seeds we query as `safePage` increases so deeper pages discover new branches
-    const batchSize = Math.min(5, shuffledSeeds.length);
-    const startOffset = ((safePage - 1) * 3) % shuffledSeeds.length;
-    const activeSeeds: typeof favs = [];
-    for (let i = 0; i < batchSize; i++) {
-      activeSeeds.push(shuffledSeeds[(startOffset + i) % shuffledSeeds.length]);
-    }
+  const shuffledSeeds = seededShuffle(uniqueSeeds, randomSeed);
+  const pageSeedOffset = ((safePage - 1) * 4) % Math.max(1, shuffledSeeds.length);
+  const rotatedSeeds = [
+    ...shuffledSeeds.slice(pageSeedOffset),
+    ...shuffledSeeds.slice(0, pageSeedOffset),
+  ].slice(0, 5);
 
-    const [relatedResults, similarResults] = await Promise.all([
-      Promise.allSettled(activeSeeds.map((s) => getRelatedFilms(s.film_id))),
-      Promise.allSettled(activeSeeds.map((s) => getSimilarFilms(s.film_id))),
-    ]);
+  const seedBucketPromises: Promise<Film[]>[] = [];
 
-    for (let i = 0; i < activeSeeds.length; i++) {
-      const bucket: Film[] = [];
-      const rel = relatedResults[i];
-      if (rel?.status === "fulfilled" && Array.isArray(rel.value)) {
-        for (const rf of rel.value) {
-          bucket.push(hydrateFilmWithCache(rf));
-        }
-      }
-
-      const sim = similarResults[i];
-      if (sim?.status === "fulfilled" && sim.value?.items) {
-        for (const sf of sim.value.items) {
-          bucket.push(
-            hydrateFilmWithCache({
-              kinopoiskId: sf.filmId,
-              filmId: sf.filmId,
-              nameRu: sf.nameRu,
-              nameEn: sf.nameEn,
-              nameOriginal: sf.nameOriginal,
-              posterUrl: sf.posterUrl,
-              posterUrlPreview: sf.posterUrlPreview,
-            }),
-          );
-        }
-      }
-
-      if (bucket.length > 0) {
-        // Shuffle within each seed's bucket so sequels and similars are mixed
-        seedBuckets.push(
-          seededShuffle(bucket, randomSeed + activeSeeds[i].film_id + safePage),
-        );
-      }
+  if (safePage <= 3 && rotatedSeeds.length > 0) {
+    for (let i = 0; i < rotatedSeeds.length; i++) {
+      const seedId = rotatedSeeds[i];
+      const priority = i < 2 && safePage === 1 ? "high" : "low";
+      seedBucketPromises.push(
+        Promise.allSettled([
+          getSimilarFilms(seedId, priority),
+          i < 2 ? getRelatedFilms(seedId, priority) : Promise.resolve([]),
+        ]).then(([simRes, relRes]) => {
+          const items: Film[] = [];
+          if (simRes.status === "fulfilled" && simRes.value.items) {
+            for (const sf of simRes.value.items) {
+              items.push(
+                hydrateFilmWithCache({
+                  kinopoiskId: sf.filmId,
+                  filmId: sf.filmId,
+                  nameRu: sf.nameRu,
+                  nameEn: sf.nameEn,
+                  nameOriginal: sf.nameOriginal,
+                  posterUrl: sf.posterUrl,
+                  posterUrlPreview: sf.posterUrlPreview,
+                }),
+              );
+            }
+          }
+          if (relRes.status === "fulfilled" && Array.isArray(relRes.value)) {
+            items.push(...relRes.value);
+          }
+          return seededShuffle(items, randomSeed + seedId + safePage * 13);
+        }),
+      );
     }
   }
-
-  // Fetch page-specific genre-affinity & global acclaimed supplements so every "Load More" page has fresh items
-  const primaryGenreId =
-    affinityGenres[(safePage - 1) % affinityGenres.length];
-  const secondaryGenreId =
-    affinityGenres[safePage % affinityGenres.length];
-  const apiPage = ((safePage - 1) % 5) + 1;
-  const ratingBands: [number, number][] = [
-    [7.2, 10],
-    [6.8, 8.6],
-    [7.0, 9.2],
-    [6.5, 8.4],
-  ];
-  const activeBand =
-    ratingBands[Math.floor((safePage - 1) / 2) % ratingBands.length];
 
   const baseType =
-    opts.type === "ALL" || !opts.type
-      ? undefined
-      : (opts.type as "FILM" | "TV_SHOW" | "TV_SERIES" | "MINI_SERIES");
+    opts.type && opts.type !== "ALL"
+      ? (opts.type as "FILM" | "TV_SHOW" | "TV_SERIES" | "MINI_SERIES")
+      : undefined;
 
-  const [genreSupp1, genreSupp2, globalSupp] = await Promise.allSettled([
-    getFilmsByFilter({
-      type: baseType,
-      genres: primaryGenreId,
-      countries: 1,
-      order: safePage % 2 === 0 ? "RATING" : "NUM_VOTE",
-      ratingFrom: activeBand[0],
-      ratingTo: activeBand[1],
-      page: apiPage,
-    }),
-    getFilmsByFilter({
-      type: baseType,
-      genres: secondaryGenreId,
-      order: "NUM_VOTE",
-      ratingFrom: activeBand[0],
-      page: ((safePage) % 5) + 1,
-    }),
-    getFilmsByFilter({
-      type: baseType,
-      countries: 1,
-      order: "NUM_VOTE",
-      ratingFrom: 7.0,
-      page: apiPage,
-    }),
+  const genrePoolPromises = effectiveGenres.slice(0, 3).map((gId, idx) =>
+    getFilmsByFilter(
+      {
+        genres: gId,
+        type: baseType,
+        countries: opts.includeCountries?.[0],
+        order: idx % 2 === 0 ? "NUM_VOTE" : "RATING",
+        ratingFrom: opts.ratingFrom ?? 6.9,
+        ratingTo: opts.ratingTo,
+        yearFrom: opts.yearFrom,
+        yearTo: opts.yearTo,
+        page: ((safePage + idx - 1) % 5) + 1,
+      },
+      idx === 0 ? "high" : "low",
+    )
+      .then((r) =>
+        seededShuffle(r.items ?? [], randomSeed + gId * 31 + safePage * 17),
+      )
+      .catch(() => [] as Film[]),
+  );
+
+  const fallbackCuratedPromise =
+    uniqueSeeds.length === 0 || safePage > 1
+      ? getTopFilms(
+          safePage % 2 === 1 ? "TOP_POPULAR_MOVIES" : "TOP_250_MOVIES",
+          ((safePage - 1) % 5) + 1,
+          "low",
+        )
+          .then((r) =>
+            seededShuffle(r.items ?? [], randomSeed + safePage * 29),
+          )
+          .catch(() => [] as Film[])
+      : Promise.resolve([] as Film[]);
+
+  const [seedBuckets, genreBuckets, fallbackBucket] = await Promise.all([
+    Promise.all(seedBucketPromises),
+    Promise.all(genrePoolPromises),
+    fallbackCuratedPromise,
   ]);
 
-  if (genreSupp1.status === "fulfilled" && genreSupp1.value.items.length > 0) {
-    seedBuckets.push(
-      seededShuffle(genreSupp1.value.items, randomSeed + safePage * 13),
-    );
-  }
-  if (genreSupp2.status === "fulfilled" && genreSupp2.value.items.length > 0) {
-    seedBuckets.push(
-      seededShuffle(genreSupp2.value.items, randomSeed + safePage * 29),
-    );
-  }
-  if (globalSupp.status === "fulfilled" && globalSupp.value.items.length > 0) {
-    seedBuckets.push(
-      seededShuffle(globalSupp.value.items, randomSeed + safePage * 47),
-    );
-  }
+  const interleavedSeeds = interleaveBuckets(seedBuckets);
+  const interleavedGenres = interleaveBuckets([
+    ...genreBuckets,
+    ...(fallbackBucket.length > 0 ? [fallbackBucket] : []),
+  ]);
 
-  if (!hasApiKeys() || seedBuckets.length === 0) {
-    return { items: [], total: 0, totalPages: 0 };
-  }
-
-  // Only mix in saved Watch Later / Favorites on page 1 when live API discovery succeeded
-  if (safePage === 1 && shuffledSeeds.length > 0) {
-    const savedBucket = seededShuffle(
-      [...watchLater, ...favs].slice(0, 12).map((item) =>
-        hydrateFilmWithCache({
-          kinopoiskId: item.film_id,
-          filmId: item.film_id,
-          nameEn: item.film_name,
-          nameRu: item.film_name,
-          posterUrl: item.poster_url || "",
-          posterUrlPreview: item.poster_url || "",
-          year: item.year ?? undefined,
-          ratingKinopoisk: item.rating ?? undefined,
-        }),
-      ),
-      randomSeed + 99,
-    );
-    if (savedBucket.length > 0) {
-      seedBuckets.push(savedBucket);
-    }
-  }
-
-  // Round-robin interleave across all seed & genre-affinity buckets
-  const interleavedPool = interleaveBuckets(seedBuckets);
-  const uniquePool = deduplicateFilms(interleavedPool);
+  const combinedRaw = deduplicateFilms([
+    ...interleavedSeeds,
+    ...interleavedGenres,
+  ]).filter((f) => {
+    const fid = f.kinopoiskId ?? f.filmId ?? 0;
+    return fid > 0 && !libraryIds.has(fid);
+  });
 
   const filtered = applyClientDiscoveryFilters(
-    uniquePool,
-    { ...opts, hideWatched: opts.hideWatched ?? true },
+    combinedRaw,
+    {
+      ...opts,
+      hideWatched: opts.hideWatched ?? true,
+    },
     opts.ratingSource ?? "AUTO",
   );
 
-  // Stratified shuffle across the combined pool so related movies are organically distributed
-  // Unless user explicitly chose a non-default sort order (like YEAR or IMDB_RATING)
   let finalOrdered: Film[];
   if (opts.order && opts.order !== "NUM_VOTE") {
     finalOrdered = sortDiscoveryPool(
@@ -1759,7 +1896,6 @@ export async function discoverTasteMatchedFilms(
 
   const pageSlice = finalOrdered.slice(0, 24);
 
-  // Queue low-priority hydration only for the first 8 visible cards missing year/genres
   for (let i = 0; i < Math.min(8, pageSlice.length); i++) {
     const f = pageSlice[i];
     const fid = f.kinopoiskId ?? f.filmId;
@@ -1890,7 +2026,7 @@ function applyClientDiscoveryFilters(
       if (hasExcludedGenre) return false;
     }
 
-    // 8. Country Include / Exclude
+    // 8. Country Include & Exclude (Bug #9 Fixed: enforces includeCountries in client filter)
     const filmCountryNames = (film.countries ?? []).map((c) =>
       c.country.trim().toLowerCase(),
     );
@@ -1901,6 +2037,20 @@ function applyClientDiscoveryFilters(
       ...filmCountryNames,
       ...filmCountryEnNames,
     ]);
+
+    if (
+      opts.includeCountries &&
+      opts.includeCountries.length > 0 &&
+      countryIdToNames.size > 0 &&
+      allFilmCountries.size > 0
+    ) {
+      const matchesIncludedCountry = opts.includeCountries.some((cId) => {
+        const candidates = countryIdToNames.get(cId);
+        if (!candidates) return true;
+        return candidates.some((name) => allFilmCountries.has(name));
+      });
+      if (!matchesIncludedCountry) return false;
+    }
 
     if (
       opts.excludeCountries &&
@@ -1940,7 +2090,7 @@ function applyClientDiscoveryFilters(
     }
 
     // 12. Year Range Check
-    const yr = film.year ?? film.startYear;
+    const yr = parseYearNumber(film.year) ?? parseYearNumber(film.startYear);
     if (yr) {
       if (opts.yearFrom !== undefined && yr < opts.yearFrom) return false;
       if (opts.yearTo !== undefined && yr > opts.yearTo) return false;
@@ -2017,17 +2167,17 @@ function sortDiscoveryPool(
 
   copy.sort((a, b) => {
     if (order === "TITLE") {
-      const titleA = (
-        a.nameEn ||
-        a.nameOriginal ||
-        a.nameRu ||
-        ""
+      const titleA = getEnglishName(
+        a.nameRu,
+        a.nameEn,
+        a.nameOriginal,
+        true,
       ).toLowerCase();
-      const titleB = (
-        b.nameEn ||
-        b.nameOriginal ||
-        b.nameRu ||
-        ""
+      const titleB = getEnglishName(
+        b.nameRu,
+        b.nameEn,
+        b.nameOriginal,
+        true,
       ).toLowerCase();
       return titleA.localeCompare(titleB) * (direction === "ASC" ? 1 : -1);
     }
@@ -2091,7 +2241,7 @@ function sortDiscoveryPool(
   return copy;
 }
 
-// ─── Semantic & Typo-Tolerant Search Engine (Fuzzy + Concept Expansion) ───────
+// ─── Semantic, Cross-Language, Year-Aware & Actor-Aware Smart Search Engine ───
 
 const CANONICAL_TITLES: string[] = [
   "Interstellar",
@@ -2180,6 +2330,12 @@ const CANONICAL_TITLES: string[] = [
   "Fallout",
   "Shogun",
   "Squid Game",
+  "Money Heist",
+  "Pan's Labyrinth",
+  "The Platform",
+  "The Invisible Guest",
+  "Wild Tales",
+  "Society of the Snow",
   "Dark",
   "Mr. Robot",
   "Westworld",
@@ -2231,6 +2387,12 @@ const CANONICAL_TITLES: string[] = [
   "Oldboy",
   "Memories of Murder",
   "Train to Busan",
+  "The Handmaiden",
+  "I Saw the Devil",
+  "The Intouchables",
+  "Amélie",
+  "Anatomy of a Fall",
+  "City of God",
   "The Silence of the Lambs",
   "The Shining",
   "Hereditary",
@@ -2333,7 +2495,7 @@ const SEMANTIC_CONCEPTS: SemanticConceptRule[] = [
   {
     label: "Heist & Crime Masterminds",
     triggers: ["heist", "bank robbery", "robbery", "con artist", "casino", "mafia", "gangster", "mob"],
-    keywords: ["Heat", "The Wolf of Wall Street", "Goodfellas", "The Godfather", "Catch Me If You Can"],
+    keywords: ["Money Heist", "Heat", "The Wolf of Wall Street", "Goodfellas", "The Godfather"],
     genreIds: [3, 1],
   },
   {
@@ -2353,7 +2515,7 @@ const SEMANTIC_CONCEPTS: SemanticConceptRule[] = [
       "crime thriller",
       "fbi",
     ],
-    keywords: ["Se7en", "Zodiac", "Prisoners", "Knives Out", "True Detective"],
+    keywords: ["Se7en", "Zodiac", "Prisoners", "Memories of Murder", "True Detective"],
     genreIds: [5, 3, 1],
   },
   {
@@ -2392,19 +2554,19 @@ const SEMANTIC_CONCEPTS: SemanticConceptRule[] = [
   {
     label: "Epic Fantasy & Magic",
     triggers: ["fantasy", "magic", "wizard", "wizards", "dragon", "dragons", "medieval", "sword"],
-    keywords: ["The Lord of the Rings", "Harry Potter", "Game of Thrones", "House of the Dragon"],
+    keywords: ["The Lord of the Rings", "Harry Potter", "Game of Thrones", "Pan's Labyrinth"],
     genreIds: [12, 7],
   },
   {
     label: "War & Historical Epics",
     triggers: ["war", "ww2", "world war", "military", "soldier", "battlefield", "historical"],
-    keywords: ["1917", "Saving Private Ryan", "Oppenheimer", "Dunkirk", "Inglourious Basterds"],
+    keywords: ["1917", "Saving Private Ryan", "All Quiet on the Western Front", "Dunkirk", "Inglourious Basterds"],
     genreIds: [14, 15, 2],
   },
   {
     label: "True Story & Biopics",
     triggers: ["true story", "based on a true story", "biopic", "biography", "real life"],
-    keywords: ["Oppenheimer", "The Wolf of Wall Street", "Green Book", "The Social Network", "Ford v Ferrari"],
+    keywords: ["Oppenheimer", "Society of the Snow", "Green Book", "The Social Network", "Ford v Ferrari"],
     genreIds: [8, 2],
   },
   {
@@ -2416,11 +2578,64 @@ const SEMANTIC_CONCEPTS: SemanticConceptRule[] = [
   },
 ];
 
+/**
+ * Extracts a 4-digit release year from queries like "oldboy 2003", "oldboy (2003)", or "2003 oldboy"
+ * while preserving standalone 4-digit movie titles like "1917", "2012", "1408", "2046".
+ */
+export function parseQueryWithYear(rawQuery: string): {
+  cleanQuery: string;
+  targetYear: number | null;
+  rawQuery: string;
+} {
+  const trimmed = rawQuery.trim();
+  if (!trimmed) {
+    return { cleanQuery: "", targetYear: null, rawQuery: "" };
+  }
+
+  // If the entire query is just a 4-digit number (e.g. "1917", "2012"), treat it as a title
+  if (/^\d{4}$/.test(trimmed)) {
+    return { cleanQuery: trimmed, targetYear: null, rawQuery: trimmed };
+  }
+
+  // Match trailing year: "oldboy 2003", "oldboy (2003)", "oldboy [2003]", "oldboy - 2003"
+  const trailingMatch = trimmed.match(
+    /^(.*?)(?:[\s\-–—]+|\s*[\(\[])(188[89]|189\d|19\d{2}|20[0-3]\d)[\)\]]?\s*$/,
+  );
+  if (trailingMatch && trailingMatch[1].trim().length >= 2) {
+    const clean = trailingMatch[1].trim();
+    const year = parseInt(trailingMatch[2], 10);
+    // Avoid stripping "Blade Runner 2049" or "Wonder Woman 1984" where year is part of canonical title
+    const lowerFull = trimmed.toLowerCase().replace(/\s+/g, " ");
+    if (
+      !lowerFull.includes("blade runner 2049") &&
+      !lowerFull.includes("wonder woman 1984") &&
+      !lowerFull.includes("space odyssey")
+    ) {
+      return { cleanQuery: clean, targetYear: year, rawQuery: trimmed };
+    }
+  }
+
+  // Match leading year: "2003 oldboy"
+  const leadingMatch = trimmed.match(
+    /^[\(\[]?(188[89]|189\d|19\d{2}|20[0-3]\d)[\)\]]?\s+(.{2,})$/,
+  );
+  if (leadingMatch && leadingMatch[2].trim().length >= 2) {
+    return {
+      cleanQuery: leadingMatch[2].trim(),
+      targetYear: parseInt(leadingMatch[1], 10),
+      rawQuery: trimmed,
+    };
+  }
+
+  return { cleanQuery: trimmed, targetYear: null, rawQuery: trimmed };
+}
+
 function normalizeSearchToken(str: string): string {
   return str
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/['’`]/g, "")
     .replace(/[^a-z0-9а-яё\s]/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -2432,9 +2647,15 @@ function phoneticSkeleton(str: string): string {
     .replace(/ck/g, "k")
     .replace(/qu/g, "kw")
     .replace(/sh/g, "s")
+    .replace(/ch/g, "c")
     .replace(/th/g, "t")
+    .replace(/y/g, "i")
     .replace(/([a-zа-яё])\1+/gi, "$1")
     .replace(/\s+/g, "");
+}
+
+function consonantSkeleton(str: string): string {
+  return phoneticSkeleton(str).replace(/[aeiouаеёиоуыэюя]/gi, "");
 }
 
 function damerauLevenshtein(a: string, b: string): number {
@@ -2442,7 +2663,7 @@ function damerauLevenshtein(a: string, b: string): number {
   const lenB = b.length;
   if (lenA === 0) return lenB;
   if (lenB === 0) return lenA;
-  if (Math.abs(lenA - lenB) > 4) return Math.abs(lenA - lenB);
+  if (Math.abs(lenA - lenB) > 5) return Math.abs(lenA - lenB);
 
   const dp: number[][] = Array.from({ length: lenA + 1 }, () =>
     new Array(lenB + 1).fill(0),
@@ -2489,71 +2710,153 @@ function trigramSimilarity(a: string, b: string): number {
 
 /**
  * Computes a fuzzy relevance score (0..100) between a user query and a candidate title.
+ * Handles typos, transposed characters, dropped vowels, split/merged words ("old boy" <-> "oldboy"),
+ * and stripped articles ("the", "a", "el", "la").
  */
-export function computeFuzzyMatchScore(query: string, candidate?: string | null): number {
+export function computeFuzzyMatchScore(
+  query: string,
+  candidate?: string | null,
+): number {
   if (!query || !candidate) return 0;
-  const qNorm = normalizeSearchToken(query);
+  const parsed = parseQueryWithYear(query);
+  const qNorm = normalizeSearchToken(parsed.cleanQuery || query);
   const cNorm = normalizeSearchToken(candidate);
   if (!qNorm || !cNorm) return 0;
 
   if (cNorm === qNorm) return 100;
-  if (cNorm.startsWith(qNorm)) return 92;
+
+  // Strip common leading articles in English/Spanish/French ("the", "a", "an", "el", "la", "los", "las", "le", "les")
+  const stripArticles = (s: string) =>
+    s.replace(/^(the|a|an|el|la|los|las|le|les)\s+/i, "").trim();
+  const qBare = stripArticles(qNorm);
+  const cBare = stripArticles(cNorm);
+  if (qBare && cBare && qBare === cBare) return 98;
+
+  if (cNorm.startsWith(qNorm) || (qBare && cBare.startsWith(qBare))) return 92;
   if (cNorm.includes(` ${qNorm}`)) return 86;
   if (cNorm.includes(qNorm)) return 78;
 
-  // Compact space-insensitive check (e.g. "spiderman" vs "spider man")
+  // Compact space-insensitive check (e.g. "old boy" vs "oldboy", "spiderman" vs "spider man")
   const qCompact = qNorm.replace(/\s+/g, "");
   const cCompact = cNorm.replace(/\s+/g, "");
-  if (cCompact === qCompact) return 95;
-  if (cCompact.startsWith(qCompact)) return 88;
+  const qBareCompact = qBare.replace(/\s+/g, "");
+  const cBareCompact = cBare.replace(/\s+/g, "");
+  if (cCompact === qCompact || (qBareCompact && cBareCompact === qBareCompact)) {
+    return 96;
+  }
+  if (cCompact.startsWith(qCompact) || (qBareCompact && cBareCompact.startsWith(qBareCompact))) {
+    return 88;
+  }
   if (cCompact.includes(qCompact) && qCompact.length >= 4) return 76;
 
-  // Phonetic skeleton match (e.g. "interstelar", "opppenheimer", "shawshenk")
-  const qPhon = phoneticSkeleton(qNorm);
-  const cPhon = phoneticSkeleton(cNorm);
+  // Phonetic & consonant skeleton match (e.g. "interstelar", "opppenheimer", "shawshenk", "pans labirinth")
+  const qPhon = phoneticSkeleton(qBare || qNorm);
+  const cPhon = phoneticSkeleton(cBare || cNorm);
   if (qPhon.length >= 4 && (cPhon === qPhon || cPhon.startsWith(qPhon))) {
-    return 84;
+    return 85;
+  }
+  const qCons = consonantSkeleton(qBare || qNorm);
+  const cCons = consonantSkeleton(cBare || cNorm);
+  if (qCons.length >= 4 && cCons === qCons) {
+    return 80;
   }
 
-  // Word-level & whole-title edit distance
+  // Whole-title & word-level edit distance
   if (qCompact.length >= 4) {
-    const dist = damerauLevenshtein(
+    const fullDist = damerauLevenshtein(qBareCompact || qCompact, cBareCompact || cCompact);
+    const maxFullAllowed = qCompact.length >= 10 ? 3 : qCompact.length >= 6 ? 2 : 1;
+    if (fullDist <= maxFullAllowed) {
+      return 86 - fullDist * 7;
+    }
+
+    const prefixDist = damerauLevenshtein(
       qCompact,
       cCompact.slice(0, Math.min(cCompact.length, qCompact.length + 2)),
     );
-    const maxAllowed = qCompact.length >= 8 ? 2 : 1;
-    if (dist <= maxAllowed) {
-      return 82 - dist * 8;
+    const maxPrefixAllowed = qCompact.length >= 8 ? 2 : 1;
+    if (prefixDist <= maxPrefixAllowed) {
+      return 82 - prefixDist * 8;
     }
 
-    const cWords = cNorm.split(" ").filter((w) => w.length >= 3);
-    const qWords = qNorm.split(" ").filter((w) => w.length >= 3);
+    const cWords = (cBare || cNorm).split(" ").filter((w) => w.length >= 2);
+    const qWords = (qBare || qNorm).split(" ").filter((w) => w.length >= 2);
     if (qWords.length > 0 && cWords.length > 0) {
       let matchedWords = 0;
       for (const qw of qWords) {
         const hit = cWords.some(
           (cw) =>
+            cw === qw ||
             cw.startsWith(qw) ||
-            damerauLevenshtein(qw, cw) <= (qw.length >= 6 ? 2 : 1),
+            phoneticSkeleton(cw) === phoneticSkeleton(qw) ||
+            damerauLevenshtein(qw, cw) <= (qw.length >= 6 ? 2 : qw.length >= 4 ? 1 : 0),
         );
         if (hit) matchedWords++;
       }
       if (matchedWords === qWords.length) {
-        return 75;
+        return 78;
+      }
+      if (qWords.length >= 2 && matchedWords >= qWords.length - 1) {
+        return 64;
       }
     }
   }
 
-  const tri = trigramSimilarity(qCompact, cCompact);
-  if (tri >= 0.52) {
-    return Math.round(tri * 85);
+  const tri = Math.max(
+    trigramSimilarity(qCompact, cCompact),
+    trigramSimilarity(qPhon, cPhon),
+  );
+  if (tri >= 0.48) {
+    return Math.round(tri * 88);
   }
 
   return 0;
 }
 
+/**
+ * Computes the best fuzzy match score for a Film across ALL of its title representations:
+ * English title, Original (Spanish/Korean/French/etc.) title, Russian title,
+ * known international English alias, and cached English translation of nameRu.
+ */
+export function computeFilmMatchScore(
+  query: string,
+  film: Partial<Film>,
+  extraQueries: string[] = [],
+): number {
+  const aliasEn = resolveEnglishAlias(film.nameRu, film.nameOriginal);
+  const displayEn = getEnglishName(
+    film.nameRu,
+    film.nameEn,
+    film.nameOriginal,
+    true,
+  );
+  const cachedRuTrans = film.nameRu ? getCachedTranslation(film.nameRu) : undefined;
+
+  const candidateTitles = [
+    film.nameEn,
+    aliasEn,
+    displayEn,
+    cachedRuTrans,
+    film.nameOriginal,
+    film.nameRu,
+  ].filter((t): t is string => Boolean(t && t.trim()));
+
+  const queriesToTest = [query, ...extraQueries].filter(Boolean);
+  let best = 0;
+
+  for (const q of queriesToTest) {
+    for (const title of candidateTitles) {
+      const s = computeFuzzyMatchScore(q, title);
+      if (s > best) best = s;
+      if (best === 100) return 100;
+    }
+  }
+  return best;
+}
+
 export interface SemanticSearchAnalysis {
   originalQuery: string;
+  cleanQuery: string;
+  targetYear: number | null;
   correctedQuery: string | null;
   matchedConcept: SemanticConceptRule | null;
   relatedTerms: string[];
@@ -2562,17 +2865,22 @@ export interface SemanticSearchAnalysis {
 
 /**
  * Analyzes a user's search query in <2ms:
- * 1. Detects typos against canonical global titles + cached catalog ("Did you mean...")
- * 2. Detects semantic concepts, moods, themes, and franchises (e.g. "time travel", "mind bending")
- * 3. Returns instant local matches from the client metadata cache
+ * 1. Parses any release year token (e.g. "oldboy 2003" -> cleanQuery: "oldboy", targetYear: 2003)
+ * 2. Detects typos against canonical global titles, international aliases, & cached catalog
+ * 3. Detects semantic concepts, moods, themes, and franchises
+ * 4. Returns instant local matches from the client metadata cache
  */
 export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
-  const q = rawQuery.trim();
+  const parsed = parseQueryWithYear(rawQuery);
+  const q = parsed.cleanQuery;
+  const targetYear = parsed.targetYear;
   const qNorm = normalizeSearchToken(q);
 
   if (qNorm.length < 2) {
     return {
-      originalQuery: q,
+      originalQuery: rawQuery.trim(),
+      cleanQuery: q,
+      targetYear,
       correctedQuery: null,
       matchedConcept: null,
       relatedTerms: [],
@@ -2598,15 +2906,15 @@ export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
     }
   }
 
+  const aliasTerms = getSearchQueryAliases(q);
+
   // 2. Check Local Metadata Cache + Canonical Titles for Typo Correction & Instant Completions
   const cachedFilms = getAllCachedFilms();
   const scoredLocal: { film: Film; score: number }[] = [];
 
   for (const meta of cachedFilms) {
     if (isSafeModeActive() && isAdultContentFilm(meta)) continue;
-    const sEn = computeFuzzyMatchScore(q, meta.nameEn);
-    const sOrig = computeFuzzyMatchScore(q, meta.nameOriginal);
-    const sRu = computeFuzzyMatchScore(q, meta.nameRu);
+    const titleScore = computeFilmMatchScore(q, meta, aliasTerms);
     const genreMatch = (meta.genres ?? []).some((g) => {
       const enG = translateGenre(g.genre, true).toLowerCase();
       return enG === qNorm || g.genre.toLowerCase() === qNorm;
@@ -2614,12 +2922,20 @@ export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
       ? 62
       : 0;
 
-    const best = Math.max(sEn, sOrig, sRu, genreMatch);
-    if (best >= 58) {
-      scoredLocal.push({
-        film: hydrateFilmWithCache(meta),
-        score: best + ((meta.ratingImdb ?? meta.ratingKinopoisk ?? 0) * 0.5),
-      });
+    let best = Math.max(titleScore, genreMatch);
+    if (best >= 56) {
+      const filmYear = parseYearNumber(meta.year) ?? parseYearNumber(meta.startYear);
+      if (targetYear && filmYear) {
+        if (filmYear === targetYear) best += 45;
+        else if (Math.abs(filmYear - targetYear) <= 1) best += 15;
+        else best -= 35;
+      }
+      if (best >= 55) {
+        scoredLocal.push({
+          film: hydrateFilmWithCache(meta),
+          score: best + (meta.ratingImdb ?? meta.ratingKinopoisk ?? 0) * 0.5,
+        });
+      }
     }
   }
 
@@ -2629,6 +2945,8 @@ export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
   // 3. Find closest canonical or cached title for typo correction & autocomplete pills
   const candidatePool = new Set<string>(CANONICAL_TITLES);
   for (const m of cachedFilms) {
+    const aliasEn = resolveEnglishAlias(m.nameRu, m.nameOriginal);
+    if (aliasEn) candidatePool.add(aliasEn);
     if (m.nameEn && !isRussian(m.nameEn)) candidatePool.add(m.nameEn);
     else if (m.nameOriginal && !isRussian(m.nameOriginal)) {
       candidatePool.add(m.nameOriginal);
@@ -2648,13 +2966,12 @@ export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
   if (scoredTitles.length > 0) {
     const top = scoredTitles[0];
     const topNorm = normalizeSearchToken(top.title);
-    // If user typed a close typo (not an exact prefix), suggest the canonical spelling
     if (
-      top.score >= 70 &&
+      top.score >= 68 &&
       topNorm !== qNorm &&
       !topNorm.startsWith(qNorm)
     ) {
-      correctedQuery = top.title;
+      correctedQuery = targetYear ? `${top.title} ${targetYear}` : top.title;
     }
   }
 
@@ -2674,7 +2991,9 @@ export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
   }
 
   return {
-    originalQuery: q,
+    originalQuery: rawQuery.trim(),
+    cleanQuery: q,
+    targetYear,
     correctedQuery,
     matchedConcept,
     relatedTerms: relatedTerms.slice(0, 5),
@@ -2682,41 +3001,266 @@ export function analyzeSemanticQuery(rawQuery: string): SemanticSearchAnalysis {
   };
 }
 
+interface ImdbSearchBridgeResponse {
+  items?: {
+    imdbId: string;
+    title: string;
+    year: number | null;
+    kind: "movie" | "series" | "person" | "other";
+    posterUrl: string | null;
+  }[];
+}
+
+async function fetchImdbSearchBridge(
+  query: string,
+): Promise<NonNullable<ImdbSearchBridgeResponse["items"]>> {
+  if (typeof window === "undefined" || !query.trim()) return [];
+  try {
+    const res = await fetch(
+      `/api/poster?mode=search&q=${encodeURIComponent(query.trim())}`,
+      { signal: AbortSignal.timeout(3000) },
+    );
+    if (!res.ok) return [];
+    const data = (await res.json()) as ImdbSearchBridgeResponse;
+    return Array.isArray(data.items) ? data.items : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
- * Semantic & Typo-Tolerant Film Search:
- * - Combines direct keyword API search with automatic typo-corrected query fallback
- *   and semantic concept/genre/collection expansion when literal keyword matches are sparse.
- * - Re-ranks results by fuzzy title similarity + audience rating & vote confidence.
+ * Searches Kinopoisk `/v1/persons` by actor/director name.
+ */
+export async function searchPeople(
+  name: string,
+  page = 1,
+  priority: "high" | "low" = "high",
+): Promise<PersonSearchItem[]> {
+  const clean = name.trim();
+  if (!clean || clean.length < 2) return [];
+  try {
+    const res = await apiFetch<PersonSearchResponse>(
+      `/v1/persons?name=${encodeURIComponent(clean)}&page=${page}`,
+      3600,
+      priority,
+    );
+    return Array.isArray(res?.items) ? res.items : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resolves an actor/director match and converts all of their filmography credits into
+ * hydrated `Film[]` items so searching an actor lists all their credits!
+ */
+async function resolvePersonCreditsForSearch(
+  cleanQuery: string,
+  ruQuery?: string | null,
+  imdbPersonTitle?: string | null,
+): Promise<{ matchedPerson: MatchedPersonSummary | null; credits: Film[] }> {
+  // Skip person lookup if query is a single short common word (< 4 chars)
+  if (cleanQuery.length < 3) {
+    return { matchedPerson: null, credits: [] };
+  }
+
+  const candidateNames = Array.from(
+    new Set(
+      [cleanQuery, imdbPersonTitle, ruQuery].filter(
+        (x): x is string => Boolean(x && x.trim().length >= 3),
+      ),
+    ),
+  );
+
+  const searchResults = await Promise.all(
+    candidateNames.slice(0, 2).map((n) => searchPeople(n, 1, "high")),
+  );
+  const allPeople = searchResults.flat();
+  if (allPeople.length === 0) {
+    return { matchedPerson: null, credits: [] };
+  }
+
+  let bestPerson: PersonSearchItem | null = null;
+  let bestScore = 0;
+
+  for (const p of allPeople) {
+    const s = Math.max(
+      computeFuzzyMatchScore(cleanQuery, p.nameEn),
+      computeFuzzyMatchScore(cleanQuery, p.nameRu),
+      imdbPersonTitle ? computeFuzzyMatchScore(imdbPersonTitle, p.nameEn) : 0,
+      ruQuery ? computeFuzzyMatchScore(ruQuery, p.nameRu) : 0,
+    );
+    if (s > bestScore) {
+      bestScore = s;
+      bestPerson = p;
+    }
+  }
+
+  // Require a strong name match (>= 74) so movie title searches don't accidentally trigger actor credits
+  if (!bestPerson || bestScore < 74) {
+    return { matchedPerson: null, credits: [] };
+  }
+
+  try {
+    const detail = await getPerson(bestPerson.kinopoiskId, "high");
+    const rawCredits = detail.films ?? [];
+    if (rawCredits.length === 0) {
+      return { matchedPerson: null, credits: [] };
+    }
+
+    // Deduplicate credits by filmId and prioritize main roles + rated titles
+    const byFilmId = new Map<
+      number,
+      {
+        filmId: number;
+        nameRu?: string;
+        nameEn?: string;
+        ratingNum: number;
+        general: boolean;
+        professionKey?: string;
+      }
+    >();
+
+    for (const pf of rawCredits) {
+      if (!pf.filmId) continue;
+      // Exclude "HIMSELF" / talk-show appearances when they have real acting/directing credits
+      if (pf.professionKey === "HIMSELF" || pf.professionKey === "HERSELF") {
+        continue;
+      }
+      const parsedRating = pf.rating && !pf.rating.endsWith("%") ? parseFloat(pf.rating) : 0;
+      const ratingNum = !isNaN(parsedRating) && parsedRating > 0 && parsedRating <= 10 ? parsedRating : 0;
+      const existing = byFilmId.get(pf.filmId);
+      if (
+        !existing ||
+        (pf.general && !existing.general) ||
+        ratingNum > existing.ratingNum
+      ) {
+        byFilmId.set(pf.filmId, {
+          filmId: pf.filmId,
+          nameRu: pf.nameRu,
+          nameEn: pf.nameEn,
+          ratingNum,
+          general: Boolean(pf.general),
+          professionKey: pf.professionKey,
+        });
+      }
+    }
+
+    const sortedCredits = Array.from(byFilmId.values()).sort((a, b) => {
+      if (a.general !== b.general) return a.general ? -1 : 1;
+      return b.ratingNum - a.ratingNum;
+    });
+
+    const convertedFilms: Film[] = [];
+    for (const c of sortedCredits) {
+      const hydrated = hydrateFilmWithCache({
+        kinopoiskId: c.filmId,
+        filmId: c.filmId,
+        nameRu: c.nameRu,
+        nameEn: c.nameEn,
+        nameOriginal: c.nameEn,
+        ratingKinopoisk: c.ratingNum > 0 ? c.ratingNum : undefined,
+        rating: c.ratingNum > 0 ? c.ratingNum : undefined,
+        posterUrl: `https://kinopoiskapiunofficial.tech/images/posters/kp/${c.filmId}.jpg`,
+        posterUrlPreview: `https://kinopoiskapiunofficial.tech/images/posters/kp_small/${c.filmId}.jpg`,
+      });
+      if (isSafeModeActive() && isAdultContentFilm(hydrated)) continue;
+      convertedFilms.push(hydrated);
+    }
+
+    // Queue background metadata hydration for top visible credits so year/genres populate immediately
+    for (let i = 0; i < Math.min(12, convertedFilms.length); i++) {
+      const fid = convertedFilms[i].kinopoiskId;
+      if (fid && (!convertedFilms[i].year || !convertedFilms[i].genres?.length)) {
+        queueFilmMetaHydration(fid, i < 6);
+      }
+    }
+
+    const matchedPerson: MatchedPersonSummary = {
+      personId: detail.personId || bestPerson.kinopoiskId,
+      nameRu: detail.nameRu || bestPerson.nameRu,
+      nameEn: detail.nameEn || bestPerson.nameEn,
+      posterUrl: detail.posterUrl || bestPerson.posterUrl,
+      profession: detail.profession,
+      creditsCount: convertedFilms.length,
+    };
+
+    return {
+      matchedPerson,
+      credits: convertedFilms,
+    };
+  } catch {
+    return { matchedPerson: null, credits: [] };
+  }
+}
+
+/**
+ * Semantic, Cross-Language, Year-Aware & Actor-Aware Film Search:
+ * - Extracts release year tokens (e.g. "oldboy 2003" -> searches "oldboy" & boosts/filters year 2003)
+ * - Resolves non-English/Spanish/Korean/French titles to English & Russian via alias dictionary,
+ *   Google Translate (`en -> ru`), and IMDb Suggestion Bridge (`/api/poster?mode=search`)
+ * - Detects actor/director searches and lists all of their credits
  */
 export async function searchFilms(
   keyword: string,
   page = 1,
 ): Promise<FilmsResponse> {
-  const cleanKeyword = keyword.trim();
-  if (!cleanKeyword) {
+  const rawKeyword = keyword.trim();
+  if (!rawKeyword) {
     return { items: [], total: 0, totalPages: 1 };
   }
 
-  const analysis = analyzeSemanticQuery(cleanKeyword);
-  const primaryQueryPromise = apiFetch<Record<string, unknown>>(
-    `/v2.1/films/search-by-keyword?keyword=${encodeURIComponent(cleanKeyword)}&page=${page}`,
-  )
-    .then((raw) => normalizeFilmsResponse(raw))
-    .catch(() => ({ items: [] as Film[], total: 0, totalPages: 1 }));
+  const analysis = analyzeSemanticQuery(rawKeyword);
+  const cleanQuery = analysis.cleanQuery || rawKeyword;
+  const targetYear = analysis.targetYear;
+  const aliasQueries = getSearchQueryAliases(cleanQuery);
 
-  // If page 1 has a high-confidence typo correction or semantic concept, run in parallel!
+  const searchByKeywordApi = (kw: string, pg = 1) =>
+    apiFetch<Record<string, unknown>>(
+      `/v2.1/films/search-by-keyword?keyword=${encodeURIComponent(kw)}&page=${pg}`,
+    )
+      .then((raw) => normalizeFilmsResponse(raw))
+      .catch(() => ({ items: [] as Film[], total: 0, totalPages: 1 }));
+
+  // 1. Primary query using cleanQuery (stripped of trailing year like "2003" so Kinopoisk matches the title!)
+  const primaryQueryPromise = searchByKeywordApi(cleanQuery, page);
+
   const secondaryPromises: Promise<FilmsResponse>[] = [];
 
-  if (page === 1 && analysis.correctedQuery) {
+  // 2. If user specified a release year (e.g. "oldboy 2003"), also query /v2.2/films with yearFrom/yearTo
+  if (targetYear !== null) {
     secondaryPromises.push(
-      apiFetch<Record<string, unknown>>(
-        `/v2.1/films/search-by-keyword?keyword=${encodeURIComponent(analysis.correctedQuery)}&page=1`,
-      )
-        .then((raw) => normalizeFilmsResponse(raw))
-        .catch(() => ({ items: [], total: 0, totalPages: 1 })),
+      getFilmsByFilter({
+        keyword: cleanQuery,
+        yearFrom: targetYear,
+        yearTo: targetYear,
+        page: 1,
+      }).catch(() => ({ items: [], total: 0, totalPages: 1 })),
     );
   }
 
+  // 3. Cross-language alias queries (e.g. "Money Heist" -> also queries "La casa de papel" & "Бумажный дом")
+  if (page === 1 && aliasQueries.length > 0) {
+    for (const alias of aliasQueries.slice(0, 2)) {
+      if (alias.toLowerCase() !== cleanQuery.toLowerCase()) {
+        secondaryPromises.push(searchByKeywordApi(alias, 1));
+      }
+    }
+  }
+
+  // 4. High-confidence local typo correction query
+  const cleanCorrected = analysis.correctedQuery
+    ? parseQueryWithYear(analysis.correctedQuery).cleanQuery
+    : null;
+  if (
+    page === 1 &&
+    cleanCorrected &&
+    cleanCorrected.toLowerCase() !== cleanQuery.toLowerCase()
+  ) {
+    secondaryPromises.push(searchByKeywordApi(cleanCorrected, 1));
+  }
+
+  // 5. Semantic concept / theme expansion
   if (analysis.matchedConcept) {
     const concept = analysis.matchedConcept;
     if (concept.collection) {
@@ -2740,33 +3284,108 @@ export async function searchFilms(
     }
   }
 
-  const [primaryRes, ...secondaryRes] = await Promise.all([
-    primaryQueryPromise,
-    ...secondaryPromises,
-  ]);
+  // 6. Parallel IMDb Search Bridge + Russian Translation Bridge (for typos, Spanish/foreign titles, & actors)
+  const imdbBridgePromise =
+    page === 1 ? fetchImdbSearchBridge(rawKeyword) : Promise.resolve([]);
+  const ruTranslationPromise =
+    page === 1 && !isRussian(cleanQuery)
+      ? translateQueryToRussian(cleanQuery)
+      : Promise.resolve(null);
+
+  const [primaryRes, secondaryResList, imdbBridgeItems, ruTranslated] =
+    await Promise.all([
+      primaryQueryPromise,
+      Promise.all(secondaryPromises),
+      imdbBridgePromise,
+      ruTranslationPromise,
+    ]);
 
   let combinedItems = [...primaryRes.items];
-  for (const sec of secondaryRes) {
+  for (const sec of secondaryResList) {
     combinedItems.push(...sec.items);
   }
 
-  // If literal + corrected API returned very few results on page 1, fallback to de-punctuated/root token
-  if (page === 1 && combinedItems.length < 3) {
+  // 7. Follow-up queries from IMDb Search Bridge & Russian Translation Bridge
+  const bridgeFollowupPromises: Promise<FilmsResponse>[] = [];
+  let imdbCorrectedTitle: string | null = null;
+  let imdbPersonName: string | null = null;
+
+  if (page === 1) {
+    if (
+      ruTranslated &&
+      ruTranslated.toLowerCase() !== cleanQuery.toLowerCase() &&
+      !aliasQueries.includes(ruTranslated)
+    ) {
+      bridgeFollowupPromises.push(searchByKeywordApi(ruTranslated, 1));
+    }
+
+    for (const bridgeItem of imdbBridgeItems.slice(0, 3)) {
+      if (bridgeItem.kind === "person") {
+        if (!imdbPersonName) imdbPersonName = bridgeItem.title;
+        continue;
+      }
+      // If targetYear was specified, only use IMDb bridge items matching that year (±1)
+      if (
+        targetYear !== null &&
+        bridgeItem.year !== null &&
+        Math.abs(bridgeItem.year - targetYear) > 1
+      ) {
+        continue;
+      }
+
+      if (!imdbCorrectedTitle && bridgeItem.title) {
+        imdbCorrectedTitle = bridgeItem.title;
+      }
+
+      if (bridgeItem.imdbId.startsWith("tt")) {
+        bridgeFollowupPromises.push(
+          getFilmsByFilter({ imdbId: bridgeItem.imdbId, page: 1 }).catch(() => ({
+            items: [],
+            total: 0,
+            totalPages: 1,
+          })),
+        );
+      }
+
+      if (
+        bridgeItem.title &&
+        bridgeItem.title.toLowerCase() !== cleanQuery.toLowerCase() &&
+        bridgeItem.title.toLowerCase() !== (cleanCorrected || "").toLowerCase()
+      ) {
+        bridgeFollowupPromises.push(searchByKeywordApi(bridgeItem.title, 1));
+      }
+    }
+  }
+
+  // 8. Actor / Director Credit Resolution in parallel with bridge followups
+  const [bridgeFollowupResults, personSearchResult] = await Promise.all([
+    Promise.all(bridgeFollowupPromises),
+    page === 1
+      ? resolvePersonCreditsForSearch(cleanQuery, ruTranslated, imdbPersonName)
+      : Promise.resolve({ matchedPerson: null, credits: [] as Film[] }),
+  ]);
+
+  for (const bRes of bridgeFollowupResults) {
+    combinedItems.push(...bRes.items);
+  }
+
+  // 9. Fallback root token search if still sparse
+  if (page === 1 && combinedItems.length < 3 && personSearchResult.credits.length === 0) {
     const fallbackTerm =
-      analysis.correctedQuery ||
+      cleanCorrected ||
+      imdbCorrectedTitle ||
       analysis.relatedTerms[0] ||
-      cleanKeyword.replace(/[-:.'"]/g, " ").split(/\s+/).sort((a, b) => b.length - a.length)[0];
+      cleanQuery
+        .replace(/[-:.'"]/g, " ")
+        .split(/\s+/)
+        .sort((a, b) => b.length - a.length)[0];
 
     if (
       fallbackTerm &&
       fallbackTerm.length >= 3 &&
-      fallbackTerm.toLowerCase() !== cleanKeyword.toLowerCase()
+      fallbackTerm.toLowerCase() !== cleanQuery.toLowerCase()
     ) {
-      const fbRes = await apiFetch<Record<string, unknown>>(
-        `/v2.1/films/search-by-keyword?keyword=${encodeURIComponent(fallbackTerm)}&page=1`,
-      )
-        .then((raw) => normalizeFilmsResponse(raw))
-        .catch(() => ({ items: [] as Film[], total: 0, totalPages: 1 }));
+      const fbRes = await searchByKeywordApi(fallbackTerm, 1);
       combinedItems.push(...fbRes.items);
     }
   }
@@ -2775,43 +3394,101 @@ export async function searchFilms(
     combinedItems = [...analysis.localMatches, ...combinedItems];
   }
 
+  // Merge actor credits if an actor/director was matched
+  if (personSearchResult.credits.length > 0) {
+    combinedItems = [...personSearchResult.credits, ...combinedItems];
+  }
+
   const unique = deduplicateFilms(combinedItems);
 
-  // Rank results so exact/fuzzy title matches with strong ratings appear at the top
-  const targetQuery = analysis.correctedQuery || cleanKeyword;
+  // Determine effective corrected query for UI banner
+  const effectiveCorrectedQuery =
+    analysis.correctedQuery ||
+    (imdbCorrectedTitle &&
+    normalizeSearchToken(imdbCorrectedTitle) !== normalizeSearchToken(cleanQuery)
+      ? targetYear
+        ? `${imdbCorrectedTitle} (${targetYear})`
+        : imdbCorrectedTitle
+      : null);
+
+  const extraComparisonQueries = [
+    cleanCorrected,
+    imdbCorrectedTitle,
+    ruTranslated,
+    ...aliasQueries,
+  ].filter((x): x is string => Boolean(x));
+
+  const actorCreditIds = new Set(
+    personSearchResult.credits.map((f) => f.kinopoiskId ?? f.filmId ?? 0),
+  );
+
+  // Rank results by title match + release year accuracy + actor credit match + audience rating
   const ranked = [...unique].sort((a, b) => {
-    const scoreTitle = (f: Film) =>
-      Math.max(
-        computeFuzzyMatchScore(cleanKeyword, f.nameEn),
-        computeFuzzyMatchScore(cleanKeyword, f.nameOriginal),
-        computeFuzzyMatchScore(cleanKeyword, f.nameRu),
-        computeFuzzyMatchScore(targetQuery, f.nameEn),
-        computeFuzzyMatchScore(targetQuery, f.nameOriginal),
-      );
-    const sA = scoreTitle(a);
-    const sB = scoreTitle(b);
-    if (Math.abs(sA - sB) >= 12) return sB - sA;
+    const scoreItem = (f: Film) => {
+      let s = computeFilmMatchScore(cleanQuery, f, extraComparisonQueries);
+
+      const fid = f.kinopoiskId ?? f.filmId ?? 0;
+      if (actorCreditIds.has(fid)) {
+        // Give actor's own credits a high base relevance score when searching for that actor
+        s = Math.max(s, 82);
+      }
+
+      const fYear = parseYearNumber(f.year) ?? parseYearNumber(f.startYear);
+      if (targetYear !== null) {
+        if (fYear === targetYear) {
+          s += 80;
+        } else if (fYear && Math.abs(fYear - targetYear) === 1) {
+          s += 25;
+        } else if (fYear) {
+          s -= 50;
+        } else {
+          s -= 20;
+        }
+      }
+      return s;
+    };
+
+    const sA = scoreItem(a);
+    const sB = scoreItem(b);
+    if (Math.abs(sA - sB) >= 10) return sB - sA;
 
     const rA = a.ratingImdb ?? a.ratingKinopoisk ?? 0;
     const rB = b.ratingImdb ?? b.ratingKinopoisk ?? 0;
     return sB + rB * 1.5 - (sA + rA * 1.5);
   });
 
+  // If user explicitly searched with a release year (e.g. "oldboy 2003"), filter out mismatched years
+  // as long as we have at least 1 matching-year result!
+  let finalItems = ranked;
+  if (targetYear !== null) {
+    const yearMatched = ranked.filter((f) => {
+      const fy = parseYearNumber(f.year) ?? parseYearNumber(f.startYear);
+      return fy !== undefined && Math.abs(fy - targetYear) <= 1;
+    });
+    if (yearMatched.length > 0) {
+      const others = ranked.filter((f) => !yearMatched.includes(f));
+      finalItems = [...yearMatched, ...others];
+    }
+  }
+
   const maxTotal = Math.max(
     primaryRes.total,
-    ...secondaryRes.map((s) => s.total),
-    ranked.length,
+    ...secondaryResList.map((s) => s.total),
+    finalItems.length,
   );
   const maxPages = Math.max(
     primaryRes.totalPages,
-    ...secondaryRes.map((s) => s.totalPages),
+    ...secondaryResList.map((s) => s.totalPages),
     1,
   );
 
   return {
-    items: ranked,
+    items: finalItems,
     total: maxTotal,
     totalPages: maxPages,
+    matchedPerson: personSearchResult.matchedPerson,
+    correctedQuery: effectiveCorrectedQuery,
+    targetYear,
   };
 }
 
@@ -2992,6 +3669,69 @@ export async function getPremieres(
     priority,
   );
   return normalizeFilmsResponse(raw);
+}
+
+/**
+ * Fetches already-released recent films from the past 90 days across the current month
+ * and previous 2 calendar months, strictly excluding unreleased future dates (`premiereRu > todayStr`).
+ */
+export async function getRecentReleases(
+  priority: "high" | "low" = "low",
+): Promise<FilmsResponse> {
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonthIdx = now.getMonth();
+  const todayStr = `${curYear}-${String(curMonthIdx + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const cutoffDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const cutoffStr = `${cutoffDate.getFullYear()}-${String(cutoffDate.getMonth() + 1).padStart(2, "0")}-${String(cutoffDate.getDate()).padStart(2, "0")}`;
+
+  const targets: { year: number; month: string }[] = [
+    {
+      year: curYear,
+      month: PREMIERE_MONTH_NAMES[curMonthIdx],
+    },
+    {
+      year: curMonthIdx - 1 < 0 ? curYear - 1 : curYear,
+      month: PREMIERE_MONTH_NAMES[(curMonthIdx + 11) % 12],
+    },
+    {
+      year: curMonthIdx - 2 < 0 ? curYear - 1 : curYear,
+      month: PREMIERE_MONTH_NAMES[(curMonthIdx + 10) % 12],
+    },
+  ];
+
+  const settled = await Promise.allSettled(
+    targets.map((t) => getPremieres(t.year, t.month, priority)),
+  );
+
+  const recentPool: Film[] = [];
+  for (const res of settled) {
+    if (res.status !== "fulfilled" || !res.value?.items) continue;
+    for (const film of res.value.items) {
+      const filmYear = film.year ?? film.startYear;
+      if (filmYear && filmYear < curYear - 1) continue;
+      if (!film.premiereRu) continue;
+      const pDate = film.premiereRu.slice(0, 10);
+      if (pDate > todayStr || pDate < cutoffStr) continue;
+      recentPool.push(film);
+    }
+  }
+
+  const unique = deduplicateFilms(recentPool);
+  unique.sort((a, b) => {
+    const dA = a.premiereRu ? new Date(a.premiereRu).getTime() || 0 : 0;
+    const dB = b.premiereRu ? new Date(b.premiereRu).getTime() || 0 : 0;
+    if (dB !== dA) return dB - dA;
+    const rA = a.ratingImdb ?? a.ratingKinopoisk ?? 0;
+    const rB = b.ratingImdb ?? b.ratingKinopoisk ?? 0;
+    return rB - rA;
+  });
+
+  return {
+    items: unique,
+    total: unique.length,
+    totalPages: 1,
+  };
 }
 
 /**

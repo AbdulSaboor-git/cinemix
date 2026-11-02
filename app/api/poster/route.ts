@@ -1,5 +1,6 @@
 // app/api/poster/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { resolveEnglishAlias } from "@/lib/translate";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,7 @@ export interface PosterLookupQuery {
   imdbId?: string | null;
   title?: string | null;
   origTitle?: string | null;
+  nameRu?: string | null;
   year?: number | string | null;
   type?: string | null;
 }
@@ -15,6 +17,16 @@ export interface PosterLookupQuery {
 export interface PosterLookupResult {
   posterUrl: string | null;
   imdbId: string | null;
+  matchedTitle?: string | null;
+  matchedYear?: number | null;
+}
+
+export interface ImdbSearchBridgeItem {
+  imdbId: string;
+  title: string;
+  year: number | null;
+  kind: "movie" | "series" | "person" | "other";
+  posterUrl: string | null;
 }
 
 interface ImdbSuggestionItem {
@@ -24,6 +36,7 @@ interface ImdbSuggestionItem {
   yr?: string;
   q?: string;
   qid?: string;
+  s?: string;
   rank?: number;
   i?: {
     imageUrl?: string;
@@ -117,9 +130,20 @@ function normalizeTitleForMatch(raw?: string | null): string {
 function cleanSearchTitle(raw?: string | null): string {
   if (!raw) return "";
   return raw
-    .replace(/\s*\((?:сериал|мини-сериал|тв|фильм|кино|series|tv|mini-series|\d{4}.*?)\)\s*/gi, " ")
+    .replace(
+      /\s*\((?:сериал|мини-сериал|тв|фильм|кино|series|tv|mini-series|\d{4}.*?)\)\s*/gi,
+      " ",
+    )
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function parseValidYear(rawYear?: number | string | null): number | null {
+  if (rawYear === undefined || rawYear === null || rawYear === "") return null;
+  const m = String(rawYear).match(/\b(18\d{2}|19\d{2}|20\d{2})\b/);
+  if (!m) return null;
+  const parsed = parseInt(m[1], 10);
+  return !isNaN(parsed) && parsed >= 1888 && parsed <= 2035 ? parsed : null;
 }
 
 function buildImdbSuggestionUrl(rawQuery: string): string {
@@ -159,22 +183,78 @@ async function fetchImdbSuggestions(
   }
 }
 
+async function translateCyrillicToEnglishServer(
+  text?: string | null,
+): Promise<string | null> {
+  if (!text || !hasCyrillic(text)) return null;
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ru&tl=en&dt=t&q=${encodeURIComponent(text.trim())}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(2500) });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const translated = (json[0] as [string, string][])
+      .map((chunk) => chunk[0])
+      .join("")
+      .trim();
+    return translated && !hasCyrillic(translated) ? translated : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractItemStartYear(item: ImdbSuggestionItem): number | null {
+  if (typeof item.y === "number" && item.y > 1880) return item.y;
+  if (typeof item.yr === "string") {
+    const m = item.yr.match(/\b(18\d{2}|19\d{2}|20\d{2})\b/);
+    if (m) return parseInt(m[1], 10);
+  }
+  return null;
+}
+
 function scoreCandidate(
   item: ImdbSuggestionItem,
   targetTitles: string[],
   targetYear: number | null,
   targetType?: string | null,
+  fromYearSpecificQuery = false,
 ): number {
   if (!item.id || !/^tt\d+$/i.test(item.id)) return -999;
   if (!isValidPosterUrl(item.i?.imageUrl)) return -999;
 
   const qid = (item.qid || item.q || "").toLowerCase();
-  if (qid.includes("videogame") || qid.includes("video game") || qid === "podcastseries") {
+  if (
+    qid.includes("videogame") ||
+    qid.includes("video game") ||
+    qid === "podcastseries" ||
+    qid === " podcastepisode"
+  ) {
     return -999;
   }
 
   const candNorm = normalizeTitleForMatch(item.l);
   if (!candNorm) return -999;
+
+  const itemYear = extractItemStartYear(item);
+
+  // Strict Year Verification first:
+  // If we know the movie's release year (e.g. Oldboy 2003 vs Oldboy 2013),
+  // never allow a candidate from a different release era or without a year to win!
+  let yearScore = 0;
+  if (targetYear !== null) {
+    if (!itemYear) {
+      return -999;
+    }
+    const diff = Math.abs(itemYear - targetYear);
+    if (diff === 0) {
+      yearScore = 75;
+    } else if (diff === 1) {
+      // Allow ±1 year for festival vs theatrical release dates, but 55 pts lower than exact year
+      yearScore = 20;
+    } else {
+      // Strictly reject any title more than 1 year off when targetYear is known
+      return -999;
+    }
+  }
 
   let titleScore = -30;
   for (const t of targetTitles) {
@@ -182,7 +262,13 @@ function scoreCandidate(
     if (!targetNorm) continue;
 
     if (candNorm === targetNorm) {
-      titleScore = Math.max(titleScore, 65);
+      titleScore = Math.max(titleScore, 70);
+      break;
+    }
+
+    // Space-insensitive exact match (e.g. "old boy" vs "oldboy", "spider man" vs "spiderman")
+    if (candNorm.replace(/\s+/g, "") === targetNorm.replace(/\s+/g, "")) {
+      titleScore = Math.max(titleScore, 66);
       break;
     }
 
@@ -190,7 +276,7 @@ function scoreCandidate(
     const candBase = normalizeTitleForMatch(item.l?.split(":")[0]);
     const targetBase = normalizeTitleForMatch(t.split(":")[0]);
     if (candBase && targetBase && candBase.length >= 4 && candBase === targetBase) {
-      titleScore = Math.max(titleScore, 42);
+      titleScore = Math.max(titleScore, 44);
     }
 
     if (
@@ -206,31 +292,24 @@ function scoreCandidate(
       const shared = candWords.filter((w) => targetWords.has(w)).length;
       const ratio = shared / Math.max(candWords.length, targetWords.size);
       if (ratio >= 0.75) {
-        titleScore = Math.max(titleScore, 28);
+        titleScore = Math.max(titleScore, 30);
       }
     }
   }
 
-  if (titleScore < 0) return -999;
-
-  let yearScore = 0;
-  const itemYear = typeof item.y === "number" && item.y > 1880 ? item.y : null;
-
-  if (targetYear && itemYear) {
-    const diff = Math.abs(itemYear - targetYear);
-    if (diff === 0) {
-      yearScore = 45;
-    } else if (diff === 1) {
-      yearScore = 30;
-    } else if (diff === 2) {
-      yearScore = 10;
-    } else {
-      // Strictly reject titles from a completely different release era
-      return -999;
-    }
-  } else if (targetYear && !itemYear) {
-    yearScore = -10;
+  // If the candidate was returned by a specific "<origTitle> <year>" query on IMDb
+  // (e.g. "Oldeuboi 2003" -> IMDb returns "Oldboy" (2003), or "Gisaengchung 2019" -> "Parasite" (2019))
+  // and its year matches targetYear exactly, accept IMDb's native-to-English title mapping!
+  if (
+    titleScore < 0 &&
+    fromYearSpecificQuery &&
+    targetYear !== null &&
+    itemYear === targetYear
+  ) {
+    titleScore = 52;
   }
+
+  if (titleScore < 0) return -999;
 
   let typeScore = 0;
   const normType = (targetType || "").toUpperCase();
@@ -247,7 +326,7 @@ function scoreCandidate(
   if (normType) {
     if (isTargetSeries && isCandSeries) typeScore = 15;
     else if (!isTargetSeries && !isCandSeries) typeScore = 12;
-    else typeScore = -8;
+    else typeScore = -12;
   }
 
   const rankBonus =
@@ -266,13 +345,16 @@ async function resolvePosterInternal(
       ? query.imdbId.trim().toLowerCase()
       : null;
 
-  const parsedYear = query.year ? parseInt(String(query.year), 10) : NaN;
-  const validYear =
-    !isNaN(parsedYear) && parsedYear >= 1888 && parsedYear <= 2035
-      ? parsedYear
-      : null;
+  const validYear = parseValidYear(query.year);
 
-  const candidateTitles = [query.origTitle, query.title]
+  const aliasEn = resolveEnglishAlias(
+    query.nameRu || (hasCyrillic(query.title) ? query.title : null),
+    query.origTitle,
+  );
+
+  // Put English title / alias FIRST before origTitle so English names ("Oldboy", "Money Heist")
+  // are prioritized over romanized/foreign original titles ("Oldeuboi", "La casa de papel").
+  const rawCandidateTitles = [aliasEn, query.title, query.origTitle]
     .map((t) => cleanSearchTitle(t))
     .filter(
       (t): t is string =>
@@ -282,12 +364,24 @@ async function resolvePosterInternal(
         t.length >= 2,
     );
 
-  const uniqueTitles = Array.from(new Set(candidateTitles));
+  // If only a Cyrillic title was available, translate it on the server
+  if (rawCandidateTitles.length === 0) {
+    const cyrSource = query.nameRu || query.title || query.origTitle;
+    const translated = await translateCyrillicToEnglishServer(cyrSource);
+    if (translated) {
+      const cleaned = cleanSearchTitle(translated);
+      if (cleaned && cleaned.length >= 2) {
+        rawCandidateTitles.push(cleaned);
+      }
+    }
+  }
+
+  const uniqueTitles = Array.from(new Set(rawCandidateTitles));
 
   const cacheSignature = cleanImdbId
-    ? `imdb:${cleanImdbId}`
+    ? `imdb:${cleanImdbId}:y=${validYear || ""}`
     : uniqueTitles.length > 0
-      ? `title:${normalizeTitleForMatch(uniqueTitles[0])}:${validYear || ""}:${query.type || ""}`
+      ? `title:${uniqueTitles.map((t) => normalizeTitleForMatch(t)).join("|")}:y=${validYear || "noyear"}:t=${query.type || ""}`
       : "";
 
   if (!cacheSignature) {
@@ -315,17 +409,18 @@ async function resolvePosterInternal(
           : undefined);
 
       if (exact && isValidPosterUrl(exact.i?.imageUrl)) {
-        const res = {
+        const res: PosterLookupResult = {
           posterUrl: exact.i!.imageUrl!,
           imdbId: exact.id!.toLowerCase(),
+          matchedTitle: exact.l || null,
+          matchedYear: extractItemStartYear(exact),
         };
         setCachedResult(cacheSignature, res);
         return res;
       }
 
-      // If IMDb suggestion API didn't have an image for this tt-ID, try title + year if available
       if (uniqueTitles.length === 0) {
-        const fallbackCdn = {
+        const fallbackCdn: PosterLookupResult = {
           posterUrl: `https://images.metahub.space/poster/large/${cleanImdbId}/img`,
           imdbId: cleanImdbId,
         };
@@ -334,64 +429,68 @@ async function resolvePosterInternal(
       }
     }
 
-    // 2. Title + Year resolution (for cards/lists without imdbId)
+    // 2. Title + Year resolution (strictly distinguishing same-name remakes by year)
     if (uniqueTitles.length > 0) {
-      const primaryTitle = uniqueTitles[0];
-      const searchQueries: string[] = [];
+      const searchQueries: { q: string; hasYear: boolean }[] = [];
 
-      if (validYear) {
-        searchQueries.push(`${primaryTitle} ${validYear}`);
-      }
-      searchQueries.push(primaryTitle);
-
-      if (uniqueTitles[1] && uniqueTitles[1] !== primaryTitle) {
+      for (const t of uniqueTitles.slice(0, 2)) {
         if (validYear) {
-          searchQueries.push(`${uniqueTitles[1]} ${validYear}`);
-        } else {
-          searchQueries.push(uniqueTitles[1]);
+          searchQueries.push({ q: `${t} ${validYear}`, hasYear: true });
         }
+        searchQueries.push({ q: t, hasYear: false });
       }
 
       let bestCandidate: ImdbSuggestionItem | null = null;
       let bestScore = -999;
 
-      for (const qStr of searchQueries) {
+      for (const { q: qStr, hasYear } of searchQueries) {
         const suggestions = await fetchImdbSuggestions(qStr);
         for (const item of suggestions) {
-          // If we already know cleanImdbId, prefer exact ID match immediately
           if (cleanImdbId && item.id?.toLowerCase() === cleanImdbId) {
             if (isValidPosterUrl(item.i?.imageUrl)) {
-              const res = {
+              const res: PosterLookupResult = {
                 posterUrl: item.i!.imageUrl!,
                 imdbId: cleanImdbId,
+                matchedTitle: item.l || null,
+                matchedYear: extractItemStartYear(item),
               };
               setCachedResult(cacheSignature, res);
               return res;
             }
           }
 
-          const s = scoreCandidate(item, uniqueTitles, validYear, query.type);
+          const s = scoreCandidate(
+            item,
+            uniqueTitles,
+            validYear,
+            query.type,
+            hasYear,
+          );
           if (s > bestScore) {
             bestScore = s;
             bestCandidate = item;
           }
         }
 
-        // Stop early if we found a high-confidence match (exact title + matching year)
-        if (bestScore >= 85 && bestCandidate) {
+        // Stop early only if we found an exact title + exact year match
+        if (bestScore >= 135 && bestCandidate) {
           break;
         }
       }
 
-      const minRequiredScore = validYear ? 48 : 62;
+      const minRequiredScore = validYear ? 85 : 65;
       if (
         bestCandidate &&
         bestScore >= minRequiredScore &&
         isValidPosterUrl(bestCandidate.i?.imageUrl)
       ) {
-        const res = {
+        const res: PosterLookupResult = {
           posterUrl: bestCandidate.i!.imageUrl!,
-          imdbId: bestCandidate.id ? bestCandidate.id.toLowerCase() : cleanImdbId,
+          imdbId: bestCandidate.id
+            ? bestCandidate.id.toLowerCase()
+            : cleanImdbId,
+          matchedTitle: bestCandidate.l || null,
+          matchedYear: extractItemStartYear(bestCandidate),
         };
         setCachedResult(cacheSignature, res);
         return res;
@@ -400,7 +499,7 @@ async function resolvePosterInternal(
 
     // 3. Final fallback if cleanImdbId was provided
     if (cleanImdbId) {
-      const fallbackCdn = {
+      const fallbackCdn: PosterLookupResult = {
         posterUrl: `https://images.metahub.space/poster/large/${cleanImdbId}/img`,
         imdbId: cleanImdbId,
       };
@@ -408,7 +507,7 @@ async function resolvePosterInternal(
       return fallbackCdn;
     }
 
-    const miss = { posterUrl: null, imdbId: null };
+    const miss: PosterLookupResult = { posterUrl: null, imdbId: null };
     setCachedResult(cacheSignature, miss);
     return miss;
   })();
@@ -421,15 +520,57 @@ async function resolvePosterInternal(
   }
 }
 
-// ─── Route Handlers (Single GET + Micro-Batched POST) ────────────────────────
+// ─── Route Handlers (Single GET + Search Bridge + Micro-Batched POST) ────────
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
+  const mode = sp.get("mode");
+
+  // Search Bridge Mode: Resolves English titles, typos, and international aliases via IMDb Suggestions
+  if (mode === "search") {
+    const rawQ = (sp.get("q") || "").trim();
+    if (!rawQ || rawQ.length < 2) {
+      return NextResponse.json({ items: [] }, { status: 200 });
+    }
+    const suggestions = await fetchImdbSuggestions(rawQ);
+    const items: ImdbSearchBridgeItem[] = [];
+    for (const s of suggestions) {
+      if (!s.id || !s.l) continue;
+      const qid = (s.qid || s.q || "").toLowerCase();
+      if (qid.includes("videogame") || qid.includes("video game")) continue;
+      const isTitle = /^tt\d+$/i.test(s.id);
+      const isPerson = /^nm\d+$/i.test(s.id);
+      if (!isTitle && !isPerson) continue;
+      items.push({
+        imdbId: s.id.toLowerCase(),
+        title: s.l,
+        year: extractItemStartYear(s),
+        kind: isPerson
+          ? "person"
+          : qid.includes("series") || qid.includes("tv")
+            ? "series"
+            : "movie",
+        posterUrl: isValidPosterUrl(s.i?.imageUrl) ? s.i!.imageUrl! : null,
+      });
+      if (items.length >= 6) break;
+    }
+    return NextResponse.json(
+      { items },
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "public, max-age=86400, stale-while-revalidate=86400",
+        },
+      },
+    );
+  }
+
   const query: PosterLookupQuery = {
     key: sp.get("key") || "single",
     imdbId: sp.get("imdbId"),
     title: sp.get("title"),
     origTitle: sp.get("origTitle"),
+    nameRu: sp.get("nameRu"),
     year: sp.get("year"),
     type: sp.get("type"),
   };

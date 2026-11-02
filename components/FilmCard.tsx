@@ -591,6 +591,9 @@ export function FilmLongPressPortal({
             src={hiResPosterUrl}
             alt={name}
             title={name}
+            filmId={id}
+            imdbId={hydrated.imdbId}
+            year={year}
             size="lg"
             priority
           />

@@ -206,8 +206,9 @@ function KeyField({
 }
 
 const HOME_SECTION_LABELS: Record<string, string> = {
-  // popular: "Popular Films",
+  popular: "Popular Films",
   top250: "Top 250",
+  recentReleases: "Recent Releases",
   series: "Top Series",
   action: "Action",
   drama: "Drama",
@@ -243,7 +244,6 @@ export default function PreferencesClient() {
         ...prefs,
         apiKeys: keys,
       };
-      saveApiKeys(keys);
       savePreferences(cleaned);
       clearApiCache();
       setPrefs(cleaned);

@@ -83,6 +83,8 @@ function RecentFilmRow({
         src={poster_url}
         alt={displayName}
         title={displayName}
+        filmId={film_id}
+        year={year}
         fallbackType="mini"
         className="w-9 h-[52px] sm:w-10 sm:h-[60px] rounded-[6px] overflow-hidden bg-[var(--bg-elevated)] flex-shrink-0 relative"
       />

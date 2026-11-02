@@ -6,6 +6,7 @@ import {
   isRussian,
   stripHtml,
   getCachedTranslation,
+  resolveEnglishAlias,
 } from "@/lib/translate";
 import { getPreferences } from "@/lib/preferences";
 import { SESSION_KEY } from "@/lib/session";
@@ -133,7 +134,7 @@ export function useTranslateHtml(html: string | undefined | null): string {
 
 /**
  * Resolves the best film/episode title and automatically translates it if only
- * a Russian title is available and autoTranslate is enabled.
+ * a Russian or non-English title is available and autoTranslate is enabled.
  */
 export function useFilmTitle(
   film?: {
@@ -145,15 +146,24 @@ export function useFilmTitle(
 ): string {
   const autoTranslateHook = useAutoTranslate();
   const autoTranslate = autoTranslateOverride ?? autoTranslateHook;
+
+  const aliasEn =
+    autoTranslate && film
+      ? resolveEnglishAlias(film.nameRu, film.nameOriginal)
+      : null;
+
   const baseName = !film
     ? "Unknown"
     : !autoTranslate
       ? film.nameRu || film.nameEn || film.nameOriginal || "Unknown"
-      : film.nameEn && !isRussian(film.nameEn)
-        ? film.nameEn
-        : film.nameOriginal && !isRussian(film.nameOriginal)
-          ? film.nameOriginal
-          : film.nameEn || film.nameOriginal || film.nameRu || "Unknown";
+      : aliasEn
+        ? aliasEn
+        : film.nameEn && !isRussian(film.nameEn)
+          ? film.nameEn
+          : film.nameOriginal && !isRussian(film.nameOriginal)
+            ? film.nameOriginal
+            : film.nameEn || film.nameOriginal || film.nameRu || "Unknown";
+
   const translated = useTranslate(baseName);
   return translated || baseName;
 }

@@ -6,7 +6,7 @@ import {
   SemanticSearchAnalysis,
   deduplicateFilms,
 } from "@/lib/kinopoisk";
-import { Film } from "@/types/kinopoisk";
+import { Film, MatchedPersonSummary } from "@/types/kinopoisk";
 import {
   getPreferences,
   hasApiKeys,
@@ -19,7 +19,13 @@ const MAX_RECENT_SEARCHES = 6;
 // In-memory LRU cache so re-typing or backspacing in the search bar is 0ms instant
 const suggestionQueryCache = new Map<
   string,
-  { items: Film[]; ts: number }
+  {
+    items: Film[];
+    matchedPerson?: MatchedPersonSummary | null;
+    correctedQuery?: string | null;
+    targetYear?: number | null;
+    ts: number;
+  }
 >();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -70,6 +76,8 @@ export function clearRecentSearches(): void {
 
 export function useSearchSuggestions() {
   const [suggestions, setSuggestions] = useState<Film[]>([]);
+  const [matchedPerson, setMatchedPerson] =
+    useState<MatchedPersonSummary | null>(null);
   const [semanticMeta, setSemanticMeta] =
     useState<SemanticSearchAnalysis | null>(null);
   const [sugLoading, setSugLoading] = useState(false);
@@ -91,6 +99,7 @@ export function useSearchSuggestions() {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       reqIdRef.current += 1;
       setSuggestions([]);
+      setMatchedPerson(null);
       setSemanticMeta(null);
       setSugVisible(false);
       setSugLoading(false);
@@ -99,13 +108,18 @@ export function useSearchSuggestions() {
     const prefs = getPreferences();
     if (!prefs.searchSuggestionsEnabled) return;
     const limit = _limit ?? prefs.suggestionLimit;
-    const debounce = Math.min(prefs.suggestionDebounceMs || 220, 220);
+    // Bug #4 Fixed: Respect user's suggestionDebounceMs preference up to 1000ms (default 300ms)
+    const debounce = Math.max(
+      80,
+      Math.min(prefs.suggestionDebounceMs || 300, 1000),
+    );
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const trimmed = q.trim();
     if (trimmed.length < 2) {
       reqIdRef.current += 1;
       setSuggestions([]);
+      setMatchedPerson(null);
       setSemanticMeta(null);
       setSugVisible(false);
       setSugLoading(false);
@@ -122,6 +136,13 @@ export function useSearchSuggestions() {
       : undefined;
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
       setSuggestions(cached.items);
+      setMatchedPerson(cached.matchedPerson ?? null);
+      if (cached.correctedQuery && !analysis.correctedQuery) {
+        setSemanticMeta({
+          ...analysis,
+          correctedQuery: cached.correctedQuery,
+        });
+      }
       setSugVisible(true);
       setSugLoading(false);
       setSelectedIdx(-1);
@@ -134,6 +155,7 @@ export function useSearchSuggestions() {
       (analysis.localMatches.length > 0 ||
         analysis.correctedQuery ||
         analysis.matchedConcept ||
+        analysis.targetYear !== null ||
         analysis.relatedTerms.length > 0)
     ) {
       if (analysis.localMatches.length > 0) {
@@ -156,20 +178,31 @@ export function useSearchSuggestions() {
 
         suggestionQueryCache.set(cacheKey, {
           items: merged,
+          matchedPerson: res.matchedPerson ?? null,
+          correctedQuery: res.correctedQuery ?? analysis.correctedQuery,
+          targetYear: res.targetYear ?? analysis.targetYear,
           ts: Date.now(),
         });
 
         setSuggestions(merged);
+        setMatchedPerson(res.matchedPerson ?? null);
+        if (res.correctedQuery && !analysis.correctedQuery) {
+          setSemanticMeta((prev) =>
+            prev ? { ...prev, correctedQuery: res.correctedQuery ?? null } : prev,
+          );
+        }
         setSugVisible(true);
         setSelectedIdx(-1);
       } catch {
         if (reqIdRef.current === currentReqId) {
           if (!hasApiKeys()) {
             setSuggestions([]);
+            setMatchedPerson(null);
             setSemanticMeta(null);
             setSugVisible(false);
           } else if (analysis.localMatches.length === 0) {
             setSuggestions([]);
+            setMatchedPerson(null);
           }
         }
       } finally {
@@ -184,6 +217,7 @@ export function useSearchSuggestions() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     reqIdRef.current += 1;
     setSuggestions([]);
+    setMatchedPerson(null);
     setSemanticMeta(null);
     setSugVisible(false);
     setSelectedIdx(-1);
@@ -208,6 +242,7 @@ export function useSearchSuggestions() {
 
   return {
     suggestions,
+    matchedPerson,
     semanticMeta,
     sugLoading,
     sugVisible,

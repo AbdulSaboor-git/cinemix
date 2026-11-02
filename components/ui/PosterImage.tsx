@@ -10,7 +10,7 @@ import {
   CompactFilmMeta,
 } from "@/lib/kinopoisk";
 import { useAutoTranslate } from "@/hooks/useTranslate";
-import { isRussian } from "@/lib/translate";
+import { isRussian, resolveEnglishAlias } from "@/lib/translate";
 
 export interface PosterImageProps {
   src?: string | null;
@@ -29,7 +29,8 @@ export interface PosterImageProps {
 
 // ─── Persistent Client-Side English Poster Cache & Micro-Batcher ─────────────
 
-const EN_POSTER_STORAGE_KEY = "cinemix_en_posters_v1";
+// Bumped to v2 so previously cached year-insensitive posters (e.g. Oldboy 2003 vs 2013) are invalidated
+const EN_POSTER_STORAGE_KEY = "cinemix_en_posters_v2";
 const HIT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const MISS_WITH_IMDB_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const MISS_TITLE_ONLY_TTL_MS = 30 * 60 * 1000; // 30 minutes
@@ -38,6 +39,7 @@ interface CachedPosterEntry {
   url: string | null;
   imdbId?: string | null;
   hasImdbId?: boolean;
+  hasYear?: boolean;
   ts: number;
 }
 
@@ -83,11 +85,22 @@ function schedulePersistPosterStore(): void {
 function getCachedEnglishPoster(
   key: string,
   hasImdbId: boolean,
+  hasYear: boolean,
 ): CachedPosterEntry | undefined {
   if (!key) return undefined;
   const store = getPosterStore();
   const entry = store[key];
   if (!entry) return undefined;
+
+  // If we now have an imdbId or release year that wasn't available when cached, re-resolve
+  if (hasImdbId && !entry.hasImdbId) {
+    delete store[key];
+    return undefined;
+  }
+  if (hasYear && !entry.hasYear) {
+    delete store[key];
+    return undefined;
+  }
 
   const age = Date.now() - (entry.ts || 0);
   if (entry.url) {
@@ -96,11 +109,6 @@ function getCachedEnglishPoster(
       return undefined;
     }
     return entry;
-  }
-
-  if (hasImdbId && !entry.hasImdbId) {
-    delete store[key];
-    return undefined;
   }
 
   const missTtl = entry.hasImdbId
@@ -118,6 +126,7 @@ function setCachedEnglishPoster(
   url: string | null,
   imdbId: string | null,
   hasImdbId: boolean,
+  hasYear: boolean,
 ): void {
   if (!key || typeof window === "undefined") return;
   const store = getPosterStore();
@@ -125,6 +134,7 @@ function setCachedEnglishPoster(
     url: sanitizePosterUrl(url),
     imdbId: imdbId || undefined,
     hasImdbId,
+    hasYear,
     ts: Date.now(),
   };
   schedulePersistPosterStore();
@@ -137,6 +147,7 @@ interface BatchRequestItem {
   imdbId?: string | null;
   title?: string | null;
   origTitle?: string | null;
+  nameRu?: string | null;
   year?: number | string | null;
   type?: string | null;
 }
@@ -147,6 +158,7 @@ const pendingBatchMap = new Map<
   {
     item: BatchRequestItem;
     hasImdbId: boolean;
+    hasYear: boolean;
     resolve: (url: string | null) => void;
   }
 >();
@@ -186,6 +198,7 @@ function flushPosterBatch(): void {
               resolvedUrl,
               resolvedImdb,
               entry.hasImdbId || Boolean(resolvedImdb),
+              entry.hasYear,
             );
             entry.resolve(resolvedUrl);
           }
@@ -202,6 +215,7 @@ function flushPosterBatch(): void {
 function requestEnglishPoster(
   item: BatchRequestItem,
   hasImdbId: boolean,
+  hasYear: boolean,
 ): Promise<string | null> {
   const existing = inflightClientRequests.get(item.key);
   if (existing) return existing;
@@ -210,6 +224,7 @@ function requestEnglishPoster(
     pendingBatchMap.set(item.key, {
       item,
       hasImdbId,
+      hasYear,
       resolve: (url) => {
         inflightClientRequests.delete(item.key);
         resolve(url);
@@ -340,16 +355,33 @@ export default function PosterImage({
   );
 
   const resolvedImdbId = propImdbId || cachedMeta?.imdbId || null;
-  const resolvedYear =
-    propYear || cachedMeta?.year || cachedMeta?.startYear || null;
+  const resolvedYear = useMemo(() => {
+    const raw = propYear ?? cachedMeta?.year ?? cachedMeta?.startYear ?? null;
+    if (raw === null || raw === undefined || raw === "" || raw === "null") {
+      return null;
+    }
+    const m = String(raw).match(/\b(18\d{2}|19\d{2}|20\d{2})\b/);
+    return m ? parseInt(m[1], 10) : null;
+  }, [propYear, cachedMeta?.year, cachedMeta?.startYear]);
+
   const resolvedType = cachedMeta?.type || null;
 
   const displayTitle = (title || alt || "").trim();
+  const aliasTitle = useMemo(
+    () =>
+      resolveEnglishAlias(
+        cachedMeta?.nameRu || (isRussian(displayTitle) ? displayTitle : null),
+        cachedMeta?.nameOriginal,
+      ),
+    [cachedMeta?.nameRu, cachedMeta?.nameOriginal, displayTitle],
+  );
+
   const origLatinTitle = useMemo(() => {
     const candidates = [
+      aliasTitle,
       cachedMeta?.nameEn,
-      cachedMeta?.nameOriginal,
       displayTitle,
+      cachedMeta?.nameOriginal,
     ];
     for (const c of candidates) {
       if (
@@ -362,7 +394,7 @@ export default function PosterImage({
       }
     }
     return null;
-  }, [cachedMeta?.nameEn, cachedMeta?.nameOriginal, displayTitle]);
+  }, [aliasTitle, cachedMeta?.nameEn, cachedMeta?.nameOriginal, displayTitle]);
 
   const shouldUseEnglishPoster = useMemo(() => {
     if (isPerson || !autoTranslate || disableEnglishLookup) return false;
@@ -376,7 +408,9 @@ export default function PosterImage({
     if (cachedMeta && isRussianDomesticFilm(cachedMeta) && !resolvedImdbId) {
       return false;
     }
-    return Boolean(resolvedImdbId || origLatinTitle);
+    return Boolean(
+      resolvedImdbId || origLatinTitle || cachedMeta?.nameRu || displayTitle,
+    );
   }, [
     isPerson,
     autoTranslate,
@@ -385,22 +419,38 @@ export default function PosterImage({
     cachedMeta,
     resolvedImdbId,
     origLatinTitle,
+    displayTitle,
   ]);
 
+  // Include year and imdbId in lookupKey so same-name remakes (e.g. Oldboy 2003 vs Oldboy 2013)
+  // never collide and unhydrated cards automatically upgrade once their year or imdbId arrives
   const lookupKey = useMemo(() => {
     if (!shouldUseEnglishPoster) return "";
-    if (kpFilmId > 0) return `kp:${kpFilmId}`;
-    if (resolvedImdbId) return `imdb:${resolvedImdbId.toLowerCase()}`;
-    if (origLatinTitle) {
-      return `title:${origLatinTitle.toLowerCase()}:${resolvedYear || ""}`;
+    const yPart = resolvedYear ? String(resolvedYear) : "noyear";
+    const iPart = resolvedImdbId ? resolvedImdbId.toLowerCase() : "";
+    const tPart = (
+      aliasTitle ||
+      (displayTitle && !isRussian(displayTitle) ? displayTitle : "") ||
+      origLatinTitle ||
+      ""
+    )
+      .toLowerCase()
+      .trim();
+
+    if (kpFilmId > 0) {
+      return `kp:${kpFilmId}:y=${yPart}:i=${iPart}:t=${tPart}`;
     }
+    if (iPart) return `imdb:${iPart}:y=${yPart}`;
+    if (tPart) return `title:${tPart}:y=${yPart}`;
     return "";
   }, [
     shouldUseEnglishPoster,
     kpFilmId,
     resolvedImdbId,
-    origLatinTitle,
     resolvedYear,
+    aliasTitle,
+    displayTitle,
+    origLatinTitle,
   ]);
 
   const cleanOriginalKpSrc = sanitizePosterUrl(src);
@@ -421,7 +471,11 @@ export default function PosterImage({
     }
 
     const cached = lookupKey
-      ? getCachedEnglishPoster(lookupKey, Boolean(resolvedImdbId))
+      ? getCachedEnglishPoster(
+          lookupKey,
+          Boolean(resolvedImdbId),
+          Boolean(resolvedYear),
+        )
       : undefined;
 
     if (cached !== undefined) {
@@ -439,6 +493,7 @@ export default function PosterImage({
     shouldUseEnglishPoster,
     lookupKey,
     resolvedImdbId,
+    resolvedYear,
     optimizedKpSrc,
     size,
     fallbackType,
@@ -448,25 +503,36 @@ export default function PosterImage({
   // Trigger asynchronous English poster upgrade when near viewport
   useEffect(() => {
     if (!shouldUseEnglishPoster || !lookupKey) return;
-    const cached = getCachedEnglishPoster(lookupKey, Boolean(resolvedImdbId));
+    const cached = getCachedEnglishPoster(
+      lookupKey,
+      Boolean(resolvedImdbId),
+      Boolean(resolvedYear),
+    );
     if (cached !== undefined) return;
 
     let cancelled = false;
 
     const startResolution = () => {
+      const englishTitle =
+        aliasTitle ||
+        (displayTitle && !isRussian(displayTitle)
+          ? displayTitle
+          : origLatinTitle);
+
       requestEnglishPoster(
         {
           key: lookupKey,
           imdbId: resolvedImdbId,
-          title:
-            displayTitle && !isRussian(displayTitle)
-              ? displayTitle
-              : origLatinTitle,
-          origTitle: origLatinTitle,
+          title: englishTitle,
+          origTitle: cachedMeta?.nameOriginal || origLatinTitle,
+          nameRu:
+            cachedMeta?.nameRu ||
+            (isRussian(displayTitle) ? displayTitle : null),
           year: resolvedYear,
           type: resolvedType,
         },
         Boolean(resolvedImdbId),
+        Boolean(resolvedYear),
       ).then((enUrl) => {
         if (cancelled) return;
         if (enUrl) {
@@ -512,8 +578,11 @@ export default function PosterImage({
     shouldUseEnglishPoster,
     lookupKey,
     resolvedImdbId,
+    aliasTitle,
     displayTitle,
     origLatinTitle,
+    cachedMeta?.nameOriginal,
+    cachedMeta?.nameRu,
     resolvedYear,
     resolvedType,
     size,
@@ -603,6 +672,7 @@ export default function PosterImage({
                 null,
                 resolvedImdbId,
                 Boolean(resolvedImdbId),
+                Boolean(resolvedYear),
               );
             }
             setResolvedEnRawUrl(null);
