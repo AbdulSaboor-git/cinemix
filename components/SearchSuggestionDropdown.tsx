@@ -15,7 +15,11 @@ import {
 import { Film, MatchedPersonSummary } from "@/types/kinopoisk";
 import { SemanticSearchAnalysis } from "@/lib/kinopoisk";
 import { translateGenre, translateCountry, isRussian } from "@/lib/translate";
-import { useAutoTranslate, useFilmTitle, useTranslate } from "@/hooks/useTranslate";
+import {
+  useAutoTranslate,
+  useFilmTitle,
+  useTranslate,
+} from "@/hooks/useTranslate";
 import { saveRecentSearch } from "@/hooks/useSearchSuggestions";
 import PosterImage from "@/components/ui/PosterImage";
 
@@ -292,7 +296,7 @@ export default function SearchSuggestionDropdown({
       )}
 
       {/* Matched Actor / Director Quick Banner */}
-      {matchedPerson && (
+      {/* {matchedPerson && (
         <div className="px-3.5 py-2 bg-[rgba(229,9,20,0.08)] border-b border-[var(--border)] flex items-center justify-between gap-2.5">
           <Link
             href={`/person/${matchedPerson.personId}`}
@@ -336,7 +340,7 @@ export default function SearchSuggestionDropdown({
             Profile →
           </Link>
         </div>
-      )}
+      )} */}
 
       {sugLoading && suggestions.length === 0 && (
         <div className="px-3.5 py-2.5 text-[11.5px] font-medium text-[var(--text-muted)] border-b border-[var(--border)] flex items-center justify-between">
