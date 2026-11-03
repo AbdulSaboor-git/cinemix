@@ -355,7 +355,7 @@ export default function Navbar() {
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onFocus={() => search.trim().length >= 2 && setSugVisible(true)}
-                placeholder="Search titles, actors, years (e.g. Oldboy 2003)…"
+                placeholder="Search titles, actors, years…"
                 className="bg-white/[0.06] border border-[var(--border)] rounded-full py-[7px] pl-9 pr-8 text-[var(--text)] text-[13px] outline-none placeholder:text-[var(--text-muted)] transition-[width,border-color,background-color] duration-300 w-[235px] focus:w-[320px] focus:border-[rgba(229,9,20,0.5)] focus:bg-white/[0.09]"
               />
               <Search
@@ -455,7 +455,7 @@ export default function Navbar() {
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onFocus={() => search.trim().length >= 2 && setSugVisible(true)}
-                placeholder="Search titles, actors, years (e.g. Oldboy 2003)…"
+                placeholder="Search titles, actors, years…"
                 className="w-full pl-10 pr-9 text-[14px] py-2.5 rounded-full input"
               />
               <Search
