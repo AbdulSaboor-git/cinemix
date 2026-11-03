@@ -1438,7 +1438,11 @@ function GallerySection({
       {/* Lightbox */}
       {safeLightboxItem && lightbox !== null && (
         <div
-          className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/90 backdrop-blur-md"
+          className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/10 backdrop-blur-xl"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 50% 42%, rgba(229, 9, 20, 0.16), transparent 62%)",
+          }}
           onClick={() => setLightbox(null)}
         >
           <button

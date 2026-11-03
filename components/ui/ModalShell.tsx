@@ -49,7 +49,11 @@ export default function ModalShell({
 
   return (
     <div
-      className={`fixed inset-0 z-300 flex items-end sm:items-center justify-center p-0 sm:p-4 transition-all duration-300 ease-out bg-black/10 backdrop-blur-xl opacity-100`}
+      className="fixed inset-0 z-300 flex items-end sm:items-center justify-center p-0 sm:p-4 transition-all duration-300 ease-out bg-black/10 backdrop-blur-xl opacity-100"
+      style={{
+        backgroundImage:
+          "radial-gradient(circle at 50% 42%, rgba(229, 9, 20, 0.16), transparent 62%)",
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onCloseRef.current();
       }}

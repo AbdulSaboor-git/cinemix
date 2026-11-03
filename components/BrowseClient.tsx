@@ -2940,7 +2940,11 @@ export default function BrowseClient(props: ExploreSearchParams) {
       {/* ── Mobile Slide-Up Filter Sheet ── */}
       {mobileSheetOpen && (
         <div
-          className="md:hidden fixed inset-0 z-[950] bg-black/80 backdrop-blur-md flex flex-col justify-end fade-in"
+          className="md:hidden fixed inset-0 z-[950] bg-black/10 backdrop-blur-xl flex flex-col justify-end fade-in"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 50% 42%, rgba(229, 9, 20, 0.16), transparent 62%)",
+          }}
           onClick={(e) => {
             if (e.target === e.currentTarget) setMobileSheetOpen(false);
           }}
