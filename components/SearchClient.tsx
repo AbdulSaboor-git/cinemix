@@ -684,7 +684,7 @@ export default function SearchClient({
       </div>
 
       {/* Matched Actor / Director Credits Banner */}
-      {query && !loading && matchedPerson && (
+      {/* {query && !loading && matchedPerson && (
         <div className="mb-6 bg-gradient-to-r from-[rgba(229,9,20,0.14)] via-[var(--bg-card)] to-[var(--bg-card)] border border-[rgba(229,9,20,0.35)] rounded-[14px] p-3.5 sm:p-4 flex items-center justify-between gap-4 flex-wrap shadow-[0_8px_32px_rgba(0,0,0,0.35)]">
           <div className="flex items-center gap-3.5 min-w-0">
             <div className="w-12 h-16 sm:w-14 sm:h-[74px] rounded-[8px] overflow-hidden flex-shrink-0 bg-[var(--surface)] border border-white/15 relative">
@@ -727,7 +727,7 @@ export default function SearchClient({
             <ArrowUpRight size={13} />
           </Link>
         </div>
-      )}
+      )} */}
 
       {/* Results Grid / Empty States */}
       {!query ? (
