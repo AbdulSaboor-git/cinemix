@@ -175,7 +175,8 @@ const QUICK_SEARCH_IDEAS = [
 ];
 
 // ── Snapshot Cache for 0ms feed/tab switching & back navigation restoration ──
-let cachedSimpleFilters: { genres: Genre[]; countries: Country[] } | null = null;
+let cachedSimpleFilters: { genres: Genre[]; countries: Country[] } | null =
+  null;
 
 interface SimpleBrowseSnapshot {
   queryKey: string;
@@ -486,10 +487,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
     if (rawLens === "RECENT_RELEASES" || rawLens === "RECENT") {
       return "RECENT_RELEASES";
     }
-    if (
-      rawLens === "BLOCKBUSTERS" ||
-      rawLens === "HOLLYWOOD_BLOCKBUSTERS"
-    ) {
+    if (rawLens === "BLOCKBUSTERS" || rawLens === "HOLLYWOOD_BLOCKBUSTERS") {
       return "BLOCKBUSTERS";
     }
     if (rawLens === "HIDDEN_GEMS") return "HIDDEN_GEMS";
@@ -698,11 +696,13 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
       const base: Record<string, string | undefined> = replaceAll
         ? {}
         : {
-            feed: activeFeed !== "TRENDING" ? activeFeed : undefined,
+            feed:
+              activeFeed !== "TRENDING" || p.feed || p.lens
+                ? activeFeed
+                : undefined,
             type:
               type === "ALL" ? (prefType !== "ALL" ? "ALL" : undefined) : type,
-            order:
-              order !== feedMeta.defaultOrder ? order : undefined,
+            order: order !== feedMeta.defaultOrder ? order : undefined,
             dir: direction !== "DESC" ? direction : undefined,
             q: activeSearchQuery || undefined,
             genres: p.genres,
@@ -753,6 +753,8 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
       feedMeta.defaultOrder,
       direction,
       activeSearchQuery,
+      p.feed,
+      p.lens,
       p.genres,
       p.countries,
       p.yearFrom,
@@ -1107,8 +1109,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
 
   const effectiveCorrected =
     correctedQuery || activeQuerySemantic?.correctedQuery || null;
-  const effectiveYear =
-    targetYear ?? activeQuerySemantic?.targetYear ?? null;
+  const effectiveYear = targetYear ?? activeQuerySemantic?.targetYear ?? null;
 
   // Contextual deep-link tags (only if user clicked a Genre/Country/Year tag on a Film page)
   const deepLinkChips: { label: string; onClear: () => void }[] = [];
@@ -1154,7 +1155,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
       <div className="flex items-center justify-between gap-3 mb-3.5 sm:mb-5">
         <div className="min-w-0">
           <h1 className="font-display tracking-[2px] text-white m-0 text-[clamp(22px,4.5vw,38px)] leading-none truncate">
-            {activeSearchQuery ? `SEARCH: “${activeSearchQuery}”` : "EXPLORE"}
+            {activeSearchQuery ? `SEARCH` : "EXPLORE"}
           </h1>
         </div>
 
@@ -1170,7 +1171,8 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
               title="Shuffle your personalized For You mix"
             >
               <Shuffle size={13} className="text-[var(--accent)]" />
-              <span className="sm:hidden">Mix</span><span className="hidden sm:inline">Shuffle Mix</span>
+              <span className="sm:hidden">Mix</span>
+              <span className="hidden sm:inline">Shuffle Mix</span>
             </button>
           )}
           <button
@@ -1181,7 +1183,8 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
             title="Pick a random title from current grid"
           >
             <Shuffle size={13} className="text-[var(--accent)]" />
-            <span className="sm:hidden">Surprise</span><span className="hidden sm:inline">Surprise Me</span>
+            <span className="sm:hidden">Surprise</span>
+            <span className="hidden sm:inline">Surprise Me</span>
           </button>
           <Link
             href={advancedExploreHref}
@@ -1344,7 +1347,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
                       if (isSelected) return;
                       pushExploreParams(
                         {
-                          feed: f.id === "TRENDING" ? undefined : f.id,
+                          feed: f.id,
                           order: undefined,
                           dir: undefined,
                           q: undefined,
@@ -1406,11 +1409,18 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
                 if (nextOrd === "RANDOM") {
                   setRandomSeed((s) => s + 1);
                 }
+                const selectingFeedDefault =
+                  nextOrd === feedMeta.defaultOrder && !activeSearchQuery;
+                const preserveFeedAgainstPreference =
+                  selectingFeedDefault &&
+                  !p.feed &&
+                  !p.lens &&
+                  prefOrder !== feedMeta.defaultOrder;
                 pushExploreParams({
-                  order:
-                    nextOrd === feedMeta.defaultOrder && !activeSearchQuery
-                      ? undefined
-                      : nextOrd,
+                  ...(preserveFeedAgainstPreference
+                    ? { feed: activeFeed }
+                    : {}),
+                  order: selectingFeedDefault ? undefined : nextOrd,
                 });
               }}
               aria-label="Sort titles by"
@@ -1764,7 +1774,8 @@ function SimpleQuickPeekModal({
             {detail.year && <span>{detail.year}</span>}
             {detail.filmLength && (
               <span>
-                · {Math.floor(detail.filmLength / 60)}h {detail.filmLength % 60}m
+                · {Math.floor(detail.filmLength / 60)}h {detail.filmLength % 60}
+                m
               </span>
             )}
             {certBadge && (
