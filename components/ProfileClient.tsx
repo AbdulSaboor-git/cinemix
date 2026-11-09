@@ -304,12 +304,12 @@ function sortSectionItems<T extends FilmListEntry>(
   if (sortMode === "RATING") {
     return copy.sort((a, b) => {
       const rA =
-        "user_rating" in a && typeof (a as RatedFilmEntry).user_rating === "number"
-          ? (a as RatedFilmEntry).user_rating
+        "user_rating" in a && typeof a.user_rating === "number"
+          ? a.user_rating
           : (a.rating ?? 0);
       const rB =
-        "user_rating" in b && typeof (b as RatedFilmEntry).user_rating === "number"
-          ? (b as RatedFilmEntry).user_rating
+        "user_rating" in b && typeof b.user_rating === "number"
+          ? b.user_rating
           : (b.rating ?? 0);
       return rB - rA;
     });
@@ -322,12 +322,12 @@ function sortSectionItems<T extends FilmListEntry>(
   }
   return copy.sort((a, b) => {
     const dA =
-      "updated_at" in a && typeof (a as RatedFilmEntry).updated_at === "string"
-        ? (a as RatedFilmEntry).updated_at!
+      "updated_at" in a && typeof a.updated_at === "string"
+        ? a.updated_at
         : a.added_at;
     const dB =
-      "updated_at" in b && typeof (b as RatedFilmEntry).updated_at === "string"
-        ? (b as RatedFilmEntry).updated_at!
+      "updated_at" in b && typeof b.updated_at === "string"
+        ? b.updated_at
         : b.added_at;
     return (new Date(dB).getTime() || 0) - (new Date(dA).getTime() || 0);
   });

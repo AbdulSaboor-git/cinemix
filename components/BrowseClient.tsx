@@ -1750,8 +1750,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
     setSurpriseModalOpen(true);
   }, [films]);
 
-  if (noKey) return <NoKeyBanner />;
-
   const handleSaveCurrentPreset = () => {
     const label = presetNameInput.trim();
     if (!label) return;
@@ -1832,6 +1830,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
         : [],
     [activeLensObj, genres],
   );
+
+  if (noKey) return <NoKeyBanner />;
+
   const activeFilterTags: {
     label: string;
     isNegative?: boolean;
