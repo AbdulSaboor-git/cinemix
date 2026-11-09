@@ -105,7 +105,6 @@ const SORT_ORDERS: { value: ExploreSortOrder; label: string }[] = [
   { value: "YEAR", label: "Release Year" },
   { value: "HIDDEN_GEMS", label: "Hidden Gems" },
   { value: "CRITICS", label: "Critics Score" },
-  { value: "TITLE", label: "Title (A–Z)" },
   { value: "RANDOM", label: "Random Roulette" },
 ];
 
@@ -655,8 +654,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
     };
   }, []);
 
-  const activeLens =
-    p.lens === "recent_releases" ? "RECENT_RELEASES" : p.lens;
+  const activeLens = p.lens === "recent_releases" ? "RECENT_RELEASES" : p.lens;
   const type = (
     p.type ? p.type : activeLens === "FOR_YOU" ? "ALL" : prefType || "ALL"
   ) as "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
@@ -790,7 +788,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
       ? matchedPerson.nameEn
       : matchedPerson?.nameRu || matchedPerson?.nameEn || "";
   const matchedPersonDisplayName =
-    useTranslate(rawMatchedPersonName) || rawMatchedPersonName || p.keyword || "Actor";
+    useTranslate(rawMatchedPersonName) ||
+    rawMatchedPersonName ||
+    p.keyword ||
+    "Actor";
   const matchedPersonDisplayProf = useTranslate(matchedPerson?.profession);
   const [correctedQuery, setCorrectedQuery] = useState<string | null>(null);
   const [targetYear, setTargetYear] = useState<number | null>(null);
@@ -3035,34 +3036,36 @@ export default function BrowseClient(props: ExploreSearchParams) {
       )}
 
       {/* ── Smart Keyword Feedback & Matched Actor Banner on Explore ── */}
-      {p.keyword?.trim() && !loading && (correctedQuery || targetYear !== null) && (
-        <div className="mb-4 px-3.5 py-2.5 rounded-[12px] bg-[var(--bg-card)] border border-[var(--border)] flex items-center justify-between gap-2 flex-wrap text-[12px]">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Sparkles size={13} className="text-[var(--accent)] shrink-0" />
-            {correctedQuery && (
-              <span className="text-[var(--text-dim)]">
-                Including smart matches for{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDraft((d) => ({ ...d, keyword: correctedQuery }));
-                    pushFilters({ keyword: correctedQuery });
-                  }}
-                  className="font-bold text-white hover:text-[var(--accent)] underline bg-transparent border-none cursor-pointer p-0"
-                >
-                  “{correctedQuery}”
-                </button>
-              </span>
-            )}
-            {targetYear !== null && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#60a5fa] bg-[rgba(96,165,250,0.12)] border border-[rgba(96,165,250,0.3)] rounded-md px-2 py-0.5">
-                <Calendar size={11} />
-                Release Year: {targetYear}
-              </span>
-            )}
+      {p.keyword?.trim() &&
+        !loading &&
+        (correctedQuery || targetYear !== null) && (
+          <div className="mb-4 px-3.5 py-2.5 rounded-[12px] bg-[var(--bg-card)] border border-[var(--border)] flex items-center justify-between gap-2 flex-wrap text-[12px]">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Sparkles size={13} className="text-[var(--accent)] shrink-0" />
+              {correctedQuery && (
+                <span className="text-[var(--text-dim)]">
+                  Including smart matches for{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraft((d) => ({ ...d, keyword: correctedQuery }));
+                      pushFilters({ keyword: correctedQuery });
+                    }}
+                    className="font-bold text-white hover:text-[var(--accent)] underline bg-transparent border-none cursor-pointer p-0"
+                  >
+                    “{correctedQuery}”
+                  </button>
+                </span>
+              )}
+              {targetYear !== null && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#60a5fa] bg-[rgba(96,165,250,0.12)] border border-[rgba(96,165,250,0.3)] rounded-md px-2 py-0.5">
+                  <Calendar size={11} />
+                  Release Year: {targetYear}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {p.keyword?.trim() && !loading && matchedPerson && (
         <div className="mb-5 bg-gradient-to-r from-[rgba(229,9,20,0.14)] via-[var(--bg-card)] to-[var(--bg-card)] border border-[rgba(229,9,20,0.35)] rounded-[14px] p-3.5 sm:p-4 flex items-center justify-between gap-4 flex-wrap shadow-[0_8px_32px_rgba(0,0,0,0.35)]">
@@ -3093,7 +3096,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
                 {matchedPersonDisplayName}
               </h2>
               <p className="text-[12px] text-[var(--text-dim)] m-0 mt-0.5">
-                Showing {matchedPerson.creditsCount} film &amp; series credits below
+                Showing {matchedPerson.creditsCount} film &amp; series credits
+                below
               </p>
             </div>
           </div>

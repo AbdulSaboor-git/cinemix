@@ -206,7 +206,6 @@ function KeyField({
 }
 
 const HOME_SECTION_LABELS: Record<string, string> = {
-  popular: "Popular Films",
   top250: "Top 250",
   recentReleases: "Recent Releases",
   series: "Top Series",
