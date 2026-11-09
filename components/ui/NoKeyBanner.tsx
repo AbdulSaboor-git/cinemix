@@ -8,7 +8,7 @@ export default function NoKeyBanner() {
       <div className="w-full max-w-[480px] text-center fade-up">
         <div
           className="w-[64px] h-[64px] sm:w-[72px] sm:h-[72px] rounded-full mx-auto mb-6 sm:mb-7 flex items-center justify-center bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.2)]"
-          style={{ boxShadow: "0 0 48px var(--accent-glow)" }}
+          
         >
           <KeyRound size={26} stroke="var(--accent)" strokeWidth={1.8} />
         </div>

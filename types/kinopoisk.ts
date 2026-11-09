@@ -26,6 +26,7 @@ export type MediaTypeFilter =
   | "MINI_SERIES";
 
 export type ExploreSortOrder =
+  | "TRENDING"
   | "NUM_VOTE"
   | "RATING"
   | "IMDB_RATING"
@@ -102,6 +103,7 @@ export interface Film {
   serial?: boolean;
   completed?: boolean;
   lastSync?: string;
+  trendingScore?: number;
 }
 
 export interface MatchedPersonSummary {

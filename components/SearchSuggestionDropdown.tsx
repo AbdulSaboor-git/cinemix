@@ -9,7 +9,6 @@ import {
   ArrowUpRight,
   Sparkles,
   Play,
-  User,
   Calendar,
 } from "lucide-react";
 import { Film, MatchedPersonSummary } from "@/types/kinopoisk";
@@ -90,7 +89,6 @@ function SuggestionRow({
         }}
         className="flex items-center gap-3 flex-1 min-w-0 no-underline active:scale-[0.99] transition-transform"
       >
-        {/* Fast Direct Thumbnail */}
         <div className="w-9 h-[52px] rounded-[6px] overflow-hidden flex-shrink-0 bg-[var(--surface)] relative border border-white/[0.08] [&>*]:!min-h-0">
           <PosterImage
             src={poster}
@@ -106,7 +104,6 @@ function SuggestionRow({
           />
         </div>
 
-        {/* Title & Metadata */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
             <p className="text-[13px] sm:text-[13.5px] font-semibold text-[var(--text)] group-hover:text-white truncate m-0 leading-snug">
@@ -141,7 +138,6 @@ function SuggestionRow({
         </div>
       </Link>
 
-      {/* Right-aligned Rating Badge + Quick Watch Action */}
       <div className="flex items-center gap-1.5 flex-shrink-0 pl-1">
         {hasValidRating && (
           <div className="flex items-center gap-1 bg-black/45 border border-[rgba(245,197,24,0.3)] rounded-[6px] px-1.5 py-0.5">
@@ -200,7 +196,6 @@ export default function SearchSuggestionDropdown({
       ? matchedPerson.nameEn
       : matchedPerson?.nameRu || matchedPerson?.nameEn || "";
   const personName = useTranslate(rawPersonName) || rawPersonName;
-  const personProf = useTranslate(matchedPerson?.profession);
 
   const corrected = semanticMeta?.correctedQuery;
   const concept = semanticMeta?.matchedConcept;
@@ -225,13 +220,12 @@ export default function SearchSuggestionDropdown({
       onQueryPick(term);
     } else {
       onSelect();
-      router.push(`/search?q=${encodeURIComponent(term)}`);
+      router.push(`/explore?q=${encodeURIComponent(term)}`);
     }
   };
 
   return (
     <div className="absolute top-[calc(100%+8px)] left-0 right-0 w-full min-w-[280px] z-[200] flex flex-col overflow-hidden slide-down bg-[#101014]/98 backdrop-blur-[24px] [-webkit-backdrop-filter:blur(24px)] border border-white/[0.12] rounded-[12px] shadow-[0_24px_64px_rgba(0,0,0,0.88)]">
-      {/* Tier 1: Instant Query, Year Filter & Semantic Concept Strip */}
       {hasTopStrip && (
         <div className="px-3 py-2 bg-white/[0.02] border-b border-[var(--border)] flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -265,7 +259,7 @@ export default function SearchSuggestionDropdown({
               </span>
               {concept.genreIds?.[0] && (
                 <Link
-                  href={`/explore?genres=${concept.genreIds.join(",")}&genreMode=OR`}
+                  href={`/explore/advanced?genres=${concept.genreIds.join(",")}&genreMode=OR`}
                   onClick={onSelect}
                   className="text-[10.5px] font-bold text-white hover:underline no-underline shrink-0"
                 >
@@ -295,53 +289,6 @@ export default function SearchSuggestionDropdown({
         </div>
       )}
 
-      {/* Matched Actor / Director Quick Banner */}
-      {/* {matchedPerson && (
-        <div className="px-3.5 py-2 bg-[rgba(229,9,20,0.08)] border-b border-[var(--border)] flex items-center justify-between gap-2.5">
-          <Link
-            href={`/person/${matchedPerson.personId}`}
-            onClick={() => {
-              if (personName) saveRecentSearch(personName);
-              onSelect();
-            }}
-            className="flex items-center gap-2.5 min-w-0 flex-1 no-underline group"
-          >
-            <div className="w-8 h-10 rounded-[6px] overflow-hidden flex-shrink-0 bg-[var(--surface)] border border-white/15 relative">
-              <PosterImage
-                src={matchedPerson.posterUrl}
-                alt={personName}
-                title={personName}
-                fallbackType="person"
-                disableEnglishLookup
-                className="w-full h-full relative overflow-hidden bg-[var(--surface)]"
-              />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[9.5px] font-bold uppercase tracking-[0.5px] text-[var(--accent)] bg-[rgba(229,9,20,0.18)] border border-[rgba(229,9,20,0.35)] rounded px-1.5 py-[1px] inline-flex items-center gap-1">
-                  <User size={9} />
-                  Person
-                </span>
-                <p className="text-[13px] font-bold text-white group-hover:text-[var(--accent)] truncate m-0">
-                  {personName}
-                </p>
-              </div>
-              <p className="text-[11px] text-[var(--text-muted)] truncate m-0 mt-0.5">
-                {personProf ? `${personProf} · ` : ""}
-                {matchedPerson.creditsCount} credits listed below
-              </p>
-            </div>
-          </Link>
-          <Link
-            href={`/person/${matchedPerson.personId}`}
-            onClick={onSelect}
-            className="text-[11px] font-semibold text-white bg-white/[0.08] hover:bg-[var(--accent)] border border-white/15 rounded-[7px] px-2.5 py-1 no-underline whitespace-nowrap transition-colors"
-          >
-            Profile →
-          </Link>
-        </div>
-      )} */}
-
       {sugLoading && suggestions.length === 0 && (
         <div className="px-3.5 py-2.5 text-[11.5px] font-medium text-[var(--text-muted)] border-b border-[var(--border)] flex items-center justify-between">
           <span>Searching catalog…</span>
@@ -349,7 +296,6 @@ export default function SearchSuggestionDropdown({
         </div>
       )}
 
-      {/* Tier 2: Rich Visual Title & Credit Matches */}
       {suggestions.length > 0 && (
         <div className="flex flex-col w-full max-h-[360px] overflow-y-auto">
           {suggestions.map((film, i) => (
@@ -368,7 +314,7 @@ export default function SearchSuggestionDropdown({
 
       {showSeeAllLink && search.trim().length > 0 && (
         <Link
-          href={`/search?q=${encodeURIComponent(search.trim())}`}
+          href={`/explore?q=${encodeURIComponent(search.trim())}`}
           onClick={() => {
             saveRecentSearch(search.trim());
             onSelect();

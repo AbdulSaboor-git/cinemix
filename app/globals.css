@@ -357,11 +357,11 @@ body.scroll-locked {
   .btn-primary {
     background: var(--accent);
     color: white;
-    box-shadow: 0 4px 20px var(--accent-glow);
+    box-shadow: none;
   }
   .btn-primary:hover {
     background: #ff1a25;
-    box-shadow: 0 4px 28px rgba(229, 9, 20, 0.6);
+    box-shadow: none;
   }
   .btn-secondary {
     background: rgba(255, 255, 255, 0.1);
@@ -536,12 +536,12 @@ body.scroll-locked {
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 20px var(--accent-glow);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
     transition: all var(--transition);
   }
   .back-to-top:hover {
     transform: translateY(-3px);
-    box-shadow: 0 8px 28px var(--accent-glow);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.65);
   }
   @media (max-width: 768px) {
     .back-to-top {

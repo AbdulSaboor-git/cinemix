@@ -374,8 +374,29 @@ export default function Top250Client({
   }>({ page: propPage, collectionType: propType });
 
   useEffect(() => {
+    if (!tp && !pg && typeof window !== "undefined") {
+      try {
+        const savedTab = sessionStorage.getItem("cinemix_top250_tab");
+        if (savedTab === "TOP_250_TV_SHOWS" || savedTab === "TOP_250_MOVIES") {
+          setActiveState({ page: 1, collectionType: savedTab });
+          return;
+        }
+      } catch {
+        // ignore
+      }
+    }
     setActiveState({ page: propPage, collectionType: propType });
-  }, [propPage, propType]);
+  }, [propPage, propType, tp, pg]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.setItem("cinemix_top250_tab", activeState.collectionType);
+      } catch {
+        // ignore
+      }
+    }
+  }, [activeState.collectionType]);
 
   const { page, collectionType } = activeState;
 

@@ -261,7 +261,7 @@ export default function RateFilmModal({
             <button
               type="button"
               onClick={handleSave}
-              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-[var(--radius)] text-[12px] sm:text-[13px] font-bold bg-[var(--user-rating)] text-[#080808] border-none shadow-[0_4px_20px_var(--user-rating-glow)] hover:brightness-110 cursor-pointer transition-all"
+              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-[var(--radius)] text-[12px] sm:text-[13px] font-bold bg-[var(--user-rating)] text-[#080808] border-none hover:brightness-110 cursor-pointer transition-all"
             >
               <Check size={14} strokeWidth={2.6} />
               <span>{existing ? "Update" : "Save"}</span>
@@ -547,7 +547,7 @@ export default function RateFilmModal({
                   onClick={() => toggleTag(tag)}
                   className={`px-2.5 py-1 rounded-full text-[11px] font-medium border cursor-pointer transition-all ${
                     active
-                      ? "bg-[var(--user-rating-bg)] border-[var(--user-rating-border)] text-[var(--user-rating)] shadow-[0_0_12px_var(--user-rating-glow)]"
+                      ? "bg-[var(--user-rating-bg)] border-[var(--user-rating-border)] text-[var(--user-rating)]"
                       : "bg-[var(--bg-card)] border-[var(--border)] text-[var(--text-dim)] hover:text-white hover:border-[var(--border-hover)]"
                   }`}
                 >

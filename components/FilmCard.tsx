@@ -686,7 +686,7 @@ export function FilmLongPressPortal({
                   : "opacity-0 -translate-y-3 scale-90"
               } ${
                 isFav
-                  ? "bg-[rgba(229,9,20,0.28)] border-[rgba(229,9,20,0.75)] text-white shadow-[0_8px_24px_rgba(229,9,20,0.3)]"
+                  ? "bg-[rgba(229,9,20,0.28)] border-[rgba(229,9,20,0.75)] text-white"
                   : "bg-[rgba(24,24,28,0.85)] border-white/15 text-white/90"
               }`}
             >
@@ -698,7 +698,7 @@ export function FilmLongPressPortal({
                 className="shrink-0"
               />
               <span className="truncate">
-                {isFav ? "In Favorites" : "Favorite"}
+                {isFav ? "Saved" : "Favorite"}
               </span>
             </button>
 
@@ -715,7 +715,7 @@ export function FilmLongPressPortal({
                   : "opacity-0 -translate-y-3 scale-90"
               } ${
                 isWL
-                  ? "bg-[rgba(96,165,250,0.28)] border-[rgba(96,165,250,0.75)] text-[#93c5fd] shadow-[0_8px_24px_rgba(96,165,250,0.28)]"
+                  ? "bg-[rgba(96,165,250,0.28)] border-[rgba(96,165,250,0.75)] text-[#93c5fd]"
                   : "bg-[rgba(24,24,28,0.85)] border-white/15 text-white/90"
               }`}
             >
@@ -726,7 +726,7 @@ export function FilmLongPressPortal({
                 className="shrink-0"
               />
               <span className="truncate">
-                {isWL ? "In Watchlist" : "Watch Later"}
+                {isWL ? "Listed" : "Later"}
               </span>
             </button>
           </div>
@@ -751,7 +751,7 @@ export function FilmLongPressPortal({
               transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
               transitionDelay: popupEntered ? "180ms" : "0ms",
             }}
-            className={`flex items-center justify-center gap-2 w-full py-3 px-4 rounded-[10px] bg-[var(--accent,#e50914)] text-white font-semibold text-[13px] no-underline shadow-[0_10px_28px_rgba(229,9,20,0.45)] border border-white/15 active:scale-95 transition-all duration-300 ${
+            className={`flex items-center justify-center gap-2 w-full py-3 px-4 rounded-[10px] bg-[var(--accent,#e50914)] text-white font-semibold text-[13px] no-underline border border-white/15 active:scale-95 transition-all duration-300 ${
               popupEntered
                 ? "opacity-100 translate-y-0 scale-100"
                 : "opacity-0 -translate-y-3 scale-90"
@@ -1026,7 +1026,7 @@ const FilmCard = memo(function FilmCard({
             {/* ── Play icon on hover (desktop) ── */}
             {!(isFav || isWL) && (
               <div className="absolute inset-0 items-center justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 hidden sm:flex pb-8">
-                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[rgba(229,9,20,0.9)] flex items-center justify-center shadow-[0_0_24px_var(--accent-glow)]">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[rgba(229,9,20,0.9)] flex items-center justify-center">
                   <Play
                     size={14}
                     fill="white"

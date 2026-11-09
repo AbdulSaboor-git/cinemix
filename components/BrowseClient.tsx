@@ -103,6 +103,7 @@ const TYPES = [
 ] as const;
 
 const SORT_ORDERS: { value: ExploreSortOrder; label: string }[] = [
+  { value: "TRENDING", label: "Trending" },
   { value: "NUM_VOTE", label: "Most Popular" },
   { value: "RATING", label: "Top Rated" },
   { value: "IMDB_RATING", label: "IMDb Rating" },
@@ -152,11 +153,22 @@ interface SmartLens {
 
 const SMART_LENSES: SmartLens[] = [
   {
+    id: "TRENDING",
+    label: "Trending",
+    badge: "Hot Now",
+    params: {
+      lens: "TRENDING",
+      order: "TRENDING",
+      dir: "DESC",
+    },
+  },
+  {
     id: "FOR_YOU",
     label: "For You",
     badge: "Taste Match",
     params: {
       lens: "FOR_YOU",
+      order: "TRENDING",
       hideWatched: "1",
     },
   },
@@ -176,6 +188,7 @@ const SMART_LENSES: SmartLens[] = [
     label: "Blockbusters",
     badge: "Global Hits",
     params: {
+      lens: "HOLLYWOOD_BLOCKBUSTERS",
       type: "FILM",
       order: "NUM_VOTE",
       dir: "DESC",
@@ -189,6 +202,7 @@ const SMART_LENSES: SmartLens[] = [
     label: "Hidden Gems",
     badge: "7.2+ Cult",
     params: {
+      lens: "HIDDEN_GEMS",
       order: "HIDDEN_GEMS",
       dir: "DESC",
       ratingFrom: "7.2",
@@ -201,6 +215,7 @@ const SMART_LENSES: SmartLens[] = [
     label: "Mind-Bending Sci-Fi",
     badge: "Sci-Fi + Thriller",
     params: {
+      lens: "MIND_BENDING",
       type: "FILM",
       genres: "6,1",
       genreMode: "OR",
@@ -214,6 +229,7 @@ const SMART_LENSES: SmartLens[] = [
     label: "Oscar Winners",
     badge: "Academy Award",
     params: {
+      lens: "OSCAR_WINNERS",
       collection: "OSKAR_WINNERS_2021",
       order: "IMDB_RATING",
       dir: "DESC",
@@ -224,6 +240,7 @@ const SMART_LENSES: SmartLens[] = [
     label: "90s & 2000s Gold",
     badge: "1990–2009",
     params: {
+      lens: "GOLDEN_90S_00S",
       yearFrom: "1990",
       yearTo: "2009",
       order: "NUM_VOTE",
@@ -236,6 +253,7 @@ const SMART_LENSES: SmartLens[] = [
     label: "Family Night",
     badge: "Safe & Fun",
     params: {
+      lens: "FAMILY_NIGHT",
       age: "FAMILY",
       ratingFrom: "6.8",
       order: "NUM_VOTE",
@@ -247,6 +265,7 @@ const SMART_LENSES: SmartLens[] = [
     label: "So-Bad-It's-Good",
     badge: "1.0–5.2 Camp",
     params: {
+      lens: "GUILTY_PLEASURES",
       ratingFrom: "1",
       ratingTo: "5.2",
       order: "NUM_VOTE",
@@ -396,7 +415,7 @@ function normalizePresetParams(
   const out: Record<string, string> = {};
   const DEFAULT_VALS: Record<string, string> = {
     type: "ALL",
-    order: "NUM_VOTE",
+    order: "TRENDING",
     dir: "DESC",
     genreMode: "AND",
     ratingSource: "AUTO",
@@ -526,7 +545,7 @@ const FilterTagPill = memo(function FilterTagPill({
       }}
       className={`px-3 py-1.5 rounded-full text-[12px] font-medium border transition-all cursor-pointer capitalize inline-flex items-center gap-1.5 select-none [-webkit-touch-callout:none] active:scale-95 ${
         status === "INCLUDED"
-          ? "bg-[rgba(34,197,94,0.16)] border-[#22c55e] text-[#4ade80] font-semibold shadow-[0_0_12px_rgba(34,197,94,0.2)]"
+          ? "bg-[rgba(34,197,94,0.16)] border-[#22c55e] text-[#4ade80] font-semibold"
           : status === "EXCLUDED"
             ? "bg-[rgba(229,9,20,0.16)] border-[var(--accent)] text-[var(--accent)] line-through font-semibold"
             : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-hover)] hover:text-white"
@@ -596,7 +615,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const [noKey, setNoKey] = useState(false);
   const [ready, setReady] = useState(false);
   const [prefType, setPrefType] = useState<string>("ALL");
-  const [prefOrder, setPrefOrder] = useState<ExploreSortOrder>("NUM_VOTE");
+  const [prefOrder, setPrefOrder] = useState<ExploreSortOrder>("TRENDING");
+  const [infiniteScrollEnabled, setInfiniteScrollEnabled] = useState<boolean>(true);
+  const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
 
   const [genres, setGenres] = useState<Genre[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
@@ -652,9 +673,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
       const prefs = getPreferences();
       const nextPrefType = prefs.defaultExploreType || "ALL";
       const nextPrefOrder =
-        (prefs.defaultExploreOrder as ExploreSortOrder) || "NUM_VOTE";
+        (prefs.defaultExploreOrder as ExploreSortOrder) || "TRENDING";
       setPrefType(nextPrefType);
       setPrefOrder(nextPrefOrder);
+      setInfiniteScrollEnabled(prefs.infiniteScrollEnabled ?? true);
       setSavedPresets(getSavedExplorePresets());
       const nextTasteSig = [
         getRatedFilms()
@@ -698,7 +720,15 @@ export default function BrowseClient(props: ExploreSearchParams) {
     () => parseStringList(p.excludeTypes),
     [p.excludeTypes],
   );
-  const order = (p.order || prefOrder || "NUM_VOTE") as ExploreSortOrder;
+  const activeLensObj = useMemo(
+    () => SMART_LENSES.find((l) => l.id === activeLens) ?? null,
+    [activeLens],
+  );
+  const lensDefaultOrder = (activeLensObj?.params.order as ExploreSortOrder) || undefined;
+  const order = (p.order || lensDefaultOrder || prefOrder || "TRENDING") as ExploreSortOrder;
+  const isTrendingWindow =
+    activeLens === "TRENDING" ||
+    (!activeLens && order === "TRENDING" && p.yearFrom === undefined && p.yearTo === undefined);
   const direction: SortDirection = p.dir === "ASC" ? "ASC" : "DESC";
   const genreMatchMode: "AND" | "OR" = p.genreMode === "OR" ? "OR" : "AND";
   const ratingSource: RatingSource = (p.ratingSource as RatingSource) || "AUTO";
@@ -1033,10 +1063,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
       excludeTypes:
         excludeTypes.length > 0 ? excludeTypes.join(",") : undefined,
       order:
-        order === "NUM_VOTE"
-          ? prefOrder !== "NUM_VOTE"
-            ? "NUM_VOTE"
-            : undefined
+        order === (lensDefaultOrder || prefOrder || "TRENDING")
+          ? undefined
           : order,
       dir: direction !== "DESC" ? direction : undefined,
       genres:
@@ -1118,7 +1146,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
         if (v !== undefined && v !== "") params.set(k, v);
       });
       const qs = params.toString();
-      return qs ? `/explore?${qs}` : "/explore";
+      return qs ? `/explore/advanced?${qs}` : "/explore/advanced";
     },
     [currentParamsRecord],
   );
@@ -1148,7 +1176,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
       setOptimisticParams(cleanNext as ExploreSearchParams);
 
       const qs = params.toString();
-      const href = qs ? `/explore?${qs}` : "/explore";
+      const href = qs ? `/explore/advanced?${qs}` : "/explore/advanced";
       startTransition(() => {
         router.push(href, { scroll: false });
       });
@@ -1234,7 +1262,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
       hideWatched: draft.hideWatched ? "1" : undefined,
       hideFavorites: draft.hideFavorites ? "1" : undefined,
       hideWatchLater: draft.hideWatchLater ? "1" : undefined,
-      lens: undefined,
+      lens: activeLens,
     });
     setMobileSheetOpen(false);
   }, [draft, pushFilters]);
@@ -1272,7 +1300,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
     setTargetYear(null);
     setOptimisticParams({});
     startTransition(() => {
-      router.push("/explore", { scroll: false });
+      router.push("/explore/advanced", { scroll: false });
     });
   }, [router]);
 
@@ -1370,6 +1398,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
       keyword: p.keyword?.trim() || undefined,
       collectionPreset,
       lens: activeLens,
+      trendingWindow: isTrendingWindow,
       hideWatched,
       hideFavorites,
       hideWatchLater,
@@ -1496,6 +1525,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
           keyword: p.keyword?.trim() || undefined,
           collectionPreset,
           lens: activeLens,
+          trendingWindow: isTrendingWindow,
           hideWatched,
           hideFavorites,
           hideWatchLater,
@@ -1537,6 +1567,40 @@ export default function BrowseClient(props: ExploreSearchParams) {
       setLoadingMore(false);
     }
   };
+
+  // Automatic Infinite Scroll via IntersectionObserver (when enabled in Preferences)
+  useEffect(() => {
+    if (
+      !infiniteScrollEnabled ||
+      loading ||
+      loadingMore ||
+      films.length === 0 ||
+      streamedPage >= totalPages
+    ) {
+      return;
+    }
+    const el = loadMoreTriggerRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void handleLoadNextBatch();
+        }
+      },
+      { rootMargin: "0px 0px 650px 0px" },
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [
+    infiniteScrollEnabled,
+    loading,
+    loadingMore,
+    films.length,
+    streamedPage,
+    totalPages,
+  ]);
 
   const preparedCountries = useMemo(() => {
     return countries
@@ -1760,7 +1824,14 @@ export default function BrowseClient(props: ExploreSearchParams) {
     });
   };
 
-  // Build active applied filter chips
+  // Build active applied filter chips (excluding built-in Smart Lens baseline parameters so lenses feel native)
+  const lensBaseGenres = useMemo(
+    () =>
+      activeLensObj?.params.genres
+        ? resolveGenreTokensFromList(activeLensObj.params.genres, genres)
+        : [],
+    [activeLensObj, genres],
+  );
   const activeFilterTags: {
     label: string;
     isNegative?: boolean;
@@ -1768,6 +1839,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
   }[] = [];
 
   for (const gId of resolvedIncludeGenres) {
+    if (lensBaseGenres.includes(gId)) continue;
     const g = genres.find((item) => item.id === gId);
     const gLabel = g
       ? translateGenre(g.genre, autoTranslate) || g.genre
@@ -1829,7 +1901,11 @@ export default function BrowseClient(props: ExploreSearchParams) {
     });
   }
 
-  if (ratingFrom !== undefined || ratingTo !== undefined) {
+  const isLensBaseRating =
+    activeLensObj &&
+    String(ratingFrom ?? "") === (activeLensObj.params.ratingFrom ?? "") &&
+    String(ratingTo ?? "") === (activeLensObj.params.ratingTo ?? "");
+  if ((ratingFrom !== undefined || ratingTo !== undefined) && !isLensBaseRating) {
     activeFilterTags.push({
       label: `Rating ${ratingFrom ?? 0}–${ratingTo ?? 10}${
         ratingSource !== "AUTO" ? ` (${ratingSource})` : ""
@@ -1839,21 +1915,29 @@ export default function BrowseClient(props: ExploreSearchParams) {
     });
   }
 
-  if (minVotes) {
+  const isLensBaseVotes =
+    activeLensObj && String(minVotes ?? "") === (activeLensObj.params.minVotes ?? "");
+  if (minVotes && !isLensBaseVotes) {
     activeFilterTags.push({
       label: `${formatVotesCompact(minVotes)}+ Votes`,
       onClear: () => pushFilters({ minVotes: undefined }),
     });
   }
 
-  if (requireImdb) {
+  const isLensBaseImdb =
+    activeLensObj && (requireImdb ? "1" : "") === (activeLensObj.params.requireImdb ?? "");
+  if (requireImdb && !isLensBaseImdb) {
     activeFilterTags.push({
       label: "IMDb Rated",
       onClear: () => pushFilters({ requireImdb: undefined }),
     });
   }
 
-  if (yearFrom !== undefined || yearTo !== undefined) {
+  const isLensBaseYear =
+    activeLensObj &&
+    String(yearFrom ?? "") === (activeLensObj.params.yearFrom ?? "") &&
+    String(yearTo ?? "") === (activeLensObj.params.yearTo ?? "");
+  if ((yearFrom !== undefined || yearTo !== undefined) && !isLensBaseYear) {
     activeFilterTags.push({
       label: `Years ${yearFrom ?? "Any"}–${yearTo ?? "Now"}`,
       onClear: () => pushFilters({ yearFrom: undefined, yearTo: undefined }),
@@ -1908,7 +1992,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
     });
   }
 
-  if (collectionPreset) {
+  const isLensBaseCollection =
+    activeLensObj && collectionPreset === activeLensObj.params.collection;
+  if (collectionPreset && !isLensBaseCollection) {
     const colLabel =
       COLLECTION_PRESETS.find((c) => c.value === collectionPreset)?.label ||
       collectionPreset;
@@ -1918,7 +2004,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
     });
   }
 
-  if (hideWatched) {
+  const isLensBaseHideWatched =
+    activeLensObj && (hideWatched ? "1" : "") === (activeLensObj.params.hideWatched ?? "");
+  if (hideWatched && !isLensBaseHideWatched) {
     activeFilterTags.push({
       label: "Hide Watched",
       onClear: () => pushFilters({ hideWatched: undefined }),
@@ -2272,6 +2360,9 @@ export default function BrowseClient(props: ExploreSearchParams) {
                               ...d,
                               yearFrom: dec.from ? String(dec.from) : "",
                               yearTo: dec.to ? String(dec.to) : "",
+                              ...(dec.from && dec.from > CURRENT_YEAR
+                                ? { minVotes: "", requireImdb: false }
+                                : {}),
                             },
                       )
                     }
@@ -2372,33 +2463,37 @@ export default function BrowseClient(props: ExploreSearchParams) {
               })}
             </div>
 
-            <p className="text-[11px] font-bold uppercase tracking-[1px] text-[var(--text-muted)] mb-2">
-              Series Completion Status
-            </p>
-            <div className="flex gap-1.5 flex-wrap">
-              {(
-                [
-                  { id: "ALL", label: "All" },
-                  { id: "COMPLETED", label: "Completed" },
-                  { id: "ONGOING", label: "Ongoing" },
-                ] as { id: SeriesStatusFilter; label: string }[]
-              ).map((st) => (
-                <button
-                  key={st.id}
-                  type="button"
-                  onClick={() =>
-                    setDraft((d) => ({ ...d, seriesStatus: st.id }))
-                  }
-                  className={`px-2.5 py-1 rounded-[6px] text-[11px] font-semibold border cursor-pointer ${
-                    draft.seriesStatus === st.id
-                      ? "bg-[var(--accent)] border-[var(--accent)] text-white"
-                      : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
-                  }`}
-                >
-                  {st.label}
-                </button>
-              ))}
-            </div>
+            {type !== "FILM" && (
+              <>
+                <p className="text-[11px] font-bold uppercase tracking-[1px] text-[var(--text-muted)] mb-2">
+                  Series Completion Status
+                </p>
+                <div className="flex gap-1.5 flex-wrap">
+                  {(
+                    [
+                      { id: "ALL", label: "All" },
+                      { id: "COMPLETED", label: "Completed" },
+                      { id: "ONGOING", label: "Ongoing" },
+                    ] as { id: SeriesStatusFilter; label: string }[]
+                  ).map((st) => (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() =>
+                        setDraft((d) => ({ ...d, seriesStatus: st.id }))
+                      }
+                      className={`px-2.5 py-1 rounded-[6px] text-[11px] font-semibold border cursor-pointer ${
+                        draft.seriesStatus === st.id
+                          ? "bg-[var(--accent)] border-[var(--accent)] text-white"
+                          : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
+                      }`}
+                    >
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -2485,12 +2580,18 @@ export default function BrowseClient(props: ExploreSearchParams) {
 
   return (
     <PageContainer>
-      {/* Clean, Uncluttered Explore Header */}
+      {/* Advanced Explore Studio Header */}
       <PageHeader
-        title="EXPLORE"
+        title="ADVANCED EXPLORE"
         className="mb-3.5 sm:mb-6"
         rightSlot={
           <div className="flex items-center gap-2">
+            <Link
+              href="/explore"
+              className="btn btn-ghost py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] no-underline"
+            >
+              <span>← Simple Explore</span>
+            </Link>
             {activeLens === "FOR_YOU" && (
               <button
                 type="button"
@@ -2580,7 +2681,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                 }}
                 className={`flex-shrink-0 px-3 py-2 rounded-[10px] border text-left transition-all cursor-pointer flex items-center gap-2 active:scale-95 ${
                   isSelected
-                    ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white shadow-[0_0_18px_rgba(229,9,20,0.25)]"
+                    ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
                     : "bg-[var(--bg-card)] border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-hover)] hover:text-white"
                 }`}
               >
@@ -2615,7 +2716,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                     key={preset.id}
                     className={`flex-shrink-0 inline-flex items-center rounded-[10px] overflow-hidden border transition-all ${
                       selected
-                        ? "bg-[var(--accent-dim)] border-[var(--accent)] shadow-[0_0_18px_rgba(229,9,20,0.28)]"
+                        ? "bg-[var(--accent-dim)] border-[var(--accent)]"
                         : "bg-[var(--bg-card)] border-[var(--border)] hover:border-[var(--border-hover)]"
                     }`}
                   >
@@ -2686,7 +2787,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                 }}
                 className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
                   isSelected
-                    ? "bg-[var(--accent)] border-[var(--accent)] text-white shadow-[0_0_12px_rgba(229,9,20,0.3)]"
+                    ? "bg-[var(--accent)] border-[var(--accent)] text-white"
                     : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:text-white"
                 }`}
               >
@@ -2755,10 +2856,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
                 }
                 pushFilters({
                   order:
-                    nextOrd === "NUM_VOTE"
-                      ? prefOrder !== "NUM_VOTE"
-                        ? "NUM_VOTE"
-                        : undefined
+                    nextOrd === (lensDefaultOrder || prefOrder || "TRENDING")
+                      ? undefined
                       : nextOrd,
                 });
               }}
@@ -3170,7 +3269,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
 
       {/* ── LAYER 4: Unified Load More Stream Control (Bug #1 Fixed: Redundant <Pagination /> removed) ── */}
       {!loading && films.length > 0 && streamedPage < totalPages && (
-        <div className="mt-8 flex justify-center">
+        <div ref={loadMoreTriggerRef} className="mt-8 flex justify-center">
           <button
             type="button"
             onClick={handleLoadNextBatch}
@@ -3421,7 +3520,7 @@ function QuickPeekModal({
                 fill={isFav ? "var(--accent)" : "none"}
                 stroke={isFav ? "var(--accent)" : "currentColor"}
               />
-              {isFav ? "In Favorites" : "Favorite"}
+              <span className="sm:hidden">{isFav ? "Saved" : "Fav"}</span><span className="hidden sm:inline">{isFav ? "In Favorites" : "Favorite"}</span>
             </button>
             <button
               type="button"
@@ -3443,7 +3542,7 @@ function QuickPeekModal({
               className="btn btn-ghost py-2 px-3 text-[12px]"
             >
               <Clock size={13} />
-              {isWL ? "In Watch Later" : "Watch Later"}
+              <span className="sm:hidden">{isWL ? "Listed" : "Later"}</span><span className="hidden sm:inline">{isWL ? "In Watch Later" : "Watch Later"}</span>
             </button>
           </div>
         </div>

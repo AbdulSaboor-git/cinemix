@@ -311,7 +311,7 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
           {/* Type badge */}
           {currentFilm.type && (
             <div className="flex items-center gap-2 mb-2.5 sm:mb-3">
-              <div className="inline-flex items-center gap-[5px] bg-[var(--accent)] rounded-[4px] px-2.5 py-[3px] text-[10px] sm:text-[11px] font-bold tracking-[1.2px] uppercase text-white shadow-[0_2px_12px_rgba(229,9,20,0.45)]">
+              <div className="inline-flex items-center gap-[5px] bg-[var(--accent)] rounded-[4px] px-2.5 py-[3px] text-[10px] sm:text-[11px] font-bold tracking-[1.2px] uppercase text-white">
                 {currentFilm.type === "FILM" ? (
                   <>
                     <FilmIcon size={12} />
@@ -516,7 +516,7 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
                   aria-label={`Slide ${idx + 1}`}
                   className={`h-1.5 rounded-full border-none cursor-pointer transition-all duration-300 p-0 ${
                     active
-                      ? "w-7 bg-[var(--accent)] shadow-[0_0_8px_var(--accent)]"
+                      ? "w-7 bg-[var(--accent)]"
                       : "w-2 bg-white/35 hover:bg-white/60"
                   }`}
                 />

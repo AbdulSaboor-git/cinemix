@@ -14,6 +14,7 @@ import {
   Film as FilmIcon,
   PlayCircleIcon,
   CalendarIcon,
+  Share2,
 } from "lucide-react";
 import {
   getFilm,
@@ -853,6 +854,34 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
               >
                 <Clock size={14} stroke={isWL ? "#60a5fa" : "currentColor"} />
               </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  const shareUrl = window.location.href;
+                  if (navigator.share) {
+                    try {
+                      await navigator.share({
+                        title: `Watching ${name} — CineMix`,
+                        url: shareUrl,
+                      });
+                      return;
+                    } catch {
+                      // fallback
+                    }
+                  }
+                  navigator.clipboard?.writeText(shareUrl);
+                  toast.success("Stream link copied", {
+                    description: name,
+                    posterUrl: posterThumb,
+                  });
+                }}
+                aria-label="Share stream"
+                title="Share stream"
+                className="btn btn-ghost h-8 w-8 p-0 inline-flex items-center justify-center rounded-[9px] transition-all active:scale-90"
+              >
+                <Share2 size={14} />
+              </button>
             </div>
           </div>
 
@@ -870,7 +899,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                   onClick={() => handleSelectKdbServer(srv)}
                   className={`flex-shrink-0 px-5 py-1 rounded-[7px] text-[12px] font-semibold cursor-pointer transition-all duration-150 inline-flex items-center gap-1.5 border ${
                     srv.active
-                      ? "bg-[var(--accent)] text-white border-[var(--accent)] shadow-[0_0_14px_rgba(229,9,20,0.35)]"
+                      ? "bg-[var(--accent)] text-white border-[var(--accent)]"
                       : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border-[var(--border)] hover:border-[var(--border-hover)] hover:text-white"
                   }`}
                 >
@@ -951,7 +980,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                       onClick={() => handleSelectKdbServer(srv)}
                       className={`h-8 rounded-[8px] text-[12px] font-semibold cursor-pointer transition-all duration-150 flex items-center justify-center border active:scale-95 ${
                         srv.active
-                          ? "bg-[var(--accent)] text-white border-[var(--accent)] shadow-[0_0_12px_rgba(229,9,20,0.4)]"
+                          ? "bg-[var(--accent)] text-white border-[var(--accent)]"
                           : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border-[var(--border)] hover:text-white"
                       }`}
                     >
@@ -969,7 +998,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                   onClick={() => handleSelectKdbServer(srv)}
                   className={`h-8 flex items-center justify-center gap-1 rounded-[8px] text-[12px] font-semibold cursor-pointer transition-all duration-150 border active:scale-95 ${
                     srv.active
-                      ? "bg-[var(--accent)] text-white border-[var(--accent)] shadow-[0_0_12px_rgba(229,9,20,0.4)]"
+                      ? "bg-[var(--accent)] text-white border-[var(--accent)]"
                       : "bg-[var(--bg-elevated)] text-[var(--text-dim)] border-[var(--border)] hover:text-white"
                   }`}
                 >

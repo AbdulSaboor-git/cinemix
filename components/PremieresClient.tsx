@@ -153,9 +153,11 @@ function getValidPremieresSnapshot(
 export default function PremieresClient({
   year: yearParam,
   month: monthParam,
+  sort: sortParam,
 }: {
   year?: string;
   month?: string;
+  sort?: string;
 }) {
   const router = useRouter();
   const autoTranslate = useAutoTranslate();
@@ -177,7 +179,39 @@ export default function PremieresClient({
   const [monthIdx, setMonthIdx] = useState(resolvedMonthIdx);
   const [films, setFilms] = useState<Film[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [sortBy, setSortBy] = useState<"DATE" | "RATING">("DATE");
+  const [sortBy, setSortBy] = useState<"DATE" | "RATING">(() => {
+    if (sortParam === "RATING" || sortParam === "DATE") return sortParam;
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("cinemix_premieres_sort");
+      if (saved === "RATING" || saved === "DATE") return saved;
+    }
+    return "DATE";
+  });
+
+  // Restore saved sort & date from storage on client mount if not explicitly set in URL
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!sortParam) {
+      const savedSort = localStorage.getItem("cinemix_premieres_sort");
+      if (savedSort === "RATING" || savedSort === "DATE") {
+        setSortBy(savedSort);
+      }
+    }
+    if (!yearParam && !monthParam) {
+      try {
+        const savedDate = sessionStorage.getItem("cinemix_premieres_date");
+        if (savedDate) {
+          const parsed = JSON.parse(savedDate) as { y?: number; m?: number };
+          if (typeof parsed.y === "number" && typeof parsed.m === "number") {
+            setYear(parsed.y);
+            setMonthIdx(clamp(parsed.m, 0, 11));
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [yearParam, monthParam, sortParam]);
   const [regionMode, setRegionMode] = useState<string>("GLOBAL_FIRST");
   const [parentalModalFilm, setParentalModalFilm] = useState<Film | null>(null);
 
@@ -259,20 +293,34 @@ export default function PremieresClient({
   }, [year, monthIdx, keyEpoch]);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("cinemix_premieres_sort", sortBy);
+        sessionStorage.setItem(
+          "cinemix_premieres_date",
+          JSON.stringify({ y: year, m: monthIdx }),
+        );
+      } catch {
+        // ignore
+      }
+    }
     const targetMonth = MONTHS[monthIdx];
+    const sortQs = sortBy === "RATING" ? "&sort=RATING" : "";
     if (
       didMountRef.current &&
       (String(year) !== yearParam ||
-        targetMonth !== (monthParam || "").toUpperCase())
+        targetMonth !== (monthParam || "").toUpperCase() ||
+        sortBy !== (sortParam || "DATE"))
     ) {
       startTransition(() => {
-        router.replace(`/premieres?year=${year}&month=${targetMonth}`, {
-          scroll: false,
-        });
+        router.replace(
+          `/premieres?year=${year}&month=${targetMonth}${sortQs}`,
+          { scroll: false },
+        );
       });
     }
     didMountRef.current = true;
-  }, [year, monthIdx, router, yearParam, monthParam]);
+  }, [year, monthIdx, sortBy, router, yearParam, monthParam, sortParam]);
 
   // Silently prefetch adjacent months (next & prev) in low priority after idle
   useEffect(() => {

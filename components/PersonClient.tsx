@@ -178,12 +178,97 @@ export default function PersonClient({ personId }: { personId: string }) {
   const [filmPage, setFilmPage] = useState(1);
   const [showAllFilms, setShowAllFilms] = useState(false);
 
-  // Filmography Controls
+  // Filmography Controls (persisted across refresh & back-navigation)
   const [mainRolesOnly, setMainRolesOnly] = useState(false);
   const [creditSearch, setCreditSearch] = useState("");
   const [creditSort, setCreditSort] = useState<CreditSortMode>("RATING");
   const [creditMediaFilter, setCreditMediaFilter] =
     useState<CreditMediaFilter>("ALL");
+  const hydratedPersonStateRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || isNaN(id)) return;
+    hydratedPersonStateRef.current = false;
+    try {
+      const globalSort = localStorage.getItem(
+        "cinemix_person_credit_sort",
+      ) as CreditSortMode | null;
+      if (
+        globalSort &&
+        ["RATING", "YEAR_DESC", "YEAR_ASC", "VOTES", "TITLE"].includes(
+          globalSort,
+        )
+      ) {
+        setCreditSort(globalSort);
+      }
+      const raw = sessionStorage.getItem(`cinemix_person_state_${id}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as {
+          activeProf?: string | null;
+          filmPage?: number;
+          showAllFilms?: boolean;
+          mainRolesOnly?: boolean;
+          creditSearch?: string;
+          creditSort?: CreditSortMode;
+          creditMediaFilter?: CreditMediaFilter;
+        };
+        if (parsed.activeProf !== undefined) setActiveProf(parsed.activeProf);
+        if (typeof parsed.filmPage === "number") setFilmPage(parsed.filmPage);
+        if (typeof parsed.showAllFilms === "boolean") {
+          setShowAllFilms(parsed.showAllFilms);
+        }
+        if (typeof parsed.mainRolesOnly === "boolean") {
+          setMainRolesOnly(parsed.mainRolesOnly);
+        }
+        if (typeof parsed.creditSearch === "string") {
+          setCreditSearch(parsed.creditSearch);
+        }
+        if (parsed.creditSort) setCreditSort(parsed.creditSort);
+        if (parsed.creditMediaFilter) {
+          setCreditMediaFilter(parsed.creditMediaFilter);
+        }
+      }
+    } catch {
+      // ignore
+    }
+    hydratedPersonStateRef.current = true;
+  }, [id]);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      isNaN(id) ||
+      !hydratedPersonStateRef.current
+    ) {
+      return;
+    }
+    try {
+      localStorage.setItem("cinemix_person_credit_sort", creditSort);
+      sessionStorage.setItem(
+        `cinemix_person_state_${id}`,
+        JSON.stringify({
+          activeProf,
+          filmPage,
+          showAllFilms,
+          mainRolesOnly,
+          creditSearch,
+          creditSort,
+          creditMediaFilter,
+        }),
+      );
+    } catch {
+      // ignore
+    }
+  }, [
+    id,
+    activeProf,
+    filmPage,
+    showAllFilms,
+    mainRolesOnly,
+    creditSearch,
+    creditSort,
+    creditMediaFilter,
+  ]);
 
   // Enriched film metadata map (filmId -> CompactFilmMeta)
   const [metaMap, setMetaMap] = useState<Record<number, CompactFilmMeta>>({});

@@ -7,10 +7,10 @@ export const metadata: Metadata = {
 };
 
 interface Props {
-  searchParams: Promise<{ year?: string; month?: string }>;
+  searchParams: Promise<{ year?: string; month?: string; sort?: string }>;
 }
 
 export default async function PremieresPage({ searchParams }: Props) {
   const p = await searchParams;
-  return <PremieresClient year={p.year} month={p.month} />;
+  return <PremieresClient year={p.year} month={p.month} sort={p.sort} />;
 }

@@ -54,9 +54,7 @@ function Toggle({
       aria-checked={checked}
       onClick={() => onChange(!checked)}
       className={`relative flex-shrink-0 cursor-pointer rounded-full border-none outline-none transition-[background] duration-200 ${
-        checked
-          ? "bg-[var(--accent)] shadow-[0_0_10px_var(--accent-glow)]"
-          : "bg-[var(--surface)]"
+        checked ? "bg-[var(--accent)]" : "bg-[var(--surface)]"
       }`}
       style={{ width: 44, height: 24 }}
     >
@@ -384,7 +382,7 @@ export default function PreferencesClient() {
             </h1>
             {unsaved && (
               <span className="hidden sm:inline-flex items-center gap-[5px] bg-[rgba(229,9,20,0.1)] border border-[rgba(229,9,20,0.25)] rounded-full px-[10px] py-[3px] text-[11px] text-[var(--accent)] font-medium">
-                <span className="w-[5px] h-[5px] rounded-full bg-[var(--accent)] shadow-[0_0_6px_var(--accent-glow)]" />
+                <span className="w-[5px] h-[5px] rounded-full bg-[var(--accent)]" />
                 Unsaved
               </span>
             )}
@@ -404,10 +402,10 @@ export default function PreferencesClient() {
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className={`bg-[var(--accent)] border-none rounded-[var(--radius)] px-4 sm:px-5 py-[7px] text-[12px] sm:text-[13px] font-bold text-white flex items-center gap-[6px] transition-all duration-150 shadow-[0_0_20px_var(--accent-glow)] ${
+              className={`bg-[var(--accent)] border-none rounded-[var(--radius)] px-4 sm:px-5 py-[7px] text-[12px] sm:text-[13px] font-bold text-white flex items-center gap-[6px] transition-all duration-150 ${
                 saving
                   ? "opacity-70 cursor-not-allowed"
-                  : "cursor-pointer hover:opacity-90 hover:shadow-[0_0_32px_var(--accent-glow)]"
+                  : "cursor-pointer hover:opacity-90"
               }`}
             >
               {saving ? (
@@ -433,7 +431,7 @@ export default function PreferencesClient() {
             <KeyRound size={15} strokeWidth={2} />
           </SectionIcon>
           <div className="flex-1 min-w-0">
-            <SectionTitle>Keys Mangement</SectionTitle>
+            <SectionTitle>Keys Management</SectionTitle>
             <p className={`${hint} !mt-0`}>
               Contact Cinemix team to get your key(s). Each key has a daily
               limit. More than one key can be added. Keys rotate automatically
@@ -678,30 +676,53 @@ export default function PreferencesClient() {
               }
             />
           </div>
+          <div className={row}>
+            <div className="min-w-0 flex-1">
+              <p className={lbl}>Auto-load on scroll (Explore)</p>
+              <p className={hint}>
+                Automatically fetch the next batch of titles when scrolling down
+                on Explore &amp; Advanced Explore.
+              </p>
+            </div>
+            <Toggle
+              checked={prefs.infiniteScrollEnabled ?? true}
+              onChange={(v) =>
+                updatePref((p) => ({ ...p, infiniteScrollEnabled: v }))
+              }
+            />
+          </div>
 
           <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
             <p className={`${lbl} mb-1`}>Default Explore sort</p>
+            <p className={`${hint} mb-2.5`}>
+              Trending ranks recent releases from the past year by a composite
+              of IMDb, Kinopoisk, Critics scores, and vote velocity.
+            </p>
             <div className="flex gap-[5px] sm:gap-[6px] flex-wrap">
-              {(["NUM_VOTE", "RATING", "YEAR"] as const).map((o) => {
-                const label =
-                  o === "RATING"
-                    ? "Top Rated"
-                    : o === "NUM_VOTE"
-                      ? "Most Popular"
-                      : "Newest";
-                return (
-                  <button
-                    key={o}
-                    type="button"
-                    onClick={() =>
-                      updatePref((p) => ({ ...p, defaultExploreOrder: o }))
-                    }
-                    className={optBtn(prefs.defaultExploreOrder === o)}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+              {(["TRENDING", "NUM_VOTE", "RATING", "YEAR"] as const).map(
+                (o) => {
+                  const label =
+                    o === "TRENDING"
+                      ? "Trending"
+                      : o === "RATING"
+                        ? "Top Rated"
+                        : o === "NUM_VOTE"
+                          ? "Most Popular"
+                          : "Newest";
+                  return (
+                    <button
+                      key={o}
+                      type="button"
+                      onClick={() =>
+                        updatePref((p) => ({ ...p, defaultExploreOrder: o }))
+                      }
+                      className={optBtn(prefs.defaultExploreOrder === o)}
+                    >
+                      {label}
+                    </button>
+                  );
+                },
+              )}
             </div>
           </div>
 

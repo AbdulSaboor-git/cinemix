@@ -1,6 +1,8 @@
-import BrowseClient from "@/components/BrowseClient";
+import SimpleExploreClient from "@/components/SimpleExploreClient";
 
 export interface ExploreSearchParams {
+  q?: string;
+  feed?: string;
   type?: string;
   excludeTypes?: string;
   order?: string;
@@ -29,6 +31,7 @@ export interface ExploreSearchParams {
   hideWatched?: string;
   hideFavorites?: string;
   hideWatchLater?: string;
+  rated?: string;
   view?: string;
 }
 
@@ -38,5 +41,5 @@ interface Props {
 
 export default async function BrowsePage({ searchParams }: Props) {
   const p = await searchParams;
-  return <BrowseClient {...p} />;
+  return <SimpleExploreClient {...p} />;
 }

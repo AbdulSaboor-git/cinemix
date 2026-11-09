@@ -29,7 +29,11 @@ import {
   ListType,
   RatedFilmEntry,
 } from "@/lib/userLists";
-import { getSessionName, FilmListEntry } from "@/lib/session";
+import {
+  getSessionName,
+  FilmListEntry,
+  UserListSortOption,
+} from "@/lib/session";
 import { formatDateSafe, translateGenre } from "@/lib/translate";
 import { useAutoTranslate, useFilmTitle } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
@@ -41,7 +45,12 @@ import FilmCard, {
   FilmLongPressPortal,
   resolveRating,
 } from "@/components/FilmCard";
-import { hasApiKeys, hasVerifiedApiKey } from "@/lib/preferences";
+import {
+  hasApiKeys,
+  hasVerifiedApiKey,
+  getListSortPreference,
+  saveListSortPreference,
+} from "@/lib/preferences";
 import { verifyApiKeys } from "@/lib/kinopoisk";
 import BackButton from "@/components/BackButton";
 import PageContainer from "@/components/ui/PageContainer";
@@ -418,13 +427,14 @@ function UserListRow({
   );
 }
 
-type SortOption =
-  | "ADDED"
-  | "USER_RATING_DESC"
-  | "USER_RATING_ASC"
-  | "RATING"
-  | "YEAR"
-  | "TITLE";
+const VALID_SORT_OPTIONS = new Set<UserListSortOption>([
+  "ADDED",
+  "USER_RATING_DESC",
+  "USER_RATING_ASC",
+  "RATING",
+  "YEAR",
+  "TITLE",
+]);
 
 export default function UserListPage({ type }: { type: ListType }) {
   const cfg = CONFIG[type];
@@ -436,11 +446,94 @@ export default function UserListPage({ type }: { type: ListType }) {
   const [userName, setUserName] = useState("");
   const [query, setQuery] = useState("");
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<SortOption>("ADDED");
+  const [sortBy, setSortBy] = useState<UserListSortOption>(() =>
+    getListSortPreference(type),
+  );
   const [viewMode] = useState<"LIST" | "GRID">("LIST");
   const [editingFilm, setEditingFilm] = useState<RateFilmTarget | null>(null);
 
   const { toast } = useToast();
+
+  // Restore saved sort & search/tag filter on mount or type change
+  useEffect(() => {
+    const savedPrefSort = getListSortPreference(type);
+    let initialSort = savedPrefSort;
+    let initialQuery = "";
+    let initialTag: string | null = null;
+
+    if (typeof window !== "undefined") {
+      try {
+        const sp = new URLSearchParams(window.location.search);
+        const urlSort = sp.get("sort") as UserListSortOption | null;
+        if (urlSort && VALID_SORT_OPTIONS.has(urlSort)) {
+          initialSort = urlSort;
+        }
+        const rawSession = sessionStorage.getItem(
+          `cinemix_userlist_state_${type}`,
+        );
+        if (rawSession) {
+          const parsed = JSON.parse(rawSession) as {
+            sort?: UserListSortOption;
+            query?: string;
+            tag?: string | null;
+          };
+          if (!urlSort && parsed.sort && VALID_SORT_OPTIONS.has(parsed.sort)) {
+            initialSort = parsed.sort;
+          }
+          if (typeof parsed.query === "string") initialQuery = parsed.query;
+          if (typeof parsed.tag === "string") initialTag = parsed.tag;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (
+      type !== "ratings" &&
+      (initialSort === "USER_RATING_DESC" || initialSort === "USER_RATING_ASC")
+    ) {
+      initialSort = "ADDED";
+    }
+
+    setSortBy(initialSort);
+    setQuery(initialQuery);
+    setActiveTagFilter(initialTag);
+  }, [type]);
+
+  // Persist sort & filter changes to session preferences + sessionStorage + URL
+  const handleSortChange = (nextSort: UserListSortOption) => {
+    setSortBy(nextSort);
+    saveListSortPreference(type, nextSort);
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.setItem(
+          `cinemix_userlist_state_${type}`,
+          JSON.stringify({ sort: nextSort, query, tag: activeTagFilter }),
+        );
+        const url = new URL(window.location.href);
+        if (nextSort === "ADDED") {
+          url.searchParams.delete("sort");
+        } else {
+          url.searchParams.set("sort", nextSort);
+        }
+        window.history.replaceState(window.history.state, "", url.toString());
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.setItem(
+        `cinemix_userlist_state_${type}`,
+        JSON.stringify({ sort: sortBy, query, tag: activeTagFilter }),
+      );
+    } catch {
+      // ignore
+    }
+  }, [type, sortBy, query, activeTagFilter]);
 
   useEffect(() => {
     let mounted = true;
@@ -623,44 +716,31 @@ export default function UserListPage({ type }: { type: ListType }) {
         </div>
       </div>
 
-      {/* Minimal Single-Line Taste Summary & Tag Filter Bar */}
-      {/* {type === "ratings" && tasteStats && tasteStats.count > 0 && (
-        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] px-3.5 py-2.5 mb-4 flex items-center justify-between gap-3 overflow-x-auto scrollbar-none">
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <span className="text-[11px] text-[var(--text-muted)] uppercase tracking-[0.5px]">
-              Avg
-            </span>
-            <span className="font-display text-[19px] text-[var(--user-rating)] leading-none">
-              ★ {tasteStats.avgRating.toFixed(1)}
-            </span>
-          </div>
-
-          {tasteStats.topTags.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <Sparkles size={11} className="text-[var(--user-rating)]" />
-              {tasteStats.topTags.map((t) => {
-                const active = activeTagFilter === t.tag;
-                return (
-                  <button
-                    key={t.tag}
-                    type="button"
-                    onClick={() => setActiveTagFilter(active ? null : t.tag)}
-                    className={`text-[10px] sm:text-[11px] font-medium px-2.5 py-0.5 rounded-full border cursor-pointer transition-colors whitespace-nowrap ${
-                      active
-                        ? "bg-[var(--user-rating)] text-[#080808] border-[var(--user-rating)] font-bold"
-                        : "bg-[var(--user-rating-bg)] border-[var(--user-rating-border)] text-[var(--user-rating)] hover:bg-[var(--user-rating-bg)]"
-                    }`}
-                  >
-                    {t.tag} ({t.count})
-                  </button>
-                );
-              })}
-            </div>
-          )}
+      {/* Minimal Single-Line Taste Summary & Tag Filter Bar on My Ratings */}
+      {type === "ratings" && tasteStats && tasteStats.topTags.length > 0 && (
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] px-3.5 py-2 mb-4 flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+          <Sparkles size={11} className="text-[var(--user-rating)] shrink-0" />
+          {tasteStats.topTags.map((t) => {
+            const active = activeTagFilter === t.tag;
+            return (
+              <button
+                key={t.tag}
+                type="button"
+                onClick={() => setActiveTagFilter(active ? null : t.tag)}
+                className={`text-[10px] sm:text-[11px] font-medium px-2.5 py-0.5 rounded-full border cursor-pointer transition-colors whitespace-nowrap ${
+                  active
+                    ? "bg-[var(--user-rating)] text-[#080808] border-[var(--user-rating)] font-bold"
+                    : "bg-[var(--user-rating-bg)] border-[var(--user-rating-border)] text-[var(--user-rating)]"
+                }`}
+              >
+                {t.tag} ({t.count})
+              </button>
+            );
+          })}
         </div>
-      )} */}
+      )}
 
-      {/* Toolbar: Search + Sort */}
+      {/* Toolbar: Search + Persistent Sort */}
       {entries.length > 0 && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-5">
           <div className="relative flex-1">
@@ -696,8 +776,11 @@ export default function UserListPage({ type }: { type: ListType }) {
           <div className="flex items-center gap-2">
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as SortOption)}
+              onChange={(e) =>
+                handleSortChange(e.target.value as UserListSortOption)
+              }
               className="select text-[12px] py-2 px-3 rounded-[8px] flex-1 sm:flex-initial"
+              aria-label={`Sort ${cfg.label}`}
             >
               <option value="ADDED">
                 {type === "ratings" ? "Recently Rated" : "Recently Added"}
@@ -728,7 +811,7 @@ export default function UserListPage({ type }: { type: ListType }) {
           title={`No ${cfg.label} Yet`}
           description={cfg.emptyMsg}
           actionLabel="Browse Films"
-          actionHref="/"
+          actionHref="/explore"
         />
       ) : viewMode === "GRID" ? (
         <div className="film-grid">

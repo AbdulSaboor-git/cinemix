@@ -1156,6 +1156,7 @@ export interface DiscoverFilmsOptions {
   keyword?: string;
   collectionPreset?: CollectionType;
   lens?: string;
+  trendingWindow?: boolean;
   hideWatched?: boolean;
   hideFavorites?: boolean;
   hideWatchLater?: boolean;
@@ -1193,6 +1194,132 @@ function getEffectiveVotes(film: Film): number {
   const kpVotes = film.ratingKinopoiskVoteCount ?? 0;
   const imdbVotes = film.ratingImdbVoteCount ?? 0;
   return Math.max(kpVotes, imdbVotes);
+}
+
+/**
+ * Computes a professional composite Trending score combining:
+ * 1. Multi-source weighted rating (IMDb 50%, Kinopoisk 35%, Critics 15%)
+ * 2. IMDb-style Bayesian vote credibility damping (prevents 15-vote flukes)
+ * 3. Vote velocity & logarithmic popularity momentum
+ * 4. Smooth recency decay across the rolling past-year window
+ * 5. Real-time live-popularity collection boost (TOP_POPULAR_ALL / POPULAR_SERIES)
+ */
+export function computeTrendingScore(
+  film: Film,
+  livePopularIds?: Set<number>,
+  ratingSource: RatingSource = "AUTO",
+): number {
+  const id = film.kinopoiskId ?? film.filmId ?? 0;
+  const now = new Date();
+  const curYear = now.getFullYear();
+
+  const imdb =
+    typeof film.ratingImdb === "number" && film.ratingImdb > 0
+      ? film.ratingImdb
+      : undefined;
+  const kp =
+    typeof film.ratingKinopoisk === "number" && film.ratingKinopoisk > 0
+      ? film.ratingKinopoisk
+      : undefined;
+
+  let critics: number | undefined;
+  if (typeof film.ratingFilmCritics === "number" && film.ratingFilmCritics > 0) {
+    critics =
+      film.ratingFilmCritics > 10
+        ? film.ratingFilmCritics / 10
+        : film.ratingFilmCritics;
+  } else if (
+    typeof film.ratingGoodReview === "number" &&
+    film.ratingGoodReview > 0
+  ) {
+    critics =
+      film.ratingGoodReview > 10
+        ? film.ratingGoodReview / 10
+        : film.ratingGoodReview;
+  }
+
+  let weightedSum = 0;
+  let weightTotal = 0;
+  if (imdb !== undefined) {
+    weightedSum += imdb * 0.5;
+    weightTotal += 0.5;
+  }
+  if (kp !== undefined) {
+    weightedSum += kp * 0.35;
+    weightTotal += 0.35;
+  }
+  if (critics !== undefined) {
+    weightedSum += critics * 0.15;
+    weightTotal += 0.15;
+  }
+
+  let compositeRating =
+    weightTotal > 0
+      ? weightedSum / weightTotal
+      : getEffectiveRating(film, ratingSource);
+
+  if (ratingSource !== "AUTO") {
+    const explicitSourceRating = getEffectiveRating(film, ratingSource);
+    if (explicitSourceRating > 0) {
+      compositeRating = explicitSourceRating * 0.7 + compositeRating * 0.3;
+    }
+  }
+
+  const rawVotes = getEffectiveVotes(film);
+  const reviewProxyVotes = (film.reviewsCount ?? 0) * 45;
+  const criticProxyVotes = (film.ratingFilmCriticsVoteCount ?? 0) * 25;
+  const effectiveVotes = Math.max(rawVotes, reviewProxyVotes, criticProxyVotes);
+
+  if (compositeRating <= 0 && effectiveVotes < 30) {
+    return 0.1;
+  }
+
+  // Bayesian credibility damping (m = 1200 votes, C = 6.7 baseline mean)
+  const m = 1200;
+  const C = 6.7;
+  const safeR = compositeRating > 0 ? compositeRating : C;
+  const bayesianRating =
+    (effectiveVotes / (effectiveVotes + m)) * safeR +
+    (m / (effectiveVotes + m)) * C;
+
+  // Estimate age in months for vote velocity calculation
+  const yr = parseYearNumber(film.year) ?? parseYearNumber(film.startYear) ?? curYear;
+  let monthsOld = 8;
+  if (film.premiereRu) {
+    const pTime = new Date(film.premiereRu).getTime();
+    if (!isNaN(pTime)) {
+      const diffDays = Math.max(7, (now.getTime() - pTime) / DAY_MS);
+      monthsOld = Math.max(0.4, diffDays / 30);
+    }
+  } else if (yr >= curYear) {
+    monthsOld = 3.5;
+  } else if (yr === curYear - 1) {
+    monthsOld = 11;
+  } else {
+    monthsOld = Math.max(18, (curYear - yr) * 12);
+  }
+
+  const voteVelocity = effectiveVotes / monthsOld;
+  const velocityBoost =
+    1 +
+    0.16 * Math.log10(1 + voteVelocity / 150) +
+    0.06 * Math.log10(1 + effectiveVotes / 500);
+
+  // Smooth recency multiplier
+  let recencyMultiplier = 1.0;
+  if (monthsOld <= 2.2) {
+    recencyMultiplier = 1.18;
+  } else if (monthsOld <= 6.5 || yr >= curYear) {
+    recencyMultiplier = 1.1;
+  } else if (yr === curYear - 1) {
+    recencyMultiplier = 1.02;
+  } else {
+    recencyMultiplier = Math.max(0.72, 1.0 - (curYear - 1 - yr) * 0.035);
+  }
+
+  const liveBoost = id > 0 && livePopularIds?.has(id) ? 1.12 : 1.0;
+
+  return bayesianRating * velocityBoost * recencyMultiplier * liveBoost;
 }
 
 function getFilmAgeTier(film: Film): AgeTierFilter | null {
@@ -1247,40 +1374,66 @@ export async function discoverFilms(
     return discoverTasteMatchedFilms(opts, page);
   }
 
-  // 2. Handle "RECENT_RELEASES" / "recent_releases" Smart Lens (Past 90 days already-released titles)
+  // 2. Handle "RECENT_RELEASES" / "recent_releases" Smart Lens (Already-released recent titles, fully sortable & filterable)
   if (
     opts.lens === "RECENT_RELEASES" ||
     opts.lens === "recent_releases"
   ) {
     const curYear = new Date().getFullYear();
-    const [recentPremieresRes, recentPopularRes] = await Promise.allSettled([
-      getRecentReleases("high"),
-      page > 1
-        ? getFilmsByFilter({
-            type:
-              opts.type === "ALL" || !opts.type
-                ? undefined
-                : (opts.type as "FILM" | "TV_SHOW" | "TV_SERIES" | "MINI_SERIES"),
-            yearFrom: curYear - 1,
-            yearTo: curYear,
-            order: "NUM_VOTE",
-            page,
-          })
-        : Promise.resolve({ items: [] as Film[], total: 0, totalPages: 1 }),
-    ]);
+    const baseType =
+      opts.type === "ALL" || !opts.type
+        ? undefined
+        : (opts.type as "FILM" | "TV_SHOW" | "TV_SERIES" | "MINI_SERIES");
+    const primaryGenre = (opts.includeGenres ?? [])[0];
+    const primaryCountry = (opts.includeCountries ?? [])[0];
+
+    const [recentPremieresRes, recentByYearRes, recentByVotesRes] =
+      await Promise.allSettled([
+        page <= 2 && !primaryGenre && !primaryCountry && (!baseType || baseType === "FILM")
+          ? getRecentReleases("high")
+          : Promise.resolve({ items: [] as Film[], total: 0, totalPages: 1 }),
+        getFilmsByFilter({
+          type: baseType,
+          genres: primaryGenre,
+          countries: primaryCountry,
+          yearFrom: curYear - 1,
+          yearTo: curYear,
+          ratingFrom: opts.ratingFrom ?? 5.5,
+          ratingTo: opts.ratingTo,
+          order: "YEAR",
+          page: ((page - 1) % 5) + 1,
+        }),
+        getFilmsByFilter({
+          type: baseType,
+          genres: primaryGenre,
+          countries: primaryCountry,
+          yearFrom: curYear - 1,
+          yearTo: curYear,
+          ratingFrom: opts.ratingFrom ?? 5.8,
+          ratingTo: opts.ratingTo,
+          order: "NUM_VOTE",
+          page: ((page - 1) % 5) + 1,
+        }),
+      ]);
 
     const pool: Film[] = [];
     if (recentPremieresRes.status === "fulfilled") {
       pool.push(...recentPremieresRes.value.items);
     }
-    if (recentPopularRes.status === "fulfilled") {
-      pool.push(...recentPopularRes.value.items);
+    if (recentByYearRes.status === "fulfilled") {
+      pool.push(...recentByYearRes.value.items);
+    }
+    if (recentByVotesRes.status === "fulfilled") {
+      pool.push(...recentByVotesRes.value.items);
     }
 
     const todayStr = new Date().toISOString().slice(0, 10);
-    const nonFuturePool = deduplicateFilms(pool).filter(
-      (f) => !f.premiereRu || f.premiereRu.slice(0, 10) <= todayStr,
-    );
+    const nonFuturePool = deduplicateFilms(pool).filter((f) => {
+      const yr = parseYearNumber(f.year) ?? parseYearNumber(f.startYear);
+      if (yr && yr > curYear) return false;
+      if (f.premiereRu && f.premiereRu.slice(0, 10) > todayStr) return false;
+      return true;
+    });
 
     const filtered = applyClientDiscoveryFilters(
       nonFuturePool,
@@ -1288,18 +1441,36 @@ export async function discoverFilms(
       ratingSource,
     );
 
-    const sliceStart = page === 1 ? 0 : (page - 1) * 24;
-    const pageItems =
-      page === 1
-        ? filtered.slice(0, 24)
-        : filtered.slice(sliceStart, sliceStart + 24).length > 0
-          ? filtered.slice(sliceStart, sliceStart + 24)
-          : filtered.slice(0, 24);
+    // Respect user's selected sort order within Recent Releases scope
+    const sorted =
+      opts.order && opts.order !== "YEAR"
+        ? sortDiscoveryPool(
+            filtered,
+            opts.order,
+            direction,
+            ratingSource,
+            opts.randomSeed,
+          )
+        : [...filtered].sort((a, b) => {
+            const dirMult = direction === "ASC" ? 1 : -1;
+            const dA = a.premiereRu
+              ? new Date(a.premiereRu).getTime() || 0
+              : (a.year ?? a.startYear ?? 0) * 31536000000;
+            const dB = b.premiereRu
+              ? new Date(b.premiereRu).getTime() || 0
+              : (b.year ?? b.startYear ?? 0) * 31536000000;
+            if (dA !== dB) return (dA - dB) * dirMult;
+            return (
+              (computeTrendingScore(a, undefined, ratingSource) -
+                computeTrendingScore(b, undefined, ratingSource)) *
+              dirMult
+            );
+          });
 
     return {
-      items: pageItems,
-      total: Math.max(filtered.length, 48),
-      totalPages: Math.max(2, Math.ceil(filtered.length / 24) + 1),
+      items: sorted.slice(0, 24),
+      total: Math.max(sorted.length, 120),
+      totalPages: 10,
     };
   }
 
@@ -1347,7 +1518,16 @@ export async function discoverFilms(
   const parsedKeyword = rawKeyword ? parseQueryWithYear(rawKeyword) : null;
   const effectiveKeyword = parsedKeyword ? parsedKeyword.cleanQuery : undefined;
 
-  // 5. Determine base API order & server-side window slicing to break the 100-item limit
+  // 5. Determine base API order, Trending Rolling Window (currentYear - 1 .. currentYear), & Year Cap
+  const currentYear = new Date().getFullYear();
+  const isTrendingScope =
+    !rawKeyword &&
+    opts.yearFrom === undefined &&
+    opts.yearTo === undefined &&
+    (order === "TRENDING" ||
+      opts.lens === "TRENDING" ||
+      Boolean(opts.trendingWindow));
+
   const apiOrder: "RATING" | "NUM_VOTE" | "YEAR" =
     order === "YEAR"
       ? "YEAR"
@@ -1360,17 +1540,21 @@ export async function discoverFilms(
 
   const minR = opts.ratingFrom !== undefined ? Math.max(0, opts.ratingFrom) : 0;
   const maxR = opts.ratingTo !== undefined ? Math.min(10, opts.ratingTo) : 10;
-  const currentYear = new Date().getFullYear();
   const minY =
     opts.yearFrom !== undefined
       ? opts.yearFrom
-      : (parsedKeyword?.targetYear ?? undefined);
+      : isTrendingScope
+        ? currentYear - 1
+        : (parsedKeyword?.targetYear ?? undefined);
   const maxY =
     opts.yearTo !== undefined
       ? opts.yearTo
-      : (parsedKeyword?.targetYear ?? undefined);
+      : isTrendingScope || order === "YEAR" || order === "TRENDING"
+        ? currentYear
+        : (parsedKeyword?.targetYear ?? undefined);
 
-  let queryRatingFrom: number | undefined = opts.ratingFrom;
+  let queryRatingFrom: number | undefined =
+    opts.ratingFrom ?? (isTrendingScope ? 5.8 : undefined);
   let queryRatingTo: number | undefined = opts.ratingTo;
   let queryYearFrom: number | undefined = minY;
   let queryYearTo: number | undefined = maxY;
@@ -1562,11 +1746,50 @@ export async function discoverFilms(
     }
   }
 
-  // Run smart search in parallel whenever a keyword is present so Explore & Search Bar behave identically!
-  const [smartSearchRes, ...settled] = await Promise.all([
+  // When in Trending scope, also query RATING order & live Popular collections for real-time buzz
+  if (isTrendingScope && incGenres.length <= 1 && incCountries.length <= 1) {
+    queriesToRun.push({
+      type: baseType,
+      genres: incGenres[0],
+      countries: incCountries[0],
+      order: apiOrder === "RATING" ? "NUM_VOTE" : "RATING",
+      ratingFrom: opts.ratingFrom ?? 6.4,
+      ratingTo: queryRatingTo,
+      yearFrom: queryYearFrom,
+      yearTo: queryYearTo,
+      page: apiPage,
+    });
+  }
+
+  const livePopularCollectionPromises: Promise<FilmsResponse | null>[] = [];
+  if (isTrendingScope && page <= 3 && incGenres.length === 0 && incCountries.length === 0) {
+    if (!baseType || baseType === "FILM") {
+      livePopularCollectionPromises.push(
+        getTopFilms(
+          baseType === "FILM" ? "TOP_POPULAR_MOVIES" : "TOP_POPULAR_ALL",
+          page,
+          "high",
+        ).catch(() => null),
+      );
+    }
+    if (!baseType || baseType === "TV_SERIES" || baseType === "MINI_SERIES" || baseType === "TV_SHOW") {
+      livePopularCollectionPromises.push(
+        getTopFilms("POPULAR_SERIES", page, "high").catch(() => null),
+      );
+    }
+    if (page === 1 && (!baseType || baseType === "FILM")) {
+      livePopularCollectionPromises.push(
+        getRecentReleases("low").catch(() => null),
+      );
+    }
+  }
+
+  // Run smart search & live trending collections in parallel with filter queries
+  const [smartSearchRes, liveColResults, ...settled] = await Promise.all([
     rawKeyword
       ? searchFilms(rawKeyword, page).catch(() => null)
       : Promise.resolve(null),
+    Promise.all(livePopularCollectionPromises),
     ...queriesToRun.map((q) =>
       getFilmsByFilter(q).then(
         (v) => ({ status: "fulfilled" as const, value: v }),
@@ -1576,6 +1799,7 @@ export async function discoverFilms(
   ]);
 
   const pool: Film[] = [];
+  const livePopularIds = new Set<number>();
   let maxApiTotal = 0;
   let maxApiPages = 1;
 
@@ -1584,6 +1808,19 @@ export async function discoverFilms(
     pool.push(...smartSearchRes.items);
     maxApiTotal = Math.max(maxApiTotal, smartSearchRes.total ?? 0);
     maxApiPages = Math.max(maxApiPages, smartSearchRes.totalPages ?? 1);
+  }
+
+  for (const colRes of liveColResults) {
+    if (colRes && colRes.items) {
+      for (const item of colRes.items) {
+        const fid = item.kinopoiskId ?? item.filmId ?? 0;
+        if (fid > 0) livePopularIds.add(fid);
+        const yr = parseYearNumber(item.year) ?? parseYearNumber(item.startYear);
+        if (!yr || (yr >= currentYear - 1 && yr <= currentYear)) {
+          pool.push(item);
+        }
+      }
+    }
   }
 
   for (const res of settled) {
@@ -1624,7 +1861,7 @@ export async function discoverFilms(
 
   // When a keyword is active, keep smart search relevance order unless the user chose a specific sort
   const sortedPool =
-    rawKeyword && order === "NUM_VOTE" && direction === "DESC"
+    rawKeyword && (order === "NUM_VOTE" || order === "TRENDING") && direction === "DESC"
       ? filteredPool
       : sortDiscoveryPool(
           filteredPool,
@@ -1632,6 +1869,7 @@ export async function discoverFilms(
           direction,
           ratingSource,
           opts.randomSeed,
+          livePopularIds,
         );
 
   const canPartitionDeep =
@@ -2066,10 +2304,13 @@ export async function discoverTasteMatchedFilms(
   );
 
   let finalOrdered: Film[];
-  if (opts.order && opts.order !== "NUM_VOTE") {
+  if (
+    (opts.order && opts.order !== "TRENDING") ||
+    (opts.direction && opts.direction === "ASC")
+  ) {
     finalOrdered = sortDiscoveryPool(
       filtered,
-      opts.order,
+      opts.order ?? "TRENDING",
       opts.direction ?? "DESC",
       opts.ratingSource ?? "AUTO",
       randomSeed + safePage,
@@ -2320,11 +2561,29 @@ function applyClientDiscoveryFilters(
       if (opts.minVotes < 0 && votes > Math.abs(opts.minVotes)) return false;
     }
 
-    // 12. Year Range Check
+    // 12. Year Range Check & Future Release Cap (prevents 2029/2031 unfilmed entries unless Upcoming is explicitly requested)
+    const curYr = new Date().getFullYear();
+    const userRequestedFutureYears =
+      (opts.yearFrom !== undefined && opts.yearFrom > curYr) ||
+      (opts.yearTo !== undefined && opts.yearTo > curYr);
     const yr = parseYearNumber(film.year) ?? parseYearNumber(film.startYear);
     if (yr) {
+      if (!userRequestedFutureYears && yr > curYr) return false;
       if (opts.yearFrom !== undefined && yr < opts.yearFrom) return false;
       if (opts.yearTo !== undefined && yr > opts.yearTo) return false;
+    }
+    if (!userRequestedFutureYears && film.premiereRu) {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      if (film.premiereRu.slice(0, 10) > todayIso && (!yr || yr >= curYr)) {
+        return false;
+      }
+    }
+    if (
+      (opts.order === "TRENDING" || opts.lens === "TRENDING" || opts.trendingWindow) &&
+      !userRequestedFutureYears
+    ) {
+      if (yr && yr < (opts.yearFrom ?? curYr - 1)) return false;
+      if (effRating <= 0 && votes < 20) return false;
     }
 
     // 13. Runtime Bucket Filter
@@ -2388,12 +2647,29 @@ function sortDiscoveryPool(
   direction: SortDirection,
   ratingSource: RatingSource,
   randomSeed = 1,
+  livePopularIds?: Set<number>,
 ): Film[] {
   const copy = [...films];
   const dirMult = direction === "ASC" ? 1 : -1;
 
   if (order === "RANDOM") {
     return seededShuffle(copy, randomSeed + 1337);
+  }
+
+  if (order === "TRENDING") {
+    const scoreMap = new Map<Film, number>();
+    for (const f of copy) {
+      scoreMap.set(f, computeTrendingScore(f, livePopularIds, ratingSource));
+    }
+    copy.sort((a, b) => {
+      const sA = scoreMap.get(a) ?? 0;
+      const sB = scoreMap.get(b) ?? 0;
+      if (Math.abs(sA - sB) > 0.001) return (sA - sB) * dirMult;
+      const vA = getEffectiveVotes(a);
+      const vB = getEffectiveVotes(b);
+      return (vA - vB) * dirMult;
+    });
+    return copy;
   }
 
   copy.sort((a, b) => {

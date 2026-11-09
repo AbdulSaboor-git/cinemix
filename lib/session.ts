@@ -14,6 +14,16 @@ export type DeviceType = "mobile" | "tablet" | "desktop" | "unknown";
 
 export type ContentRegionMode = "GLOBAL_FIRST" | "BALANCED" | "ALL";
 
+export type ProfileSectionKey = "ratings" | "history" | "favorites" | "watchlater";
+
+export type UserListSortOption =
+  | "ADDED"
+  | "USER_RATING_DESC"
+  | "USER_RATING_ASC"
+  | "RATING"
+  | "YEAR"
+  | "TITLE";
+
 export interface GeoInfo {
   ip: string | null;
   country: string | null;
@@ -90,11 +100,15 @@ export interface SessionPreferences {
   historyEnabled: boolean;
   safeModeEnabled: boolean;
   contentRegionMode: ContentRegionMode;
+  infiniteScrollEnabled: boolean;
   homeSections: Record<string, boolean>;
   filmSections: Record<string, boolean>;
   defaultExploreType: string;
   defaultExploreOrder: string;
   savedExplorePresets: SavedExplorePreset[];
+  listSortOrders: Record<ProfileSectionKey, UserListSortOption>;
+  profileSectionOrder: ProfileSectionKey[];
+  profileSectionSorts: Record<ProfileSectionKey, "RECENT" | "RATING" | "YEAR" | "TITLE">;
 }
 
 /** The full local session object */
@@ -112,6 +126,13 @@ export const TRANSLATE_CACHE_KEY = "cinemix_translate_cache_v1";
 export const MAX_HISTORY = 200;
 export const MAX_LIST = 500;
 
+export const DEFAULT_PROFILE_SECTION_ORDER: ProfileSectionKey[] = [
+  "ratings",
+  "history",
+  "favorites",
+  "watchlater",
+];
+
 // ─── Defaults ────────────────────────────────────────────────────────────────
 
 export const DEFAULT_PREFERENCES: SessionPreferences = {
@@ -122,6 +143,7 @@ export const DEFAULT_PREFERENCES: SessionPreferences = {
   historyEnabled: true,
   safeModeEnabled: false,
   contentRegionMode: "GLOBAL_FIRST",
+  infiniteScrollEnabled: true,
   homeSections: {
     popular: true,
     top250: true,
@@ -148,8 +170,21 @@ export const DEFAULT_PREFERENCES: SessionPreferences = {
     parentalGuide: true,
   },
   defaultExploreType: "ALL",
-  defaultExploreOrder: "NUM_VOTE",
+  defaultExploreOrder: "TRENDING",
   savedExplorePresets: [],
+  listSortOrders: {
+    favorites: "ADDED",
+    watchlater: "ADDED",
+    history: "ADDED",
+    ratings: "ADDED",
+  },
+  profileSectionOrder: [...DEFAULT_PROFILE_SECTION_ORDER],
+  profileSectionSorts: {
+    ratings: "RECENT",
+    history: "RECENT",
+    favorites: "RECENT",
+    watchlater: "RECENT",
+  },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -402,6 +437,72 @@ function normalizeRatedEntries(raw: unknown): RatedFilmEntry[] {
   return result;
 }
 
+const VALID_PROFILE_SECTIONS = new Set<ProfileSectionKey>([
+  "ratings",
+  "history",
+  "favorites",
+  "watchlater",
+]);
+
+function normalizeProfileSectionOrder(raw: unknown): ProfileSectionKey[] {
+  if (!Array.isArray(raw)) return [...DEFAULT_PROFILE_SECTION_ORDER];
+  const seen = new Set<ProfileSectionKey>();
+  const out: ProfileSectionKey[] = [];
+  for (const item of raw) {
+    if (
+      typeof item === "string" &&
+      VALID_PROFILE_SECTIONS.has(item as ProfileSectionKey) &&
+      !seen.has(item as ProfileSectionKey)
+    ) {
+      seen.add(item as ProfileSectionKey);
+      out.push(item as ProfileSectionKey);
+    }
+  }
+  for (const def of DEFAULT_PROFILE_SECTION_ORDER) {
+    if (!seen.has(def)) out.push(def);
+  }
+  return out;
+}
+
+const VALID_LIST_SORTS = new Set<UserListSortOption>([
+  "ADDED",
+  "USER_RATING_DESC",
+  "USER_RATING_ASC",
+  "RATING",
+  "YEAR",
+  "TITLE",
+]);
+
+function normalizeListSortOrders(
+  raw: unknown,
+): Record<ProfileSectionKey, UserListSortOption> {
+  const base = { ...DEFAULT_PREFERENCES.listSortOrders };
+  if (!raw || typeof raw !== "object") return base;
+  const rec = raw as Record<string, unknown>;
+  for (const k of DEFAULT_PROFILE_SECTION_ORDER) {
+    const val = rec[k];
+    if (typeof val === "string" && VALID_LIST_SORTS.has(val as UserListSortOption)) {
+      base[k] = val as UserListSortOption;
+    }
+  }
+  return base;
+}
+
+function normalizeProfileSectionSorts(
+  raw: unknown,
+): Record<ProfileSectionKey, "RECENT" | "RATING" | "YEAR" | "TITLE"> {
+  const base = { ...DEFAULT_PREFERENCES.profileSectionSorts };
+  if (!raw || typeof raw !== "object") return base;
+  const rec = raw as Record<string, unknown>;
+  for (const k of DEFAULT_PROFILE_SECTION_ORDER) {
+    const val = rec[k];
+    if (val === "RECENT" || val === "RATING" || val === "YEAR" || val === "TITLE") {
+      base[k] = val;
+    }
+  }
+  return base;
+}
+
 function normalizeSession(parsed: Partial<CineMixSession>): CineMixSession {
   const fresh = createDefaultSession();
   const rawFilmSections = {
@@ -415,6 +516,13 @@ function normalizeSession(parsed: Partial<CineMixSession>): CineMixSession {
     rawRegion === "GLOBAL_FIRST" || rawRegion === "BALANCED" || rawRegion === "ALL"
       ? rawRegion
       : DEFAULT_PREFERENCES.contentRegionMode;
+
+  const validOrders = new Set(["TRENDING", "NUM_VOTE", "RATING", "YEAR"]);
+  const rawOrder = parsed.preferences?.defaultExploreOrder;
+  const defaultExploreOrder =
+    typeof rawOrder === "string" && validOrders.has(rawOrder)
+      ? rawOrder
+      : DEFAULT_PREFERENCES.defaultExploreOrder;
 
   const mergedPrefs: SessionPreferences = {
     searchSuggestionsEnabled:
@@ -442,6 +550,10 @@ function normalizeSession(parsed: Partial<CineMixSession>): CineMixSession {
         ? parsed.preferences.safeModeEnabled
         : DEFAULT_PREFERENCES.safeModeEnabled,
     contentRegionMode,
+    infiniteScrollEnabled:
+      typeof parsed.preferences?.infiniteScrollEnabled === "boolean"
+        ? parsed.preferences.infiniteScrollEnabled
+        : DEFAULT_PREFERENCES.infiniteScrollEnabled,
     homeSections: {
       ...DEFAULT_PREFERENCES.homeSections,
       ...(parsed.preferences?.homeSections ?? {}),
@@ -449,11 +561,17 @@ function normalizeSession(parsed: Partial<CineMixSession>): CineMixSession {
     filmSections: rawFilmSections,
     defaultExploreType:
       parsed.preferences?.defaultExploreType || DEFAULT_PREFERENCES.defaultExploreType,
-    defaultExploreOrder:
-      parsed.preferences?.defaultExploreOrder || DEFAULT_PREFERENCES.defaultExploreOrder,
+    defaultExploreOrder,
     savedExplorePresets: Array.isArray(parsed.preferences?.savedExplorePresets)
       ? parsed.preferences.savedExplorePresets
       : [],
+    listSortOrders: normalizeListSortOrders(parsed.preferences?.listSortOrders),
+    profileSectionOrder: normalizeProfileSectionOrder(
+      parsed.preferences?.profileSectionOrder,
+    ),
+    profileSectionSorts: normalizeProfileSectionSorts(
+      parsed.preferences?.profileSectionSorts,
+    ),
   };
 
   return {

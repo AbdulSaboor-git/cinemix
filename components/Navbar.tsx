@@ -255,14 +255,18 @@ export default function Navbar() {
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        if (window.innerWidth >= 1024) {
+        if (pathname === "/explore") {
+          window.dispatchEvent(new CustomEvent("cinemix-focus-explore-search"));
+        } else if (window.innerWidth >= 1024) {
           inputRef.current?.focus();
         } else {
           setSearchOpen((prev) => !prev);
         }
       } else if (e.key === "/" && !isEditing) {
         e.preventDefault();
-        if (window.innerWidth >= 1024) {
+        if (pathname === "/explore") {
+          window.dispatchEvent(new CustomEvent("cinemix-focus-explore-search"));
+        } else if (window.innerWidth >= 1024) {
           inputRef.current?.focus();
         } else {
           setSearchOpen(true);
@@ -271,7 +275,7 @@ export default function Navbar() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [setSugVisible]);
+  }, [setSugVisible, pathname]);
 
   const handleSearchChange = (val: string) => {
     setSearch(val);
@@ -288,11 +292,19 @@ export default function Navbar() {
       router.push(`/film/${selected.kinopoiskId ?? selected.filmId}`);
     } else if (search.trim()) {
       saveRecentSearch(search.trim());
-      router.push(`/search?q=${encodeURIComponent(search.trim())}`);
+      router.push(`/explore?q=${encodeURIComponent(search.trim())}`);
     }
     setSearch("");
     clearSuggestions();
     setSearchOpen(false);
+  };
+
+  const handleMobileSearchIconClick = () => {
+    if (pathname === "/explore") {
+      window.dispatchEvent(new CustomEvent("cinemix-focus-explore-search"));
+      return;
+    }
+    setSearchOpen((v) => !v);
   };
 
   const showDropdown =
@@ -332,7 +344,7 @@ export default function Navbar() {
                 href={href}
                 className={`no-underline px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-all duration-150 active:scale-95 ${
                   active
-                    ? "text-white bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.28)] shadow-[0_0_14px_rgba(229,9,20,0.12)]"
+                    ? "text-white bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.28)]"
                     : "text-[var(--text-dim)] border border-transparent hover:text-white hover:bg-white/[0.06]"
                 }`}
               >
@@ -403,7 +415,7 @@ export default function Navbar() {
         <div className="flex items-center gap-1">
           <div className="lg:hidden">
             <NavIconBtn
-              onClick={() => setSearchOpen((v) => !v)}
+              onClick={handleMobileSearchIconClick}
               active={searchOpen}
               aria-label={searchOpen ? "Close search" : "Open search"}
               title="Search"
@@ -519,16 +531,14 @@ export default function Navbar() {
               title={label}
               className={`no-underline flex-1 h-11 rounded-full flex items-center justify-center transition-all duration-200 active:scale-95 ${
                 active
-                  ? "bg-[rgba(229,9,20,0.18)] border border-[rgba(229,9,20,0.32)] text-[var(--accent)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_16px_rgba(229,9,20,0.15)]"
+                  ? "bg-[rgba(229,9,20,0.18)] border border-[rgba(229,9,20,0.32)] text-[var(--accent)]"
                   : "border border-transparent text-white/55 hover:text-white/85"
               }`}
             >
               <Icon
                 active={active}
                 className={`transition-transform duration-200 ${
-                  active
-                    ? "scale-105 drop-shadow-[0_0_8px_rgba(229,9,20,0.45)]"
-                    : ""
+                  active ? "scale-105" : ""
                 }`}
               />
             </Link>
@@ -552,7 +562,7 @@ function NavIconBtn({
       {...props}
       className={`w-9 h-9 rounded-full md:rounded-[9px] flex items-center justify-center cursor-pointer transition-all duration-150 text-[var(--text)] active:scale-90 ${
         active
-          ? "bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.3)] text-white shadow-[0_0_12px_rgba(229,9,20,0.15)]"
+          ? "bg-[var(--accent-dim)] border border-[rgba(229,9,20,0.3)] text-white"
           : "bg-transparent border border-transparent hover:bg-white/[0.07] active:bg-white/[0.11]"
       }`}
     >

@@ -5,6 +5,9 @@
 import {
   SessionPreferences,
   ContentRegionMode,
+  ProfileSectionKey,
+  UserListSortOption,
+  DEFAULT_PROFILE_SECTION_ORDER,
   DEFAULT_PREFERENCES as SESSION_DEFAULTS,
   getApiKeys as sessionGetApiKeys,
   getRawApiKeys as sessionGetRawApiKeys,
@@ -18,7 +21,8 @@ import {
 } from "./session";
 import { SavedExplorePreset } from "@/types/kinopoisk";
 
-export type { ContentRegionMode };
+export type { ContentRegionMode, ProfileSectionKey, UserListSortOption };
+export { DEFAULT_PROFILE_SECTION_ORDER };
 
 export type Preferences = {
   apiKeys: string[];
@@ -29,6 +33,7 @@ export type Preferences = {
   historyEnabled: boolean;
   safeModeEnabled: boolean;
   contentRegionMode: ContentRegionMode;
+  infiniteScrollEnabled: boolean;
   homeSections: {
     popular: boolean;
     top250: boolean;
@@ -55,8 +60,14 @@ export type Preferences = {
     parentalGuide: boolean;
   };
   defaultExploreType: "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
-  defaultExploreOrder: "RATING" | "NUM_VOTE" | "YEAR";
+  defaultExploreOrder: "TRENDING" | "RATING" | "NUM_VOTE" | "YEAR";
   savedExplorePresets: SavedExplorePreset[];
+  listSortOrders: Record<ProfileSectionKey, UserListSortOption>;
+  profileSectionOrder: ProfileSectionKey[];
+  profileSectionSorts: Record<
+    ProfileSectionKey,
+    "RECENT" | "RATING" | "YEAR" | "TITLE"
+  >;
 };
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -68,6 +79,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   historyEnabled: SESSION_DEFAULTS.historyEnabled,
   safeModeEnabled: SESSION_DEFAULTS.safeModeEnabled,
   contentRegionMode: SESSION_DEFAULTS.contentRegionMode,
+  infiniteScrollEnabled: SESSION_DEFAULTS.infiniteScrollEnabled,
   homeSections: SESSION_DEFAULTS.homeSections as Preferences["homeSections"],
   filmSections: SESSION_DEFAULTS.filmSections as Preferences["filmSections"],
   defaultExploreType:
@@ -75,6 +87,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
   defaultExploreOrder:
     SESSION_DEFAULTS.defaultExploreOrder as Preferences["defaultExploreOrder"],
   savedExplorePresets: SESSION_DEFAULTS.savedExplorePresets,
+  listSortOrders: { ...SESSION_DEFAULTS.listSortOrders },
+  profileSectionOrder: [...SESSION_DEFAULTS.profileSectionOrder],
+  profileSectionSorts: { ...SESSION_DEFAULTS.profileSectionSorts },
 };
 
 export function getPreferences(): Preferences {
@@ -89,6 +104,7 @@ export function getPreferences(): Preferences {
     historyEnabled: prefs.historyEnabled ?? true,
     safeModeEnabled: prefs.safeModeEnabled ?? true,
     contentRegionMode: prefs.contentRegionMode ?? "GLOBAL_FIRST",
+    infiniteScrollEnabled: prefs.infiniteScrollEnabled ?? true,
     homeSections: {
       popular: prefs.homeSections?.popular ?? true,
       top250: prefs.homeSections?.top250 ?? true,
@@ -118,10 +134,21 @@ export function getPreferences(): Preferences {
       (prefs.defaultExploreType as Preferences["defaultExploreType"]) || "ALL",
     defaultExploreOrder:
       (prefs.defaultExploreOrder as Preferences["defaultExploreOrder"]) ||
-      "NUM_VOTE",
+      "TRENDING",
     savedExplorePresets: Array.isArray(prefs.savedExplorePresets)
       ? prefs.savedExplorePresets
       : [],
+    listSortOrders: {
+      ...SESSION_DEFAULTS.listSortOrders,
+      ...(prefs.listSortOrders ?? {}),
+    },
+    profileSectionOrder: Array.isArray(prefs.profileSectionOrder)
+      ? prefs.profileSectionOrder
+      : [...DEFAULT_PROFILE_SECTION_ORDER],
+    profileSectionSorts: {
+      ...SESSION_DEFAULTS.profileSectionSorts,
+      ...(prefs.profileSectionSorts ?? {}),
+    },
   };
 }
 
@@ -136,6 +163,54 @@ export function savePreferences(prefs: Preferences): void {
   s.preferences = rest as SessionPreferences;
   s.api_keys.keys = cleanedKeys;
   s.api_keys.saved_at = new Date().toISOString();
+  saveSession(s);
+}
+
+export function getListSortPreference(
+  listType: ProfileSectionKey,
+): UserListSortOption {
+  return getPreferences().listSortOrders?.[listType] || "ADDED";
+}
+
+export function saveListSortPreference(
+  listType: ProfileSectionKey,
+  sort: UserListSortOption,
+): void {
+  const s = getSession();
+  s.preferences.listSortOrders = {
+    ...SESSION_DEFAULTS.listSortOrders,
+    ...(s.preferences.listSortOrders ?? {}),
+    [listType]: sort,
+  };
+  saveSession(s);
+}
+
+export function getProfileSectionOrder(): ProfileSectionKey[] {
+  return getPreferences().profileSectionOrder;
+}
+
+export function saveProfileSectionOrder(order: ProfileSectionKey[]): void {
+  const s = getSession();
+  s.preferences.profileSectionOrder = order;
+  saveSession(s);
+}
+
+export function getProfileSectionSort(
+  section: ProfileSectionKey,
+): "RECENT" | "RATING" | "YEAR" | "TITLE" {
+  return getPreferences().profileSectionSorts?.[section] || "RECENT";
+}
+
+export function saveProfileSectionSort(
+  section: ProfileSectionKey,
+  sort: "RECENT" | "RATING" | "YEAR" | "TITLE",
+): void {
+  const s = getSession();
+  s.preferences.profileSectionSorts = {
+    ...SESSION_DEFAULTS.profileSectionSorts,
+    ...(s.preferences.profileSectionSorts ?? {}),
+    [section]: sort,
+  };
   saveSession(s);
 }
 

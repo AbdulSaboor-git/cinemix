@@ -23,6 +23,9 @@ import {
   Award as AwardIcon,
   ShieldAlert,
   Lock,
+  Share2,
+  ExternalLink,
+  Copy,
 } from "lucide-react";
 import {
   getFilm,
@@ -424,6 +427,50 @@ function FilmDetail({
   const [factsExpanded, setFactsExpanded] = useState(false);
   const [showSpoilers, setShowSpoilers] = useState(false);
   const [activeTab, setActiveTab] = useState<"facts" | "bloopers">("facts");
+  const hydratedFilmUiRef = React.useRef(false);
+
+  // Restore saved section tabs & review sort/filter for this film across refreshes/back-navigation
+  useEffect(() => {
+    if (typeof window === "undefined" || !filmId) return;
+    hydratedFilmUiRef.current = false;
+    try {
+      const raw = sessionStorage.getItem(`cinemix_film_ui_${filmId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as {
+          dept?: string;
+          revFilter?: "ALL" | "POSITIVE" | "NEGATIVE" | "NEUTRAL";
+          revSort?: "NEWEST" | "HELPFUL" | "CRITICAL";
+          triviaTab?: "facts" | "bloopers";
+        };
+        if (parsed.dept) setActiveStaffDept(parsed.dept);
+        if (parsed.revFilter) setReviewFilter(parsed.revFilter);
+        if (parsed.revSort) setReviewSort(parsed.revSort);
+        if (parsed.triviaTab) setActiveTab(parsed.triviaTab);
+      }
+    } catch {
+      // ignore
+    }
+    hydratedFilmUiRef.current = true;
+  }, [filmId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !filmId || !hydratedFilmUiRef.current) {
+      return;
+    }
+    try {
+      sessionStorage.setItem(
+        `cinemix_film_ui_${filmId}`,
+        JSON.stringify({
+          dept: activeStaffDept,
+          revFilter: reviewFilter,
+          revSort: reviewSort,
+          triviaTab: activeTab,
+        }),
+      );
+    } catch {
+      // ignore
+    }
+  }, [filmId, activeStaffDept, reviewFilter, reviewSort, activeTab]);
 
   const { isFav, isWL, isRated, userRating, ratingEntry } =
     useListStatus(filmId);
@@ -483,6 +530,33 @@ function FilmDetail({
         onClick: () => toggleWatchLater(filmEntry),
       },
     });
+  };
+
+  const handleShare = async () => {
+    if (typeof window === "undefined") return;
+    const shareUrl = window.location.href;
+    const shareTitle = `${name}${displayYear ? ` (${displayYear})` : ""} — CineMix`;
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({
+          title: shareTitle,
+          text: `Check out ${name}${displayYear ? ` (${displayYear})` : ""} on CineMix`,
+          url: shareUrl,
+        });
+        return;
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success("Link copied to clipboard", {
+        description: name,
+        posterUrl: posterThumb,
+      });
+    } catch {
+      toast.info("Share URL: " + shareUrl);
+    }
   };
 
   const directors = staff
@@ -735,13 +809,14 @@ function FilmDetail({
               Watch Now
             </Link>
 
-            <div className="grid grid-cols-3 sm:flex items-center gap-2 sm:gap-2.5">
+            <div className="grid grid-cols-4 sm:flex items-center gap-1.5 sm:gap-2.5">
               <button
                 type="button"
                 onClick={handleFav}
-                className={`flex items-center justify-center gap-[7px] rounded-[10px] sm:rounded-[var(--radius)] px-3 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 ${
+                title={isFav ? "In Favorites (tap to remove)" : "Add to Favorites"}
+                className={`flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
                   isFav
-                    ? "bg-[rgba(229,9,20,0.15)] border-[rgba(229,9,20,0.5)] text-[var(--accent)] shadow-[0_0_14px_rgba(229,9,20,0.2)]"
+                    ? "bg-[rgba(229,9,20,0.15)] border-[rgba(229,9,20,0.5)] text-[var(--accent)]"
                     : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)]"
                 }`}
               >
@@ -750,8 +825,12 @@ function FilmDetail({
                   fill={isFav ? "var(--accent)" : "none"}
                   stroke="currentColor"
                   strokeWidth={2}
+                  className="shrink-0"
                 />
-                <span className="truncate">
+                <span className="sm:hidden whitespace-nowrap">
+                  {isFav ? "Saved" : "Fav"}
+                </span>
+                <span className="hidden sm:inline whitespace-nowrap">
                   {isFav ? "In Favorites" : "Favorite"}
                 </span>
               </button>
@@ -759,14 +838,18 @@ function FilmDetail({
               <button
                 type="button"
                 onClick={handleWL}
-                className={`flex items-center justify-center gap-[7px] rounded-[10px] sm:rounded-[var(--radius)] px-3 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 ${
+                title={isWL ? "In Watch Later (tap to remove)" : "Save to Watch Later"}
+                className={`flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
                   isWL
                     ? "bg-[rgba(96,165,250,0.12)] border-[rgba(96,165,250,0.4)] text-[#60a5fa]"
                     : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(96,165,250,0.4)] hover:text-[#60a5fa]"
                 }`}
               >
-                <Clock size={14} stroke="currentColor" strokeWidth={2} />
-                <span className="truncate">
+                <Clock size={14} stroke="currentColor" strokeWidth={2} className="shrink-0" />
+                <span className="sm:hidden whitespace-nowrap">
+                  {isWL ? "Listed" : "Later"}
+                </span>
+                <span className="hidden sm:inline whitespace-nowrap">
                   {isWL ? "In Watch Later" : "Watch Later"}
                 </span>
               </button>
@@ -779,9 +862,9 @@ function FilmDetail({
                     ? `Your rating: ${userRating.toFixed(1)}/10 (click to edit)`
                     : "Rate this title according to your taste"
                 }
-                className={`flex items-center justify-center gap-[6px] rounded-[10px] sm:rounded-[var(--radius)] px-3 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 ${
+                className={`flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
                   isRated && userRating !== null
-                    ? "bg-[var(--user-rating-bg)] border-[var(--user-rating-border)] text-[var(--user-rating)] shadow-[0_0_16px_var(--user-rating-glow)]"
+                    ? "bg-[var(--user-rating-bg)] border-[var(--user-rating-border)] text-[var(--user-rating)]"
                     : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--user-rating-border)] hover:text-[var(--user-rating)]"
                 }`}
               >
@@ -790,12 +873,24 @@ function FilmDetail({
                   fill={isRated ? "var(--user-rating)" : "none"}
                   stroke="currentColor"
                   strokeWidth={2}
+                  className="shrink-0"
                 />
-                <span className="truncate">
+                <span className="whitespace-nowrap">
                   {isRated && userRating !== null
                     ? `${userRating.toFixed(1)}`
                     : "Rate"}
                 </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleShare}
+                title="Share film"
+                aria-label="Share film"
+                className="flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-hover)] hover:text-white cursor-pointer transition-all duration-150 min-w-0"
+              >
+                <Share2 size={14} strokeWidth={2} className="shrink-0" />
+                <span className="whitespace-nowrap">Share</span>
               </button>
             </div>
           </div>
@@ -867,7 +962,37 @@ function FilmDetail({
             list={composers}
             autoTranslate={autoTranslate}
           />
-          {film.imdbId && <InfoRow label="IMDb ID" value={film.imdbId} />}
+          {film.imdbId && (
+            <div className="flex gap-2 sm:gap-3 mb-[10px] items-center">
+              <span className="text-[11px] sm:text-[12px] text-[var(--text-muted)] w-[76px] sm:w-[86px] flex-shrink-0 font-semibold uppercase tracking-[0.5px]">
+                IMDb ID
+              </span>
+              <div className="inline-flex items-center gap-2">
+                <a
+                  href={`https://www.imdb.com/title/${encodeURIComponent(film.imdbId)}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[12px] sm:text-[13px] font-mono text-[#f5c518] hover:underline inline-flex items-center gap-1 no-underline"
+                  title="Open on IMDb"
+                >
+                  <span>{film.imdbId}</span>
+                  <ExternalLink size={11} />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(film.imdbId!);
+                    toast.info(`Copied ${film.imdbId}`);
+                  }}
+                  title="Copy IMDb ID"
+                  className="bg-[var(--bg-elevated)] border border-[var(--border)] hover:border-[var(--border-hover)] text-[var(--text-muted)] hover:text-white rounded px-1.5 py-0.5 text-[10px] inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Copy size={10} />
+                  <span>Copy</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
