@@ -120,7 +120,7 @@ export const DEFAULT_PREFERENCES: SessionPreferences = {
   suggestionLimit: 6,
   autoTranslateEnabled: true,
   historyEnabled: true,
-  safeModeEnabled: true,
+  safeModeEnabled: false,
   contentRegionMode: "GLOBAL_FIRST",
   homeSections: {
     popular: true,

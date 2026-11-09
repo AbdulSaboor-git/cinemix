@@ -231,7 +231,9 @@ export default function RateFilmModal({
         existing ? "EDIT YOUR TASTE RATING" : "RATE ACCORDING TO YOUR TASTE"
       }
       subtitle={film.film_name}
-      icon={<Star size={17} fill="var(--user-rating)" stroke="var(--user-rating)" />}
+      icon={
+        <Star size={17} fill="var(--user-rating)" stroke="var(--user-rating)" />
+      }
       maxWidthClass="sm:max-w-[540px]"
       footer={
         <div className="flex items-center justify-between gap-2.5">
@@ -262,7 +264,7 @@ export default function RateFilmModal({
               className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-[var(--radius)] text-[12px] sm:text-[13px] font-bold bg-[var(--user-rating)] text-[#080808] border-none shadow-[0_4px_20px_var(--user-rating-glow)] hover:brightness-110 cursor-pointer transition-all"
             >
               <Check size={14} strokeWidth={2.6} />
-              <span>{existing ? "Update Rating" : "Save Rating"}</span>
+              <span>{existing ? "Update" : "Save"}</span>
             </button>
           </div>
         </div>
@@ -417,7 +419,11 @@ export default function RateFilmModal({
                           ? "color-mix(in srgb, var(--user-rating) 45%, transparent)"
                           : "none"
                     }
-                    stroke={filled || halfFilled ? "var(--user-rating)" : "currentColor"}
+                    stroke={
+                      filled || halfFilled
+                        ? "var(--user-rating)"
+                        : "currentColor"
+                    }
                     strokeWidth={2}
                   />
                   <span className="text-[10px] font-bold mt-1 leading-none">
@@ -451,7 +457,10 @@ export default function RateFilmModal({
             className="w-full flex items-center justify-between px-3.5 sm:px-4 py-3 bg-transparent border-none text-left cursor-pointer hover:bg-white/[0.02] transition-colors"
           >
             <div className="flex items-center gap-2">
-              <SlidersHorizontal size={14} className="text-[var(--user-rating)]" />
+              <SlidersHorizontal
+                size={14}
+                className="text-[var(--user-rating)]"
+              />
               <span className="text-[11px] font-semibold uppercase tracking-[0.7px] text-[var(--text-dim)]">
                 Taste Breakdown (Story, Acting, Visuals, Sound)
               </span>
