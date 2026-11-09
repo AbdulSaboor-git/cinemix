@@ -688,7 +688,9 @@ export default function ProfileClient() {
           }`}
         >
           <ArrowUpDown size={11} />
-          <span>{reorderDrawerOpen ? "Done Ordering" : "Reorder Sections"}</span>
+          <span>
+            {reorderDrawerOpen ? "Done Ordering" : "Reorder Sections"}
+          </span>
         </button>
       </div>
 

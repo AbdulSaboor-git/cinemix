@@ -1097,7 +1097,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
               title="SEASONS & EPISODES"
               count={seasons.length}
               rightSlot={
-                <div className="relative w-[160px] sm:w-[190px]">
+                <div className="relative w-[132px] sm:w-[190px]">
                   <Search
                     size={12}
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
@@ -1133,7 +1133,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                     }
                   }}
                 >
-                  Season {s.number} ({s.episodes.length})
+                  <span className="sm:hidden">S{s.number} ({s.episodes.length})</span><span className="hidden sm:inline">Season {s.number} ({s.episodes.length})</span>
                 </TabPill>
               ))}
             </TabBar>
@@ -1161,8 +1161,12 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                       }
                       className="btn btn-ghost px-4 py-2 text-[12px]"
                     >
-                      Show More Episodes (
-                      {currentSeasonEpisodes.length - visibleEpCount} remaining)
+                      <span className="sm:hidden">
+                        More ({currentSeasonEpisodes.length - visibleEpCount})
+                      </span>
+                      <span className="hidden sm:inline">
+                        Show More Episodes ({currentSeasonEpisodes.length - visibleEpCount} remaining)
+                      </span>
                     </button>
                   </div>
                 )}

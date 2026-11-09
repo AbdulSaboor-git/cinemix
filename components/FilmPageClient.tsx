@@ -26,6 +26,8 @@ import {
   Share2,
   ExternalLink,
   Copy,
+  Maximize2,
+  X,
 } from "lucide-react";
 import {
   getFilm,
@@ -415,6 +417,7 @@ function FilmDetail({
   );
 
   const [activeStaffDept, setActiveStaffDept] = useState<string>("ACTOR");
+  const [posterEnlarged, setPosterEnlarged] = useState(false);
   const [castExpanded, setCastExpanded] = useState(false);
 
   const [reviewsExpanded, setReviewsExpanded] = useState(false);
@@ -492,6 +495,15 @@ function FilmDetail({
     };
   }, []);
   const { toast } = useToast();
+  useEffect(() => {
+    if (!posterEnlarged) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPosterEnlarged(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [posterEnlarged]);
+
 
   const posterThumb = film.posterUrlPreview || film.posterUrl || null;
   const filmEntry = {
@@ -659,7 +671,19 @@ function FilmDetail({
         {/* Poster column */}
         <div className="w-full md:w-[260px] flex-shrink-0">
           <div className="w-[144px] sm:w-[180px] md:w-full mx-auto md:mx-0 mb-4 md:mb-0">
-            <div className="rounded-[var(--radius-lg)] overflow-hidden border border-[var(--border)] shadow-[0_8px_40px_rgba(0,0,0,0.6)] aspect-[2/3] relative">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setPosterEnlarged(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setPosterEnlarged(true);
+                }
+              }}
+              title="Click to enlarge poster"
+              className="rounded-[var(--radius-lg)] overflow-hidden border border-[var(--border)] shadow-[0_8px_40px_rgba(0,0,0,0.6)] aspect-[2/3] relative group cursor-zoom-in transition-transform duration-200 hover:scale-[1.02] focus:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+            >
               <PosterImage
                 src={film.posterUrlPreview || film.posterUrl}
                 alt={name}
@@ -669,6 +693,11 @@ function FilmDetail({
                 year={primaryYear}
                 priority
               />
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity flex items-center justify-center text-white pointer-events-none">
+                <div className="p-2 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 shadow-lg">
+                  <Maximize2 size={18} />
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1037,9 +1066,16 @@ function FilmDetail({
 
           {deptList.length > 20 && (
             <ExpandBtn onClick={() => setCastExpanded((v) => !v)}>
-              {castExpanded
-                ? "Show top 20"
-                : `Show all ${deptList.length} credits (+${deptList.length - 20} more)`}
+              {castExpanded ? (
+                "Show top 20"
+              ) : (
+                <>
+                  <span className="sm:hidden">All {deptList.length} credits</span>
+                  <span className="hidden sm:inline">
+                    Show all {deptList.length} credits (+{deptList.length - 20} more)
+                  </span>
+                </>
+              )}
             </ExpandBtn>
           )}
         </div>
@@ -1083,12 +1119,12 @@ function FilmDetail({
                 {showSpoilers ? (
                   <>
                     <EyeOff size={13} />
-                    <span>Hide Spoilers</span>
+                    <span className="sm:hidden">Hide</span><span className="hidden sm:inline">Hide Spoilers</span>
                   </>
                 ) : (
                   <>
                     <Eye size={13} />
-                    <span>Show Spoilers</span>
+                    <span className="sm:hidden">Spoilers</span><span className="hidden sm:inline">Show Spoilers</span>
                   </>
                 )}
               </button>
@@ -1126,9 +1162,9 @@ function FilmDetail({
                 className="select text-[12px] py-1.5 px-3 rounded-[8px]"
                 aria-label="Sort reviews"
               >
-                <option value="NEWEST">Sort: Newest First</option>
-                <option value="HELPFUL">Sort: Most Helpful</option>
-                <option value="CRITICAL">Sort: Most Critical</option>
+                <option value="NEWEST">Newest First</option>
+                <option value="HELPFUL">Most Helpful</option>
+                <option value="CRITICAL">Most Critical</option>
               </select>
             }
           />
@@ -1168,9 +1204,12 @@ function FilmDetail({
           </div>
           {processedReviews.length > 3 && (
             <ExpandBtn onClick={() => setReviewsExpanded((v) => !v)}>
-              {reviewsExpanded
-                ? "Show less"
-                : `Show all ${processedReviews.length} reviews`}
+              {reviewsExpanded ? "Show less" : (
+                <>
+                  <span className="sm:hidden">All {processedReviews.length} reviews</span>
+                  <span className="hidden sm:inline">Show all {processedReviews.length} reviews</span>
+                </>
+              )}
             </ExpandBtn>
           )}
         </div>
@@ -1253,6 +1292,47 @@ function FilmDetail({
         onClose={() => setRateModalOpen(false)}
         film={filmEntry}
       />
+
+      {/* ── Poster Enlarge Lightbox Modal ── */}
+      {posterEnlarged && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Enlarged Poster"
+          className="fixed inset-0 z-50 bg-black/92 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-in fade-in"
+          onClick={() => setPosterEnlarged(false)}
+        >
+          <button
+            type="button"
+            onClick={() => setPosterEnlarged(false)}
+            title="Close poster view"
+            aria-label="Close"
+            className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 text-white flex items-center justify-center cursor-pointer transition-colors shadow-lg border border-white/10"
+          >
+            <X size={20} />
+          </button>
+
+          <div
+            className="relative max-h-[88vh] max-w-[92vw] flex flex-col items-center select-none"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={film.posterUrl || film.posterUrlPreview || ""}
+              alt={name}
+              className="max-h-[80vh] max-w-[88vw] w-auto h-auto object-contain rounded-xl shadow-[0_16px_60px_rgba(0,0,0,0.9)] border border-white/15"
+            />
+            <div className="mt-3 text-center">
+              <p className="text-white font-display text-[17px] tracking-wide">
+                {name} {primaryYear ? `(${primaryYear})` : ""}
+              </p>
+              <p className="text-[12px] text-[var(--text-muted)]">
+                Click anywhere outside or press Esc to close
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </PageContainer>
   );
 }
@@ -1310,7 +1390,6 @@ function UserTasteStrip({
             {entry.user_rating.toFixed(1)}
           </span>
           <span className="text-[12px] font-medium text-[var(--text-dim)] truncate">
-            Your Taste ·{" "}
             <strong className="text-[var(--text)] font-semibold">
               {verdict.label}
             </strong>
@@ -1330,7 +1409,7 @@ function UserTasteStrip({
               aria-expanded={expanded}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-[6px] text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text)] bg-transparent border border-transparent hover:border-[var(--border)] cursor-pointer transition-colors"
             >
-              <span>{expanded ? "Hide" : "Details"}</span>
+              <span className="hidden sm:inline">{expanded ? "Hide" : "Details"}</span>
               <ChevronDown
                 size={12}
                 className={`transition-transform duration-200 ${
@@ -1850,8 +1929,12 @@ function AwardsSection({
             )}
             {nominations.length > 0 && (
               <span className="text-[11px] font-semibold text-[var(--text-muted)] bg-[var(--surface)] border border-[var(--border)] px-2.5 py-[3px] rounded-[6px]">
-                {nominations.length} Nomination
-                {nominations.length !== 1 ? "s" : ""}
+                <span className="sm:hidden">
+                  {nominations.length} Nom{nominations.length !== 1 ? "s" : ""}
+                </span>
+                <span className="hidden sm:inline">
+                  {nominations.length} Nomination{nominations.length !== 1 ? "s" : ""}
+                </span>
               </span>
             )}
           </div>

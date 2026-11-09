@@ -995,6 +995,39 @@ function setCachedTranslation(source: string, translated: string) {
   schedulePersistTranslateCache();
 }
 
+// ─── Concurrency queue to prevent flooding: max 3 parallel, 35ms spacing ────
+const MAX_CONCURRENT = 3;
+let runningCount = 0;
+const requestQueue: Array<() => void> = [];
+
+function enqueueRequest<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const execute = async () => {
+      runningCount++;
+      try {
+        const res = await task();
+        resolve(res);
+      } catch (err) {
+        reject(err);
+      } finally {
+        runningCount--;
+        setTimeout(() => {
+          if (requestQueue.length > 0) {
+            const next = requestQueue.shift();
+            if (next) next();
+          }
+        }, 35);
+      }
+    };
+
+    if (runningCount < MAX_CONCURRENT) {
+      execute();
+    } else {
+      requestQueue.push(execute);
+    }
+  });
+}
+
 export async function translateText(
   text: string,
   from = "ru",
@@ -1009,24 +1042,67 @@ export async function translateText(
   const existing = inflightRequests.get(cacheKey);
   if (existing) return existing;
 
-  const promise = (async () => {
+  const promise = enqueueRequest(async () => {
     try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(3500) });
-      if (!res.ok) return text;
-      const json = await res.json();
-      const translated = (json[0] as [string, string][])
-        .map((chunk) => chunk[0])
-        .join("");
-      const result = (translated || text).trim();
-      setCachedTranslation(cacheKey, result);
-      return result;
-    } catch {
+      // 1. Try server-side API proxy first (bypasses browser CORS & rate limits)
+      try {
+        const apiUrl = `/api/translate?text=${encodeURIComponent(text)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+        const res = await fetch(apiUrl, { signal: AbortSignal.timeout(4500) });
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.translatedText) {
+            const result = json.translatedText.trim();
+            setCachedTranslation(cacheKey, result);
+            return result;
+          }
+        }
+      } catch {
+        // Fall back to client-side direct engines below
+      }
+
+      // 2. Direct client-side Google Translate gtx fallback
+      try {
+        const gUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
+        const gRes = await fetch(gUrl, { signal: AbortSignal.timeout(3500) });
+        if (gRes.ok) {
+          const json = await gRes.json();
+          const translated = (json[0] as [string, string][])
+            .map((chunk) => chunk[0])
+            .join("");
+          if (translated) {
+            const result = translated.trim();
+            setCachedTranslation(cacheKey, result);
+            return result;
+          }
+        }
+      } catch {
+        // Continue to MyMemory fallback
+      }
+
+      // 3. Direct client-side MyMemory fallback
+      try {
+        const langpair = `${from === "auto" ? "ru" : from}|${to}`;
+        const mUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(langpair)}`;
+        const mRes = await fetch(mUrl, { signal: AbortSignal.timeout(3500) });
+        if (mRes.ok) {
+          const mJson = await mRes.json();
+          if (mJson?.responseData?.translatedText) {
+            const tr = String(mJson.responseData.translatedText).trim();
+            if (!tr.toUpperCase().includes("MYMEMORY WARNING")) {
+              setCachedTranslation(cacheKey, tr);
+              return tr;
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+
       return text;
     } finally {
       inflightRequests.delete(cacheKey);
     }
-  })();
+  });
 
   inflightRequests.set(cacheKey, promise);
   return promise;

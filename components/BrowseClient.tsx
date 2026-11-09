@@ -63,6 +63,7 @@ import {
   useTranslate,
 } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { syncRouteInNavStack } from "@/components/BackButton";
 import { useListStatus } from "@/hooks/useListStatus";
 import {
   getPreferences,
@@ -616,7 +617,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const [ready, setReady] = useState(false);
   const [prefType, setPrefType] = useState<string>("ALL");
   const [prefOrder, setPrefOrder] = useState<ExploreSortOrder>("TRENDING");
-  const [infiniteScrollEnabled, setInfiniteScrollEnabled] = useState<boolean>(true);
+  const [infiniteScrollEnabled, setInfiniteScrollEnabled] =
+    useState<boolean>(true);
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
 
   const [genres, setGenres] = useState<Genre[]>([]);
@@ -724,11 +726,18 @@ export default function BrowseClient(props: ExploreSearchParams) {
     () => SMART_LENSES.find((l) => l.id === activeLens) ?? null,
     [activeLens],
   );
-  const lensDefaultOrder = (activeLensObj?.params.order as ExploreSortOrder) || undefined;
-  const order = (p.order || lensDefaultOrder || prefOrder || "TRENDING") as ExploreSortOrder;
+  const lensDefaultOrder =
+    (activeLensObj?.params.order as ExploreSortOrder) || undefined;
+  const order = (p.order ||
+    lensDefaultOrder ||
+    prefOrder ||
+    "TRENDING") as ExploreSortOrder;
   const isTrendingWindow =
     activeLens === "TRENDING" ||
-    (!activeLens && order === "TRENDING" && p.yearFrom === undefined && p.yearTo === undefined);
+    (!activeLens &&
+      order === "TRENDING" &&
+      p.yearFrom === undefined &&
+      p.yearTo === undefined);
   const direction: SortDirection = p.dir === "ASC" ? "ASC" : "DESC";
   const genreMatchMode: "AND" | "OR" = p.genreMode === "OR" ? "OR" : "AND";
   const ratingSource: RatingSource = (p.ratingSource as RatingSource) || "AUTO";
@@ -1177,6 +1186,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
 
       const qs = params.toString();
       const href = qs ? `/explore/advanced?${qs}` : "/explore/advanced";
+      syncRouteInNavStack(href);
       startTransition(() => {
         router.push(href, { scroll: false });
       });
@@ -1299,6 +1309,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
     setCorrectedQuery(null);
     setTargetYear(null);
     setOptimisticParams({});
+    syncRouteInNavStack("/explore/advanced");
     startTransition(() => {
       router.push("/explore/advanced", { scroll: false });
     });
@@ -1906,7 +1917,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
     activeLensObj &&
     String(ratingFrom ?? "") === (activeLensObj.params.ratingFrom ?? "") &&
     String(ratingTo ?? "") === (activeLensObj.params.ratingTo ?? "");
-  if ((ratingFrom !== undefined || ratingTo !== undefined) && !isLensBaseRating) {
+  if (
+    (ratingFrom !== undefined || ratingTo !== undefined) &&
+    !isLensBaseRating
+  ) {
     activeFilterTags.push({
       label: `Rating ${ratingFrom ?? 0}–${ratingTo ?? 10}${
         ratingSource !== "AUTO" ? ` (${ratingSource})` : ""
@@ -1917,7 +1931,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
   }
 
   const isLensBaseVotes =
-    activeLensObj && String(minVotes ?? "") === (activeLensObj.params.minVotes ?? "");
+    activeLensObj &&
+    String(minVotes ?? "") === (activeLensObj.params.minVotes ?? "");
   if (minVotes && !isLensBaseVotes) {
     activeFilterTags.push({
       label: `${formatVotesCompact(minVotes)}+ Votes`,
@@ -1926,7 +1941,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
   }
 
   const isLensBaseImdb =
-    activeLensObj && (requireImdb ? "1" : "") === (activeLensObj.params.requireImdb ?? "");
+    activeLensObj &&
+    (requireImdb ? "1" : "") === (activeLensObj.params.requireImdb ?? "");
   if (requireImdb && !isLensBaseImdb) {
     activeFilterTags.push({
       label: "IMDb Rated",
@@ -2006,7 +2022,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
   }
 
   const isLensBaseHideWatched =
-    activeLensObj && (hideWatched ? "1" : "") === (activeLensObj.params.hideWatched ?? "");
+    activeLensObj &&
+    (hideWatched ? "1" : "") === (activeLensObj.params.hideWatched ?? "");
   if (hideWatched && !isLensBaseHideWatched) {
     activeFilterTags.push({
       label: "Hide Watched",
@@ -2591,7 +2608,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
               href="/explore"
               className="btn btn-ghost py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] no-underline"
             >
-              <span>← Simple Explore</span>
+              <span className="sm:hidden">← Simple</span>
+              <span className="hidden sm:inline">← Simple Explore</span>
             </Link>
             {activeLens === "FOR_YOU" && (
               <button
@@ -2604,7 +2622,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
                 title="Shuffle your personalized For You mix"
               >
                 <Shuffle size={13} className="text-[var(--accent)]" />
-                <span>Shuffle Mix</span>
+                <span className="sm:hidden">Mix</span>
+                <span className="hidden sm:inline">Shuffle Mix</span>
               </button>
             )}
             <button
@@ -2614,7 +2633,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
               className="btn btn-primary py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] disabled:opacity-40"
             >
               <Shuffle size={13} />
-              Surprise Me
+              <span className="sm:hidden">Surprise</span>
+              <span className="hidden sm:inline">Surprise Me</span>
             </button>
           </div>
         }
@@ -2632,7 +2652,8 @@ export default function BrowseClient(props: ExploreSearchParams) {
             className="text-[11px] font-semibold text-[var(--accent)] hover:underline inline-flex items-center gap-1 bg-transparent border-none cursor-pointer"
           >
             <BookmarkPlus size={12} />
-            Save Current Filters
+            <span className="sm:hidden">Save Preset</span>
+            <span className="hidden sm:inline">Save Current Filters</span>
           </button>
         </div>
 
@@ -3521,7 +3542,10 @@ function QuickPeekModal({
                 fill={isFav ? "var(--accent)" : "none"}
                 stroke={isFav ? "var(--accent)" : "currentColor"}
               />
-              <span className="sm:hidden">{isFav ? "Saved" : "Fav"}</span><span className="hidden sm:inline">{isFav ? "In Favorites" : "Favorite"}</span>
+              <span className="sm:hidden">{isFav ? "Saved" : "Fav"}</span>
+              <span className="hidden sm:inline">
+                {isFav ? "In Favorites" : "Favorite"}
+              </span>
             </button>
             <button
               type="button"
@@ -3543,7 +3567,10 @@ function QuickPeekModal({
               className="btn btn-ghost py-2 px-3 text-[12px]"
             >
               <Clock size={13} />
-              <span className="sm:hidden">{isWL ? "Listed" : "Later"}</span><span className="hidden sm:inline">{isWL ? "In Watch Later" : "Watch Later"}</span>
+              <span className="sm:hidden">{isWL ? "Listed" : "Later"}</span>
+              <span className="hidden sm:inline">
+                {isWL ? "In Watch Later" : "Watch Later"}
+              </span>
             </button>
           </div>
         </div>

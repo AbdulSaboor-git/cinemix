@@ -31,6 +31,29 @@ export function writeNavStack(stack: string[]): void {
   }
 }
 
+/**
+ * Synchronously updates or pushes the current route (including query params like ?lens=...)
+ * onto the internal navigation stack so custom BackButton always restores exact presets/filters.
+ */
+export function syncRouteInNavStack(fullUrl: string): void {
+  if (typeof window === "undefined" || !fullUrl) return;
+  try {
+    const pathname = fullUrl.split("?")[0].split("#")[0];
+    const stack = readNavStack();
+    const last = stack[stack.length - 1];
+    const lastPathname = last ? last.split("?")[0].split("#")[0] : null;
+
+    if (lastPathname === pathname) {
+      stack[stack.length - 1] = fullUrl;
+    } else {
+      stack.push(fullUrl);
+    }
+    writeNavStack(stack);
+  } catch {
+    // ignore
+  }
+}
+
 interface BackButtonProps {
   desktopOnly?: boolean;
   fallbackHref?: string;

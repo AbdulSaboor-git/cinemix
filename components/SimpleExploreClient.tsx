@@ -55,6 +55,7 @@ import {
   useTranslate,
 } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { syncRouteInNavStack } from "@/components/BackButton";
 import { useListStatus } from "@/hooks/useListStatus";
 import {
   useSearchSuggestions,
@@ -739,6 +740,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
 
       const qs = sp.toString();
       const href = qs ? `/explore?${qs}` : "/explore";
+      syncRouteInNavStack(href);
       startTransition(() => {
         router.push(href, { scroll: false });
       });
@@ -1151,7 +1153,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
       {/* ── Header Row ── */}
       <div className="flex items-center justify-between gap-3 mb-3.5 sm:mb-5">
         <div className="min-w-0">
-          <h1 className="font-display tracking-[2px] text-white m-0 text-[clamp(24px,4.5vw,38px)] leading-none">
+          <h1 className="font-display tracking-[2px] text-white m-0 text-[clamp(22px,4.5vw,38px)] leading-none truncate">
             {activeSearchQuery ? `SEARCH: “${activeSearchQuery}”` : "EXPLORE"}
           </h1>
         </div>
@@ -1168,7 +1170,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
               title="Shuffle your personalized For You mix"
             >
               <Shuffle size={13} className="text-[var(--accent)]" />
-              <span className="hidden xs:inline">Shuffle Mix</span>
+              <span className="sm:hidden">Mix</span><span className="hidden sm:inline">Shuffle Mix</span>
             </button>
           )}
           <button
@@ -1179,7 +1181,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
             title="Pick a random title from current grid"
           >
             <Shuffle size={13} className="text-[var(--accent)]" />
-            <span>Surprise Me</span>
+            <span className="sm:hidden">Surprise</span><span className="hidden sm:inline">Surprise Me</span>
           </button>
           <Link
             href={advancedExploreHref}
@@ -1247,7 +1249,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
                   className="btn btn-primary py-2 sm:py-2.5 px-3.5 sm:px-4 text-[12px] sm:text-[13px] rounded-[10px] flex-shrink-0"
                 >
                   <Search size={13} />
-                  <span className="hidden xs:inline">Search</span>
+                  <span className="hidden sm:inline">Search</span>
                 </button>
               )}
             </div>

@@ -1118,7 +1118,7 @@ function FilmEntry({
               Lead
             </span>
           ) : (
-            <span className="text-[10px] text-[var(--text-muted)] bg-[var(--bg-elevated)] rounded-[4px] px-[6px] py-[1px] flex-shrink-0">
+            <span className="hidden sm:inline-flex text-[10px] text-[var(--text-muted)] bg-[var(--bg-elevated)] rounded-[4px] px-[6px] py-[1px] flex-shrink-0">
               Supporting
             </span>
           )}

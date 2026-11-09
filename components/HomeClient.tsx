@@ -2,6 +2,7 @@
 // components/HomeClient.tsx
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
+  discoverFilms,
   getTopFilms,
   getPremieres,
   getRecentReleases,
@@ -37,6 +38,7 @@ const CURRENT_YEAR = NOW.getFullYear();
 interface HomeSnapshot {
   timestamp: number;
   sections: Preferences["homeSections"];
+  trendingFilms: Film[];
   popularFilms: Film[];
   top250Films: Film[];
   recentReleaseFilms: Film[];
@@ -103,6 +105,7 @@ function LazySection({
 export default function HomeClient() {
   useDocumentTitle("Home");
 
+  const [trendingFilms, setTrendingFilms] = useState<Film[]>([]);
   const [popularFilms, setPopularFilms] = useState<Film[]>([]);
   const [top250Films, setTop250Films] = useState<Film[]>([]);
   const [recentReleaseFilms, setRecentReleaseFilms] = useState<Film[]>([]);
@@ -138,6 +141,7 @@ export default function HomeClient() {
     homeCache = {
       timestamp: fetchTimestampRef.current,
       sections,
+      trendingFilms,
       popularFilms,
       top250Films,
       recentReleaseFilms,
@@ -368,6 +372,7 @@ export default function HomeClient() {
 
     if (validSnap) {
       fetchTimestampRef.current = validSnap.timestamp;
+      setTrendingFilms(validSnap.trendingFilms ?? []);
       setPopularFilms(validSnap.popularFilms);
       setTop250Films(validSnap.top250Films);
       setRecentReleaseFilms(validSnap.recentReleaseFilms ?? []);
@@ -400,8 +405,16 @@ export default function HomeClient() {
         return;
       }
 
-      // Stage 1 (High Priority): Above-the-Fold (Popular + Top 250)
+      // Stage 1 (High Priority): Trending Movies from New Trending System + Top 250 & Popular
       Promise.allSettled([
+        discoverFilms(
+          {
+            order: "TRENDING",
+            type: "FILM",
+            trendingWindow: true,
+            page: 1,
+          },
+        ),
         s.popular
           ? getCuratedHomeSection(
               {
@@ -415,7 +428,7 @@ export default function HomeClient() {
         s.top250
           ? getTopFilms("TOP_250_MOVIES", 1, "high")
           : Promise.resolve(null),
-      ]).then(([popular, top250]) => {
+      ]).then(([trending, popular, top250]) => {
         if (!mounted) return;
         if (!hasApiKeys()) {
           homeCache = null;
@@ -423,8 +436,11 @@ export default function HomeClient() {
           setLoaded(false);
           return;
         }
-        // Bug #3 Fixed: Always refresh fetchTimestampRef to Date.now() when fresh data arrives
         fetchTimestampRef.current = Date.now();
+
+        if (trending.status === "fulfilled" && trending.value) {
+          setTrendingFilms(trending.value.items);
+        }
 
         if (popular.status === "fulfilled" && popular.value) {
           setPopularFilms(popular.value);
@@ -628,10 +644,15 @@ export default function HomeClient() {
   }, [keyEpoch]);
 
   const heroSlides = useMemo(() => {
-    const heroPool = deduplicateFilms([...popularFilms, ...top250Films]).filter(
+    // Top carousel shows trending movies from our new trending system!
+    const sourcePool =
+      trendingFilms.length > 0
+        ? trendingFilms
+        : deduplicateFilms([...popularFilms, ...top250Films]);
+    const heroPool = deduplicateFilms(sourcePool).filter(
       (f) => !isRussianDomesticFilm(f),
     );
-    const heroWithCovers = heroPool.filter((f) => f.coverUrl);
+    const heroWithCovers = heroPool.filter((f) => f.coverUrl || f.posterUrl);
     const candidateSlides =
       heroWithCovers.length >= 5 ? heroWithCovers : heroPool;
 
@@ -653,7 +674,7 @@ export default function HomeClient() {
       }
     }
     return rotatedCandidates.slice(0, 5);
-  }, [popularFilms, top250Films]);
+  }, [trendingFilms, popularFilms, top250Films]);
 
   const secondHero = useMemo(
     () =>
@@ -686,11 +707,11 @@ export default function HomeClient() {
 
       <div className="relative z-[2] pt-5 sm:pt-8">
         {/* ── Above the Fold (Mounted Immediately) ── */}
-        {s.popular && popularFilms.length > 0 && (
+        {s.popular && (trendingFilms.length > 0 || popularFilms.length > 0) && (
           <FilmRow
             title="Trending Blockbusters"
-            films={popularFilms.slice(0, 20)}
-            href="/explore?type=FILM&order=NUM_VOTE"
+            films={(trendingFilms.length > 0 ? trendingFilms : popularFilms).slice(0, 20)}
+            href="/explore?type=FILM&order=TRENDING"
           />
         )}
         {(forYouLoading || forYouFilms.length > 0) && (

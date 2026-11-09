@@ -237,7 +237,7 @@ const Top250Row = memo(function Top250Row({
             {isWatched && (
               <span className="flex-shrink-0 inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-semibold text-[#4ade80] bg-[rgba(34,197,94,0.12)] border border-[rgba(34,197,94,0.3)] rounded px-1.5 py-[1px]">
                 <CheckCircle2 size={9} />
-                <span className="hidden xs:inline">Watched</span>
+                <span className="hidden sm:inline">Watched</span>
               </span>
             )}
           </div>
