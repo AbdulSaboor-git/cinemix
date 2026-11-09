@@ -137,14 +137,14 @@ export function toggleFavorite(entry: Omit<FilmListEntry, "added_at">): boolean 
   const existing = s.lists.favorites.findIndex((e) => e.film_id === entry.film_id);
   if (existing !== -1) {
     s.lists.favorites.splice(existing, 1);
-    saveSession(s);
+    saveSession(s, { source: "list-toggle" });
     return false; // removed
   }
   s.lists.favorites = dedupe([
     { ...entry, added_at: now() },
     ...s.lists.favorites,
   ]).slice(0, MAX_LIST);
-  saveSession(s);
+  saveSession(s, { source: "list-toggle" });
   return true; // added
 }
 
@@ -155,14 +155,14 @@ export function toggleWatchLater(entry: Omit<FilmListEntry, "added_at">): boolea
   const existing = s.lists.watchlater.findIndex((e) => e.film_id === entry.film_id);
   if (existing !== -1) {
     s.lists.watchlater.splice(existing, 1);
-    saveSession(s);
+    saveSession(s, { source: "list-toggle" });
     return false;
   }
   s.lists.watchlater = dedupe([
     { ...entry, added_at: now() },
     ...s.lists.watchlater,
   ]).slice(0, MAX_LIST);
-  saveSession(s);
+  saveSession(s, { source: "list-toggle" });
   return true;
 }
 

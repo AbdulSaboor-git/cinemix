@@ -291,7 +291,7 @@ export default function HomeClient() {
     };
     lastPersonalSigRef.current = computePersonalSig();
 
-    const onSessionOrStorage = () => {
+    const onSessionOrStorage = (event: Event) => {
       if (!hasApiKeys()) {
         homeCache = null;
         lastPersonalSigRef.current = "";
@@ -306,6 +306,14 @@ export default function HomeClient() {
           return false;
         });
         const nextSig = computePersonalSig();
+        if (
+          event.type === "cinemix-session-change" &&
+          (event as CustomEvent<{ source?: string }>).detail?.source ===
+            "list-toggle"
+        ) {
+          lastPersonalSigRef.current = nextSig;
+          return;
+        }
         if (nextSig !== lastPersonalSigRef.current) {
           lastPersonalSigRef.current = nextSig;
           syncPersonalRows();
@@ -824,7 +832,7 @@ export default function HomeClient() {
               {Array.from({ length: 6 }).map((_, j) => (
                 <div
                   key={j}
-                  className="skeleton flex-shrink-0 rounded-[12px] w-[126px] h-[189px] sm:w-[175px] sm:h-[263px]"
+                  className="skeleton flex-shrink-0 rounded-[12px] w-[156px] h-[234px] sm:w-[220px] sm:h-[330px]"
                 />
               ))}
             </div>
@@ -847,7 +855,7 @@ function HomeSkeleton() {
               {Array.from({ length: 7 }).map((_, j) => (
                 <div
                   key={j}
-                  className="skeleton flex-shrink-0 rounded-[var(--radius-lg)] w-[112px] h-[168px] sm:w-[175px] sm:h-[263px]"
+                  className="skeleton flex-shrink-0 rounded-[var(--radius-lg)] w-[156px] h-[234px] sm:w-[220px] sm:h-[330px]"
                 />
               ))}
             </div>

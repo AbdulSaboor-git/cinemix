@@ -24,7 +24,7 @@ export default function FilmRow({
   films,
   href,
   showIndex,
-  size = "md",
+  size = "lg",
   isLoading = false,
 }: FilmRowProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);

@@ -633,12 +633,19 @@ export default function BrowseClient(props: ExploreSearchParams) {
   }, [mobileSheetOpen]);
 
   useEffect(() => {
-    const syncKeyAndPrefs = () => {
+    const syncKeyAndPrefs = (event?: Event) => {
       if (!hasApiKeys()) {
         browseCacheMap.clear();
         setNoKey(true);
         setFilms([]);
         setReady(false);
+        return;
+      }
+      if (
+        event?.type === "cinemix-session-change" &&
+        (event as CustomEvent<{ source?: string }>).detail?.source ===
+          "list-toggle"
+      ) {
         return;
       }
       setNoKey(false);

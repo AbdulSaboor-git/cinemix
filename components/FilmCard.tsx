@@ -616,10 +616,10 @@ export function FilmLongPressPortal({
               </span>
             </div>
             {isRated && userRating !== null && (
-              <div className="rounded-lg px-2.5 py-1 bg-[var(--user-rating-bg)] backdrop-blur-md border border-[var(--user-rating-border)] text-[var(--user-rating)] flex items-center gap-1 shadow-lg">
-                <Star size={11} fill="var(--user-rating)" stroke="var(--user-rating)" />
+              <div className="rounded-lg px-2.5 py-1 bg-[var(--user-rating)] backdrop-blur-md border border-white/40 text-[#fff] flex items-center gap-1 shadow-lg">
+                <Star size={11} fill="#fff" stroke="#fff" />
                 <span className="text-[11px] font-bold">
-                  Your: {userRating.toFixed(1)}
+                  {userRating.toFixed(1)}
                 </span>
               </div>
             )}
@@ -1043,9 +1043,9 @@ const FilmCard = memo(function FilmCard({
                 {isRated && userRating !== null && (
                   <div
                     title={`Your Rating: ${userRating.toFixed(1)}/10`}
-                    className="h-[22px] px-1.5 rounded-[5px] bg-[var(--user-rating)] text-[#080808] backdrop-blur-[6px] flex items-center justify-center gap-0.5 font-bold text-[10px] shadow-sm"
+                    className="h-[22px] px-1.5 rounded-[5px] bg-[var(--user-rating)] text-[#fff] backdrop-blur-[6px] flex items-center justify-center gap-0.5 font-bold text-[10px] shadow-sm"
                   >
-                    <Star size={9} fill="#080808" stroke="#080808" />
+                    <Star size={9} fill="#fff" stroke="#fff" />
                     <span>{userRating.toFixed(1)}</span>
                   </div>
                 )}

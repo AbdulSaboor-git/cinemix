@@ -497,12 +497,17 @@ export function getSession(): CineMixSession {
   return fresh;
 }
 
-export function saveSession(session: CineMixSession): void {
+export function saveSession(
+  session: CineMixSession,
+  options: { source?: "list-toggle" } = {},
+): void {
   if (typeof window === "undefined") return;
   session.meta.updated_at = new Date().toISOString();
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   _cache = session;
-  window.dispatchEvent(new CustomEvent("cinemix-session-change"));
+  window.dispatchEvent(
+    new CustomEvent("cinemix-session-change", { detail: options }),
+  );
 }
 
 function createDefaultSession(): CineMixSession {
