@@ -269,12 +269,12 @@ function UserListRow({
                       stroke="var(--user-rating)"
                     />
                     {ratedEntry.user_rating.toFixed(1)}
-                    {/* <span
+                    <span
                       className="text-[9px] font-semibold opacity-90 hidden sm:inline"
                       style={{ color: verdict.color }}
                     >
                       · {verdict.label}
-                    </span> */}
+                    </span>
                   </span>
                 )}
 
