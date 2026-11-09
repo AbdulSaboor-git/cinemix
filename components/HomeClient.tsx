@@ -24,7 +24,7 @@ import {
   hasVerifiedApiKey,
   Preferences,
 } from "@/lib/preferences";
-import { getList } from "@/lib/userLists";
+import { getList, getRatedFilms } from "@/lib/userLists";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 
 const NOW = new Date();
@@ -268,10 +268,26 @@ export default function HomeClient() {
 
     const computePersonalSig = () => {
       const p = getPreferences();
-      const favIds = getList("favorites").slice(0, 16).map((x) => x.film_id).join(",");
-      const wlIds = getList("watchlater").slice(0, 16).map((x) => x.film_id).join(",");
-      const histIds = getList("history").slice(0, 16).map((x) => x.film_id).join(",");
-      return `${p.apiKeys.join(",")}|${p.safeModeEnabled}|${p.contentRegionMode}|${favIds}|${wlIds}|${histIds}`;
+      const favIds = getList("favorites")
+        .slice(0, 16)
+        .map((x) => x.film_id)
+        .join(",");
+      const wlIds = getList("watchlater")
+        .slice(0, 16)
+        .map((x) => x.film_id)
+        .join(",");
+      const histIds = getList("history")
+        .slice(0, 16)
+        .map((x) => x.film_id)
+        .join(",");
+      const ratingSig = getRatedFilms()
+        .slice(0, 18)
+        .map(
+          (x) =>
+            `${x.film_id}:${x.user_rating}:${(x.taste_tags ?? []).join("+")}`,
+        )
+        .join(",");
+      return `${p.apiKeys.join(",")}|${p.safeModeEnabled}|${p.contentRegionMode}|${favIds}|${wlIds}|${histIds}|${ratingSig}`;
     };
     lastPersonalSigRef.current = computePersonalSig();
 
@@ -420,9 +436,7 @@ export default function HomeClient() {
           if (!mounted) return;
 
           Promise.allSettled([
-            s.recentReleases
-              ? getRecentReleases("low")
-              : Promise.resolve(null),
+            s.recentReleases ? getRecentReleases("low") : Promise.resolve(null),
             s.premieres
               ? getPremieres(CURRENT_YEAR, CURRENT_MONTH, "low")
               : Promise.resolve(null),

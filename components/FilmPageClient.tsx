@@ -793,16 +793,9 @@ function FilmDetail({
                 />
                 <span className="truncate">
                   {isRated && userRating !== null
-                    ? `Rated ${userRating.toFixed(1)}`
+                    ? `${userRating.toFixed(1)}`
                     : "Rate"}
                 </span>
-                {isRated && (
-                  <Pencil
-                    size={11}
-                    strokeWidth={2.2}
-                    className="opacity-75 shrink-0"
-                  />
-                )}
               </button>
             </div>
           </div>
@@ -1184,7 +1177,11 @@ function UserTasteStrip({
               border: "1px solid var(--user-rating-border)",
             }}
           >
-            <Star size={10} fill="var(--user-rating)" stroke="var(--user-rating)" />
+            <Star
+              size={10}
+              fill="var(--user-rating)"
+              stroke="var(--user-rating)"
+            />
             {entry.user_rating.toFixed(1)}
           </span>
           <span className="text-[12px] font-medium text-[var(--text-dim)] truncate">

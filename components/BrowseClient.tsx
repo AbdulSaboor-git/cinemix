@@ -72,7 +72,12 @@ import {
   saveExplorePreset,
   deleteExplorePreset,
 } from "@/lib/preferences";
-import { toggleFavorite, toggleWatchLater } from "@/lib/userLists";
+import {
+  toggleFavorite,
+  toggleWatchLater,
+  getList,
+  getRatedFilms,
+} from "@/lib/userLists";
 import { lockScroll, unlockScroll } from "@/lib/scrollLock";
 import { useToast } from "@/lib/toast";
 import { getQuickCertBadge } from "@/lib/parentalGuide";
@@ -606,6 +611,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
   const [tapMode, setTapMode] = useState<"INCLUDE" | "EXCLUDE">("INCLUDE");
   const [countrySearch, setCountrySearch] = useState("");
   const [randomSeed, setRandomSeed] = useState(1);
+  const [tasteSig, setTasteSig] = useState("");
 
   const [savedPresets, setSavedPresets] = useState<SavedExplorePreset[]>([]);
   const [presetNameInput, setPresetNameInput] = useState("");
@@ -643,6 +649,28 @@ export default function BrowseClient(props: ExploreSearchParams) {
       setPrefType(nextPrefType);
       setPrefOrder(nextPrefOrder);
       setSavedPresets(getSavedExplorePresets());
+      const nextTasteSig = [
+        getRatedFilms()
+          .slice(0, 18)
+          .map(
+            (x) =>
+              `${x.film_id}:${x.user_rating}:${(x.taste_tags ?? []).join("+")}`,
+          )
+          .join(","),
+        getList("favorites")
+          .slice(0, 16)
+          .map((x) => x.film_id)
+          .join(","),
+        getList("watchlater")
+          .slice(0, 16)
+          .map((x) => x.film_id)
+          .join(","),
+        getList("history")
+          .slice(0, 16)
+          .map((x) => x.film_id)
+          .join(","),
+      ].join("|");
+      setTasteSig(nextTasteSig);
       setReady(true);
     };
     syncKeyAndPrefs();
@@ -748,6 +776,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
       hideWatchLater,
       page,
       randomSeed,
+      tasteSig: activeLens === "FOR_YOU" ? tasteSig : "",
     });
   }, [
     type,
@@ -778,6 +807,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
     hideWatchLater,
     page,
     randomSeed,
+    tasteSig,
   ]);
 
   const [films, setFilms] = useState<Film[]>([]);

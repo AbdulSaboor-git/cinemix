@@ -34,7 +34,7 @@ import {
   markKeyValid,
   getPreferences,
 } from "@/lib/preferences";
-import { getList } from "@/lib/userLists";
+import { getList, getRatedFilms } from "@/lib/userLists";
 import {
   translateCountry,
   translateGenre,
@@ -1721,6 +1721,67 @@ function interleaveBuckets<T>(buckets: T[][]): T[] {
   return result;
 }
 
+const VIBE_TAG_GENRE_BOOST: Record<string, { genreId: number; weight: number }[]> = {
+  Masterpiece: [
+    { genreId: 2, weight: 1.5 },
+    { genreId: 6, weight: 1.0 },
+    { genreId: 15, weight: 1.0 },
+  ],
+  "Comfort Watch": [
+    { genreId: 13, weight: 2.5 },
+    { genreId: 19, weight: 2.0 },
+    { genreId: 4, weight: 1.5 },
+    { genreId: 18, weight: 1.5 },
+  ],
+  "Mind-Bending": [
+    { genreId: 6, weight: 3.0 },
+    { genreId: 1, weight: 2.5 },
+    { genreId: 5, weight: 2.0 },
+  ],
+  "Visual Spectacle": [
+    { genreId: 6, weight: 2.5 },
+    { genreId: 12, weight: 2.5 },
+    { genreId: 7, weight: 2.0 },
+    { genreId: 11, weight: 1.5 },
+  ],
+  "Peak Acting": [
+    { genreId: 2, weight: 3.0 },
+    { genreId: 8, weight: 2.0 },
+    { genreId: 3, weight: 1.5 },
+  ],
+  "Great Pacing": [
+    { genreId: 11, weight: 2.5 },
+    { genreId: 1, weight: 2.5 },
+    { genreId: 7, weight: 1.5 },
+  ],
+  "Killer Soundtrack": [
+    { genreId: 7, weight: 1.5 },
+    { genreId: 6, weight: 1.5 },
+    { genreId: 11, weight: 1.5 },
+  ],
+  Emotional: [
+    { genreId: 2, weight: 3.0 },
+    { genreId: 4, weight: 2.5 },
+    { genreId: 8, weight: 1.5 },
+  ],
+  "Hidden Gem": [
+    { genreId: 5, weight: 2.0 },
+    { genreId: 1, weight: 1.5 },
+    { genreId: 2, weight: 1.5 },
+  ],
+  "Guilty Pleasure": [
+    { genreId: 11, weight: 2.0 },
+    { genreId: 13, weight: 2.0 },
+    { genreId: 17, weight: 1.5 },
+  ],
+  "Slow Burn": [
+    { genreId: 2, weight: 2.5 },
+    { genreId: 1, weight: 2.0 },
+    { genreId: 5, weight: 2.0 },
+    { genreId: 10, weight: 1.0 },
+  ],
+};
+
 export async function discoverTasteMatchedFilms(
   opts: DiscoverFilmsOptions = {},
   page = 1,
@@ -1732,39 +1793,136 @@ export async function discoverTasteMatchedFilms(
   const safePage = Math.max(1, page);
   const randomSeed = (opts.randomSeed ?? 1) + SESSION_SHUFFLE_SEED;
 
+  const ratedList = getRatedFilms();
   const favList = getList("favorites");
   const wlList = getList("watchlater");
   const histList = getList("history");
 
-  const libraryAll = [...favList, ...wlList, ...histList];
+  // Exclude all library & already-rated films from "For You" recommendations
+  const libraryAll = [...ratedList, ...favList, ...wlList, ...histList];
   const libraryIds = new Set(libraryAll.map((e) => e.film_id));
 
+  // Separate user ratings into positive taste signals vs. disliked titles
+  const dislikedIds = new Set<number>();
+  const positiveRated = ratedList
+    .filter((entry) => {
+      const isOverhyped = entry.taste_tags?.includes("Overhyped");
+      if (entry.user_rating < 6.0 || (isOverhyped && entry.user_rating < 7.5)) {
+        dislikedIds.add(entry.film_id);
+        return false;
+      }
+      return entry.user_rating >= 6.5;
+    })
+    .sort((a, b) => b.user_rating - a.user_rating);
+
+  const highRatedSeedIds = new Set(
+    positiveRated.filter((r) => r.user_rating >= 8.0).map((r) => r.film_id),
+  );
+
+  // Build deduplicated seed list prioritizing user's highest-rated titles first
   const uniqueSeeds: number[] = [];
   const seenSeed = new Set<number>();
-  for (const entry of [...favList, ...wlList, ...histList]) {
+  const seedCandidates = [
+    ...positiveRated,
+    ...favList.filter((e) => !dislikedIds.has(e.film_id)),
+    ...wlList.filter((e) => !dislikedIds.has(e.film_id)),
+    ...histList.filter((e) => !dislikedIds.has(e.film_id)),
+  ];
+
+  for (const entry of seedCandidates) {
     if (entry.film_id && !seenSeed.has(entry.film_id)) {
       seenSeed.add(entry.film_id);
       uniqueSeeds.push(entry.film_id);
-      if (uniqueSeeds.length >= 16) break;
+      if (uniqueSeeds.length >= 18) break;
     }
   }
 
+  // Compute weighted genre affinities from My Ratings (scores + breakdown + vibe tags) & library
   const genreFreq = new Map<number, number>();
-  for (const id of uniqueSeeds) {
-    const meta = getCachedFilmMeta(id);
-    if (meta?.genres) {
-      for (const g of meta.genres) {
-        const gLower = g.genre.trim().toLowerCase();
-        const gEn = translateGenre(g.genre, true).trim().toLowerCase();
-        const gId = GENRE_NAME_TO_ID[gLower] ?? GENRE_NAME_TO_ID[gEn];
-        if (gId && (!isSafeModeActive() || (gId !== 28 && gId !== 25))) {
-          genreFreq.set(gId, (genreFreq.get(gId) ?? 0) + 1);
+  const addGenreWeight = (filmId: number, weight: number) => {
+    const meta = getCachedFilmMeta(filmId);
+    if (!meta?.genres) return;
+    for (const g of meta.genres) {
+      const gLower = g.genre.trim().toLowerCase();
+      const gEn = translateGenre(g.genre, true).trim().toLowerCase();
+      const gId = GENRE_NAME_TO_ID[gLower] ?? GENRE_NAME_TO_ID[gEn];
+      if (gId && (!isSafeModeActive() || (gId !== 28 && gId !== 25))) {
+        genreFreq.set(gId, (genreFreq.get(gId) ?? 0) + weight);
+      }
+    }
+  };
+
+  let prefersHighAcclaim = false;
+  for (const rated of ratedList) {
+    const isOverhyped = rated.taste_tags?.includes("Overhyped");
+    if (rated.user_rating <= 5.0 || (isOverhyped && rated.user_rating < 6.5)) {
+      addGenreWeight(rated.film_id, -2.0);
+      continue;
+    }
+    if (rated.user_rating >= 6.5) {
+      let weight =
+        rated.user_rating >= 9.0
+          ? 4.0
+          : rated.user_rating >= 8.0
+            ? 3.0
+            : rated.user_rating >= 7.5
+              ? 2.2
+              : 1.4;
+
+      if (rated.taste_breakdown) {
+        const dims = Object.values(rated.taste_breakdown).filter(
+          (v): v is number => typeof v === "number",
+        );
+        if (dims.some((v) => v >= 8.5)) weight += 0.6;
+        if (
+          (rated.taste_breakdown.story ?? 0) >= 8.5 ||
+          (rated.taste_breakdown.acting ?? 0) >= 8.5
+        ) {
+          prefersHighAcclaim = true;
+        }
+      }
+
+      addGenreWeight(rated.film_id, weight);
+
+      for (const tag of rated.taste_tags ?? []) {
+        if (tag === "Masterpiece" || tag === "Peak Acting") {
+          prefersHighAcclaim = true;
+        }
+        const boosts = VIBE_TAG_GENRE_BOOST[tag];
+        if (boosts) {
+          const tagMultiplier = rated.user_rating >= 8.5 ? 1.25 : 1.0;
+          for (const b of boosts) {
+            if (!isSafeModeActive() || (b.genreId !== 28 && b.genreId !== 25)) {
+              genreFreq.set(
+                b.genreId,
+                (genreFreq.get(b.genreId) ?? 0) + b.weight * tagMultiplier,
+              );
+            }
+          }
         }
       }
     }
   }
 
+  const ratedIdSet = new Set(ratedList.map((r) => r.film_id));
+  for (const fav of favList) {
+    if (!dislikedIds.has(fav.film_id)) {
+      addGenreWeight(fav.film_id, ratedIdSet.has(fav.film_id) ? 1.0 : 2.0);
+    }
+  }
+  for (const wl of wlList) {
+    if (!dislikedIds.has(wl.film_id) && !ratedIdSet.has(wl.film_id)) {
+      addGenreWeight(wl.film_id, 1.2);
+    }
+  }
+  for (const hist of histList.slice(0, 20)) {
+    if (!dislikedIds.has(hist.film_id) && !ratedIdSet.has(hist.film_id)) {
+      addGenreWeight(hist.film_id, 0.8);
+    }
+  }
+
   const topUserGenres = Array.from(genreFreq.entries())
+    .filter(([, score]) => score > 0)
     .sort((a, b) => b[1] - a[1])
     .map(([id]) => id)
     .slice(0, 3);
@@ -1776,8 +1934,19 @@ export async function discoverTasteMatchedFilms(
         ? topUserGenres
         : [11, 6, 1, 2];
 
-  const shuffledSeeds = seededShuffle(uniqueSeeds, randomSeed);
-  const pageSeedOffset = ((safePage - 1) * 4) % Math.max(1, shuffledSeeds.length);
+  // Keep highest-rated seeds anchored at the front while rotating across pages
+  const topRatedAnchorSeeds = positiveRated
+    .slice(0, 6)
+    .map((r) => r.film_id);
+  const remainingSeeds = uniqueSeeds.filter(
+    (id) => !topRatedAnchorSeeds.includes(id),
+  );
+  const shuffledSeeds = [
+    ...seededShuffle(topRatedAnchorSeeds, randomSeed),
+    ...seededShuffle(remainingSeeds, randomSeed + 7),
+  ];
+  const pageSeedOffset =
+    ((safePage - 1) * 4) % Math.max(1, shuffledSeeds.length);
   const rotatedSeeds = [
     ...shuffledSeeds.slice(pageSeedOffset),
     ...shuffledSeeds.slice(0, pageSeedOffset),
@@ -1788,11 +1957,14 @@ export async function discoverTasteMatchedFilms(
   if (safePage <= 3 && rotatedSeeds.length > 0) {
     for (let i = 0; i < rotatedSeeds.length; i++) {
       const seedId = rotatedSeeds[i];
+      const isTopRatedSeed = highRatedSeedIds.has(seedId);
       const reqPriority = priority === "high" && i < 3 ? "high" : "low";
       seedBucketPromises.push(
         Promise.allSettled([
           getSimilarFilms(seedId, reqPriority),
-          i < 2 ? getRelatedFilms(seedId, reqPriority) : Promise.resolve([]),
+          i < 2 || isTopRatedSeed
+            ? getRelatedFilms(seedId, reqPriority)
+            : Promise.resolve([]),
         ]).then(([simRes, relRes]) => {
           const items: Film[] = [];
           if (simRes.status === "fulfilled" && simRes.value.items) {
@@ -1824,6 +1996,9 @@ export async function discoverTasteMatchedFilms(
       ? (opts.type as "FILM" | "TV_SHOW" | "TV_SERIES" | "MINI_SERIES")
       : undefined;
 
+  const dynamicRatingFloor =
+    opts.ratingFrom ?? (prefersHighAcclaim ? 7.1 : 6.9);
+
   const genrePoolPromises = effectiveGenres.slice(0, 3).map((gId, idx) =>
     getFilmsByFilter(
       {
@@ -1831,7 +2006,7 @@ export async function discoverTasteMatchedFilms(
         type: baseType,
         countries: opts.includeCountries?.[0],
         order: idx % 2 === 0 ? "NUM_VOTE" : "RATING",
-        ratingFrom: opts.ratingFrom ?? 6.9,
+        ratingFrom: dynamicRatingFloor,
         ratingTo: opts.ratingTo,
         yearFrom: opts.yearFrom,
         yearTo: opts.yearTo,
@@ -1865,6 +2040,9 @@ export async function discoverTasteMatchedFilms(
   ]);
 
   const interleavedSeeds = interleaveBuckets(seedBuckets);
+  const seedOriginSet = new Set(
+    interleavedSeeds.map((f) => f.kinopoiskId ?? f.filmId ?? 0).filter(Boolean),
+  );
   const interleavedGenres = interleaveBuckets([
     ...genreBuckets,
     ...(fallbackBucket.length > 0 ? [fallbackBucket] : []),
@@ -1896,6 +2074,48 @@ export async function discoverTasteMatchedFilms(
       opts.ratingSource ?? "AUTO",
       randomSeed + safePage,
     );
+  } else if (positiveRated.length > 0 && genreFreq.size > 0) {
+    // Score candidates by taste affinity (matching weighted genres + similarity seed origin)
+    // and shuffle within affinity bands for fresh yet taste-accurate recommendations
+    const maxGenreWeight = Math.max(1, ...Array.from(genreFreq.values()));
+    const scored = filtered.map((film) => {
+      const fid = film.kinopoiskId ?? film.filmId ?? 0;
+      let affinity = seedOriginSet.has(fid) ? 2.5 : 0;
+      if (film.genres) {
+        for (const g of film.genres) {
+          const gLower = g.genre.trim().toLowerCase();
+          const gEn = translateGenre(g.genre, true).trim().toLowerCase();
+          const gId = GENRE_NAME_TO_ID[gLower] ?? GENRE_NAME_TO_ID[gEn];
+          if (gId && genreFreq.has(gId)) {
+            affinity += (genreFreq.get(gId) ?? 0) / maxGenreWeight;
+          }
+        }
+      }
+      if (prefersHighAcclaim) {
+        const effR = getEffectiveRating(film, "AUTO");
+        if (effR >= 8.0) affinity += 1.0;
+      }
+      // Group into coarse tiers so seeded shuffle preserves variety inside each tier
+      const tier = Math.round(affinity * 2);
+      return { film, tier };
+    });
+
+    const tierBuckets = new Map<number, Film[]>();
+    for (const item of scored) {
+      const list = tierBuckets.get(item.tier) ?? [];
+      list.push(item.film);
+      tierBuckets.set(item.tier, list);
+    }
+    const sortedTiers = Array.from(tierBuckets.keys()).sort((a, b) => b - a);
+    finalOrdered = [];
+    for (const t of sortedTiers) {
+      finalOrdered.push(
+        ...seededShuffle(
+          tierBuckets.get(t) ?? [],
+          randomSeed + safePage * 101 + t * 19,
+        ),
+      );
+    }
   } else {
     finalOrdered = seededShuffle(filtered, randomSeed + safePage * 101);
   }
@@ -1923,7 +2143,12 @@ function applyClientDiscoveryFilters(
   ratingSource: RatingSource,
 ): Film[] {
   const watchedSet = opts.hideWatched
-    ? new Set(getList("history").map((e) => e.film_id))
+    ? new Set([
+        ...getList("history").map((e) => e.film_id),
+        ...(opts.lens === "FOR_YOU"
+          ? getRatedFilms().map((e) => e.film_id)
+          : []),
+      ])
     : null;
   const favSet = opts.hideFavorites
     ? new Set(getList("favorites").map((e) => e.film_id))
