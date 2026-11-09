@@ -4,6 +4,32 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 
 export const NAV_DEPTH_KEY = "cinemix_internal_nav_depth";
+export const NAV_STACK_KEY = "cinemix_nav_stack_v1";
+
+export function readNavStack(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(NAV_STACK_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeNavStack(stack: string[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    const trimmed = stack.slice(-40);
+    sessionStorage.setItem(NAV_STACK_KEY, JSON.stringify(trimmed));
+    sessionStorage.setItem(NAV_DEPTH_KEY, String(trimmed.length));
+  } catch {
+    // ignore storage errors
+  }
+}
 
 interface BackButtonProps {
   desktopOnly?: boolean;
@@ -22,23 +48,40 @@ export default function BackButton({
 }: BackButtonProps) {
   const router = useRouter();
 
-  const handleBack = () => {
+  const handleBack = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+
     try {
       if (typeof window !== "undefined") {
-        const rawDepth = sessionStorage.getItem(NAV_DEPTH_KEY);
-        const depth = rawDepth ? parseInt(rawDepth, 10) : 0;
-        if (depth > 1 && window.history.length > 1) {
-          sessionStorage.setItem(
-            NAV_DEPTH_KEY,
-            String(Math.max(0, depth - 2)),
-          );
-          router.back();
+        const currentPathname = window.location.pathname;
+        const stack = readNavStack();
+
+        // Remove any trailing entries that match the current pathname
+        // so same-page filter changes, modal pushStates, or iframe navigations
+        // never trap the user on the same route or trigger a phantom scroll.
+        while (stack.length > 0) {
+          const top = stack[stack.length - 1];
+          const topPathname = top.split("?")[0].split("#")[0];
+          if (topPathname === currentPathname) {
+            stack.pop();
+          } else {
+            break;
+          }
+        }
+
+        const targetRoute = stack.pop();
+        writeNavStack(stack);
+
+        if (targetRoute) {
+          router.push(targetRoute);
           return;
         }
       }
     } catch {
-      // Fallback to router.push below if sessionStorage is unavailable
+      // Fallback to router.push(fallbackHref) below
     }
+
     router.push(fallbackHref);
   };
 

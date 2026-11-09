@@ -6,7 +6,7 @@
  * - Smart deduplication & in-place coalescing (prevents duplicate toast spam)
  * - Hover / touch pause & resume with accurate millisecond progress tracking
  * - Horizontal touch swipe-to-dismiss & manual close button
- * - Contextual icons (Heart for Favorites, Clock for Watch Later, Trash for removals, etc.)
+ * - Contextual icons (Heart for Favorites, Clock for Watch Later, Star for Ratings, Trash for removals, etc.)
  * - Optional mini poster thumbnail, subtitle/description, and interactive Action / Undo button
  * - Smooth two-phase enter & exit animations
  */
@@ -27,6 +27,7 @@ import {
   TriangleAlert,
   Heart,
   Clock,
+  Star,
   Trash2,
   Sparkles,
   X,
@@ -45,7 +46,7 @@ export interface ToastOptions {
   posterUrl?: string | null;
   action?: ToastAction;
   duration?: number;
-  icon?: "heart" | "clock" | "trash" | "sparkles" | "default";
+  icon?: "heart" | "clock" | "star" | "trash" | "sparkles" | "default";
   dedupeKey?: string;
 }
 
@@ -102,6 +103,9 @@ function inferContextualIcon(
   if (lower.includes("favorite")) return "heart";
   if (lower.includes("watch later") || lower.includes("watchlist")) {
     return "clock";
+  }
+  if (lower.includes("rating") || lower.includes("rated")) {
+    return "star";
   }
   if (
     lower.includes("removed") ||
@@ -314,6 +318,16 @@ function getToastTheme(item: ToastItem): ToastVisualTheme {
     };
   }
 
+  if (item.icon === "star" && !isRemoval) {
+    return {
+      borderCls: "border-[rgba(245,197,24,0.48)]",
+      glowColor: "rgba(245, 197, 24, 0.22)",
+      barColor: "#f5c518",
+      badgeBg: "bg-[rgba(245,197,24,0.18)] border-[rgba(245,197,24,0.42)]",
+      badgeText: "text-[#f5c518]",
+    };
+  }
+
   switch (item.type) {
     case "success":
       return {
@@ -376,6 +390,16 @@ function renderToastIcon(item: ToastItem) {
   }
   if (item.icon === "clock") {
     return <Clock size={15} stroke="currentColor" strokeWidth={2.3} />;
+  }
+  if (item.icon === "star") {
+    return (
+      <Star
+        size={15}
+        fill={isRemoval ? "none" : "currentColor"}
+        stroke="currentColor"
+        strokeWidth={2.3}
+      />
+    );
   }
   if (item.icon === "trash") {
     return <Trash2 size={14} stroke="currentColor" strokeWidth={2.2} />;
@@ -488,17 +512,12 @@ function ToastCard({
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       style={{
-        transform:
-          dragX > 0 ? `translate3d(${dragX}px, 0, 0)` : undefined,
+        transform: dragX > 0 ? `translate3d(${dragX}px, 0, 0)` : undefined,
         opacity: dragX > 0 ? Math.max(0.2, 1 - dragX / 160) : undefined,
         backgroundImage: `radial-gradient(120px circle at 18px 50%, ${theme.glowColor}, transparent 100%)`,
       }}
       className={`group relative overflow-hidden flex items-center gap-3 rounded-[14px] px-3.5 py-2.5 text-[12.5px] sm:text-[13px] font-medium text-[var(--text)] bg-[#111116]/95 backdrop-blur-2xl [-webkit-backdrop-filter:blur(24px)] border ${theme.borderCls} shadow-[0_14px_40px_rgba(0,0,0,0.75),inset_0_1px_0_rgba(255,255,255,0.08)] pointer-events-auto select-none transition-all duration-200 ${
-        item.exiting
-          ? "toast-exit"
-          : pulsing
-            ? "scale-[1.03]"
-            : "toast-enter"
+        item.exiting ? "toast-exit" : pulsing ? "scale-[1.03]" : "toast-enter"
       }`}
     >
       {/* Left Thumbnail or Contextual Icon Badge */}

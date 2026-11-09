@@ -12,6 +12,10 @@
   --accent-dim: rgba(229, 9, 20, 0.12);
   --accent-glow: rgba(229, 9, 20, 0.4);
   --gold: #f5c518;
+  --user-rating: #a78bfa;
+  --user-rating-bg: rgba(167, 139, 250, 0.14);
+  --user-rating-border: rgba(167, 139, 250, 0.45);
+  --user-rating-glow: rgba(167, 139, 250, 0.18);
   --text: #f0f0f0;
   --text-dim: rgba(240, 240, 240, 0.55);
   --text-muted: rgba(240, 240, 240, 0.28);

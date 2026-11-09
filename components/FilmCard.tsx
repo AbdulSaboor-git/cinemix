@@ -470,7 +470,7 @@ export function FilmLongPressPortal({
   const year = hydrated.year || hydrated.startYear;
   const certBadge = getQuickCertBadge(hydrated);
 
-  const { isFav, isWL, mounted } = useListStatus(id);
+  const { isFav, isWL, isRated, userRating, mounted } = useListStatus(id);
   const { toast } = useToast();
 
   const posterUrl = hydrated.posterUrlPreview || hydrated.posterUrl || null;
@@ -602,7 +602,7 @@ export function FilmLongPressPortal({
           <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/30 to-black/15 pointer-events-none" />
 
           {/* Top-Left MPAA / Age Certification Badge */}
-          <div className="absolute top-3 left-3 z-10">
+          <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5">
             <div
               className={`rounded-lg px-2.5 py-1 backdrop-blur-md border flex items-center gap-1.5 shadow-lg transition-transform ${
                 certBadge?.isMature
@@ -615,6 +615,14 @@ export function FilmLongPressPortal({
                 {certBadge ? certBadge.label : "PG Guide"}
               </span>
             </div>
+            {isRated && userRating !== null && (
+              <div className="rounded-lg px-2.5 py-1 bg-[var(--user-rating-bg)] backdrop-blur-md border border-[var(--user-rating-border)] text-[var(--user-rating)] flex items-center gap-1 shadow-lg">
+                <Star size={11} fill="var(--user-rating)" stroke="var(--user-rating)" />
+                <span className="text-[11px] font-bold">
+                  Your: {userRating.toFixed(1)}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Top-Right Rating Badge */}
@@ -779,7 +787,8 @@ const FilmCard = memo(function FilmCard({
   const year = film.year || film.startYear;
   const isScroll = variant === "scroll";
 
-  const { isFav, isWL, isWatched, mounted } = useListStatus(id);
+  const { isFav, isWL, isWatched, isRated, userRating, mounted } =
+    useListStatus(id);
   const { toast } = useToast();
 
   const {
@@ -1029,8 +1038,17 @@ const FilmCard = memo(function FilmCard({
             )}
 
             {/* ── Active state badges on normal grid card ── */}
-            {mounted && (isFav || isWL || isWatched) && (
+            {mounted && (isFav || isWL || isWatched || isRated) && (
               <div className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 flex flex-col gap-[4px]">
+                {isRated && userRating !== null && (
+                  <div
+                    title={`Your Rating: ${userRating.toFixed(1)}/10`}
+                    className="h-[22px] px-1.5 rounded-[5px] bg-[var(--user-rating)] text-[#080808] backdrop-blur-[6px] flex items-center justify-center gap-0.5 font-bold text-[10px] shadow-sm"
+                  >
+                    <Star size={9} fill="#080808" stroke="#080808" />
+                    <span>{userRating.toFixed(1)}</span>
+                  </div>
+                )}
                 {isFav && (
                   <div
                     title="In Favorites"

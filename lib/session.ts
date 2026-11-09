@@ -43,11 +43,34 @@ export interface FilmListEntry {
   added_at: string;       // ISO-8601
 }
 
+/** Optional category breakdown for a user's custom movie taste rating (1-10 scale) */
+export interface TasteBreakdown {
+  story?: number;
+  acting?: number;
+  visuals?: number;
+  soundtrack?: number;
+}
+
+/** Mirrors user-rated movie entries in `user_lists` (list_type = 'ratings') */
+export interface RatedFilmEntry extends FilmListEntry {
+  /** User's personal custom rating on a 1.0 - 10.0 scale (0.5 step precision) */
+  user_rating: number;
+  /** Optional multi-dimension taste scores (1.0 - 10.0) */
+  taste_breakdown?: TasteBreakdown;
+  /** Optional personal vibe/taste tags chosen by the user */
+  taste_tags?: string[];
+  /** Optional personal note or mini-review */
+  review_note?: string;
+  /** ISO-8601 timestamp when the rating was last edited */
+  updated_at?: string;
+}
+
 /** Mirrors the `user_lists` SQL table */
 export interface UserLists {
   favorites: FilmListEntry[];
   watchlater: FilmListEntry[];
   history: FilmListEntry[];
+  ratings: RatedFilmEntry[];
 }
 
 /** Mirrors the `api_key_store` SQL table */
@@ -298,6 +321,87 @@ export function markKeyValid(key: string): void {
 
 // ─── Core read/write ──────────────────────────────────────────────────────────
 
+function clampScore(val: unknown): number | undefined {
+  if (typeof val !== "number" || isNaN(val)) return undefined;
+  const clamped = Math.min(10, Math.max(1, val));
+  return Math.round(clamped * 2) / 2;
+}
+
+function normalizeRatedEntries(raw: unknown): RatedFilmEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const result: RatedFilmEntry[] = [];
+  const seen = new Set<number>();
+
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Partial<RatedFilmEntry>;
+    const filmId = typeof rec.film_id === "number" ? rec.film_id : NaN;
+    if (isNaN(filmId) || filmId <= 0 || seen.has(filmId)) continue;
+
+    const userScore = clampScore(rec.user_rating ?? rec.rating);
+    if (userScore === undefined) continue;
+    seen.add(filmId);
+
+    let breakdown: TasteBreakdown | undefined;
+    if (rec.taste_breakdown && typeof rec.taste_breakdown === "object") {
+      const b = rec.taste_breakdown;
+      const story = clampScore(b.story);
+      const acting = clampScore(b.acting);
+      const visuals = clampScore(b.visuals);
+      const soundtrack = clampScore(b.soundtrack);
+      if (
+        story !== undefined ||
+        acting !== undefined ||
+        visuals !== undefined ||
+        soundtrack !== undefined
+      ) {
+        breakdown = {
+          ...(story !== undefined ? { story } : {}),
+          ...(acting !== undefined ? { acting } : {}),
+          ...(visuals !== undefined ? { visuals } : {}),
+          ...(soundtrack !== undefined ? { soundtrack } : {}),
+        };
+      }
+    }
+
+    const tags = Array.isArray(rec.taste_tags)
+      ? rec.taste_tags
+          .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+          .map((t) => t.trim())
+          .slice(0, 6)
+      : undefined;
+
+    const note =
+      typeof rec.review_note === "string" && rec.review_note.trim().length > 0
+        ? rec.review_note.trim().slice(0, 500)
+        : undefined;
+
+    const addedAt =
+      typeof rec.added_at === "string" && rec.added_at
+        ? rec.added_at
+        : new Date().toISOString();
+
+    result.push({
+      film_id: filmId,
+      film_name: typeof rec.film_name === "string" ? rec.film_name : "Unknown",
+      poster_url: typeof rec.poster_url === "string" ? rec.poster_url : null,
+      year: typeof rec.year === "number" ? rec.year : null,
+      rating: typeof rec.rating === "number" ? rec.rating : null,
+      added_at: addedAt,
+      updated_at:
+        typeof rec.updated_at === "string" && rec.updated_at
+          ? rec.updated_at
+          : addedAt,
+      user_rating: userScore,
+      ...(breakdown ? { taste_breakdown: breakdown } : {}),
+      ...(tags && tags.length > 0 ? { taste_tags: tags } : {}),
+      ...(note ? { review_note: note } : {}),
+    });
+  }
+
+  return result;
+}
+
 function normalizeSession(parsed: Partial<CineMixSession>): CineMixSession {
   const fresh = createDefaultSession();
   const rawFilmSections = {
@@ -361,6 +465,7 @@ function normalizeSession(parsed: Partial<CineMixSession>): CineMixSession {
       favorites: Array.isArray(parsed.lists?.favorites) ? parsed.lists!.favorites : [],
       watchlater: Array.isArray(parsed.lists?.watchlater) ? parsed.lists!.watchlater : [],
       history: Array.isArray(parsed.lists?.history) ? parsed.lists!.history : [],
+      ratings: normalizeRatedEntries(parsed.lists?.ratings),
     },
     api_keys: {
       sync_code: parsed.api_keys?.sync_code ?? null,
@@ -415,7 +520,7 @@ function createDefaultSession(): CineMixSession {
       created_at: now,
       updated_at: now,
     },
-    lists: { favorites: [], watchlater: [], history: [] },
+    lists: { favorites: [], watchlater: [], history: [], ratings: [] },
     api_keys: { sync_code: null, keys: [], saved_at: null },
     preferences: { ...DEFAULT_PREFERENCES },
   };

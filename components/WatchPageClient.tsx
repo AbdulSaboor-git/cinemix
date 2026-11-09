@@ -58,8 +58,14 @@ import TabPill from "@/components/ui/TabPill";
 import EmptyState from "@/components/ui/EmptyState";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
 import ParentalGuideModal from "@/components/ParentalGuideModal";
+import RateFilmModal from "@/components/RateFilmModal";
 
-const HISTORY_THRESHOLD_S = 10;
+/**
+ * Minimum active watch time (in seconds) before a title is recorded in Watch History.
+ * Set to 120s (2 minutes) of active viewing (excluding hidden tabs and trailers)
+ * so brief server checks or accidental clicks do not pollute Watch History.
+ */
+export const HISTORY_THRESHOLD_S = 120;
 const PLAYER_PROXY_URL = "/api/kinodivbox";
 const EPISODES_PAGE_SIZE = 24;
 
@@ -267,6 +273,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   // Cinema Controls: Wide Theater & KinoDivBox Remapped Server Buttons
   const [wideTheater, setWideTheater] = useState(false);
   const [parentalOpen, setParentalOpen] = useState(false);
+  const [rateModalOpen, setRateModalOpen] = useState(false);
   const [showParentalGuide, setShowParentalGuide] = useState<boolean>(
     () => getPreferences().filmSections.parentalGuide ?? true,
   );
@@ -278,7 +285,9 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   const savedServerRef = useRef<SavedServerSelection | null>(null);
   const needsIframeServerSyncRef = useRef<boolean>(false);
 
-  const { isFav, isWL } = useListStatus(isNaN(id) ? 0 : id);
+  const { isFav, isWL, isRated, userRating } = useListStatus(
+    isNaN(id) ? 0 : id,
+  );
 
   const name = useFilmTitle(film, autoTranslate);
   const description = useTranslate(film?.description || film?.shortDescription);
@@ -288,6 +297,10 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   const addedRef = useRef(false);
   const latestNameRef = useRef(name);
   latestNameRef.current = name;
+  const isTrailerActiveRef = useRef(false);
+  isTrailerActiveRef.current = Boolean(
+    kdbServers.find((s) => s.active)?.isTrailer,
+  );
 
   const postServerSelectToIframe = useCallback(
     (srv: { index: number; id: string; rawName: string }) => {
@@ -396,8 +409,8 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           : `Switched to Server ${srv.index + 1}`,
         {
           type: "info",
-          icon: "sparkles",
-          description: srv.name,
+          icon: "default",
+          // description: srv.name,
           duration: 2000,
           dedupeKey: `watch-server-${id}`,
         },
@@ -504,7 +517,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Accurate 10-second (1000ms interval) watch history tracker
+  // Active 2-minute (120s) watch history tracker (pauses when tab is hidden or on Trailer)
   useEffect(() => {
     if (!film || isNaN(id)) return;
     if (isSafeModeActive() && isAdultContentFilm(film)) return;
@@ -512,6 +525,15 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     addedRef.current = false;
 
     const timer = setInterval(() => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      if (isTrailerActiveRef.current) {
+        return;
+      }
       secondsRef.current += 1;
       if (secondsRef.current >= HISTORY_THRESHOLD_S && !addedRef.current) {
         addedRef.current = true;
@@ -749,7 +771,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
               </div>
             </div>
 
-            {/* Quick Action Controls (Favorite, Watch Later, Desktop Wide Mode) */}
+            {/* Quick Action Controls (Favorite, Watch Later, Rate, Desktop Wide Mode) */}
             <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
               <div className="hidden md:inline-flex">
                 <button
@@ -770,6 +792,35 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                   <span>{wideTheater ? "Standard" : "Wide"}</span>
                 </button>
               </div>
+
+              <button
+                type="button"
+                onClick={() => setRateModalOpen(true)}
+                aria-label={
+                  isRated && userRating !== null
+                    ? `Rated ${userRating.toFixed(1)} (Edit)`
+                    : "Rate film"
+                }
+                title={
+                  isRated && userRating !== null
+                    ? `Your rating: ${userRating.toFixed(1)}/10 (Click to edit)`
+                    : "Rate according to your taste"
+                }
+                className={`btn btn-ghost h-8 px-2 inline-flex items-center justify-center gap-1 rounded-[9px] text-[11px] font-semibold transition-all active:scale-90 ${
+                  isRated
+                    ? "border-[var(--user-rating-border)] bg-[var(--user-rating-bg)] text-[var(--user-rating)]"
+                    : ""
+                }`}
+              >
+                <Star
+                  size={13}
+                  fill={isRated ? "var(--user-rating)" : "none"}
+                  stroke={isRated ? "var(--user-rating)" : "currentColor"}
+                />
+                {isRated && userRating !== null && (
+                  <span>{userRating.toFixed(1)}</span>
+                )}
+              </button>
 
               <button
                 type="button"
@@ -931,7 +982,9 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         <div className="sm:hidden mt-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-2.5 shadow-[0_6px_20px_rgba(0,0,0,0.35)]">
           <div className="grid grid-cols-10 gap-2 sm:hidden pt-0.5">
             {/* 1: Release Year */}
-            <div className={`flex ${showParentalGuide ? "col-span-3" : "col-span-5"} items-center min-w-fit text-[var(--text-dim)] justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]`}>
+            <div
+              className={`flex ${showParentalGuide ? "col-span-3" : "col-span-5"} items-center min-w-fit text-[var(--text-dim)] justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]`}
+            >
               <CalendarIcon size={14} className="mb-0.5" />
               <span className="font-display text-sm">{year ?? "—"}</span>
             </div>
@@ -942,7 +995,9 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                 onClick={() => setParentalOpen(true)}
                 title="View Parental Guide"
                 className={`flex col-span-4 items-center min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] backdrop-blur-md border bg-white/3 border-white/[0.07] shadow-lg active:scale-[0.98] cursor-pointer transition-all ${
-                  certBadge?.isMature ? "text-red-500" : "text-[var(--text-dim)]"
+                  certBadge?.isMature
+                    ? "text-red-500"
+                    : "text-[var(--text-dim)]"
                 }`}
               >
                 <ShieldAlert size={14} className="mb-0.5" />
@@ -952,7 +1007,9 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
               </button>
             )}
             {/* 3: Rating */}
-            <div className={`flex items-center ${showParentalGuide ? "col-span-3" : "col-span-5"} min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]`}>
+            <div
+              className={`flex items-center ${showParentalGuide ? "col-span-3" : "col-span-5"} min-w-fit justify-center gap-1 px-3 py-2 rounded-[10px] bg-white/[0.03] border border-white/[0.07]`}
+            >
               <span className="font-display text-[15px] tracking-[0.5px] text-[#f5c518] leading-none">
                 {rating ? rating.toFixed(1) : "—"}
               </span>
@@ -1113,6 +1170,12 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           film={film}
         />
       )}
+
+      <RateFilmModal
+        open={rateModalOpen}
+        onClose={() => setRateModalOpen(false)}
+        film={filmEntry}
+      />
     </PageContainer>
   );
 }

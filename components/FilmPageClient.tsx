@@ -7,8 +7,11 @@ import {
   Clock,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   X,
   Star,
+  Pencil,
+  Sparkles,
   CircleAlert,
   EyeOff,
   Eye,
@@ -83,8 +86,15 @@ import PosterImage from "@/components/ui/PosterImage";
 import EmptyState from "@/components/ui/EmptyState";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
 import ParentalGuideModal from "@/components/ParentalGuideModal";
+import RateFilmModal from "@/components/RateFilmModal";
 import { getQuickCertBadge } from "@/lib/parentalGuide";
-import { toggleFavorite, toggleWatchLater } from "@/lib/userLists";
+import {
+  toggleFavorite,
+  toggleWatchLater,
+  getRatingVerdict,
+  TASTE_DIMENSIONS,
+  RatedFilmEntry,
+} from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
 
 function buildInitialCachedFilm(id: number): Film | null {
@@ -415,7 +425,9 @@ function FilmDetail({
   const [showSpoilers, setShowSpoilers] = useState(false);
   const [activeTab, setActiveTab] = useState<"facts" | "bloopers">("facts");
 
-  const { isFav, isWL } = useListStatus(filmId);
+  const { isFav, isWL, isRated, userRating, ratingEntry } =
+    useListStatus(filmId);
+  const [rateModalOpen, setRateModalOpen] = useState(false);
   const [parentalOpen, setParentalOpen] = useState(false);
   const [showParentalGuide, setShowParentalGuide] = useState<boolean>(
     () => getPreferences().filmSections.parentalGuide ?? true,
@@ -714,7 +726,7 @@ function FilmDetail({
           </div>
 
           {/* ── Native Android Action Row on Mobile / Inline on Desktop ── */}
-          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 mb-6">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 mb-3">
             <Link
               href={`/watch/${filmId}`}
               className="btn btn-primary w-full sm:w-auto justify-center px-6 py-3 sm:py-[10px] text-[14px] rounded-[10px] sm:rounded-[var(--radius)] no-underline"
@@ -723,11 +735,11 @@ function FilmDetail({
               Watch Now
             </Link>
 
-            <div className="grid grid-cols-2 sm:flex items-center gap-2.5">
+            <div className="grid grid-cols-3 sm:flex items-center gap-2 sm:gap-2.5">
               <button
                 type="button"
                 onClick={handleFav}
-                className={`flex items-center justify-center gap-[7px] rounded-[10px] sm:rounded-[var(--radius)] px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 ${
+                className={`flex items-center justify-center gap-[7px] rounded-[10px] sm:rounded-[var(--radius)] px-3 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 ${
                   isFav
                     ? "bg-[rgba(229,9,20,0.15)] border-[rgba(229,9,20,0.5)] text-[var(--accent)] shadow-[0_0_14px_rgba(229,9,20,0.2)]"
                     : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)]"
@@ -739,23 +751,71 @@ function FilmDetail({
                   stroke="currentColor"
                   strokeWidth={2}
                 />
-                {isFav ? "In Favorites" : "Favorite"}
+                <span className="truncate">
+                  {isFav ? "In Favorites" : "Favorite"}
+                </span>
               </button>
 
               <button
                 type="button"
                 onClick={handleWL}
-                className={`flex items-center justify-center gap-[7px] rounded-[10px] sm:rounded-[var(--radius)] px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 ${
+                className={`flex items-center justify-center gap-[7px] rounded-[10px] sm:rounded-[var(--radius)] px-3 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 ${
                   isWL
                     ? "bg-[rgba(96,165,250,0.12)] border-[rgba(96,165,250,0.4)] text-[#60a5fa]"
                     : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(96,165,250,0.4)] hover:text-[#60a5fa]"
                 }`}
               >
                 <Clock size={14} stroke="currentColor" strokeWidth={2} />
-                {isWL ? "In Watch Later" : "Watch Later"}
+                <span className="truncate">
+                  {isWL ? "In Watch Later" : "Watch Later"}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRateModalOpen(true)}
+                title={
+                  isRated && userRating !== null
+                    ? `Your rating: ${userRating.toFixed(1)}/10 (click to edit)`
+                    : "Rate this title according to your taste"
+                }
+                className={`flex items-center justify-center gap-[6px] rounded-[10px] sm:rounded-[var(--radius)] px-3 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 ${
+                  isRated && userRating !== null
+                    ? "bg-[var(--user-rating-bg)] border-[var(--user-rating-border)] text-[var(--user-rating)] shadow-[0_0_16px_var(--user-rating-glow)]"
+                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--user-rating-border)] hover:text-[var(--user-rating)]"
+                }`}
+              >
+                <Star
+                  size={14}
+                  fill={isRated ? "var(--user-rating)" : "none"}
+                  stroke="currentColor"
+                  strokeWidth={2}
+                />
+                <span className="truncate">
+                  {isRated && userRating !== null
+                    ? `Rated ${userRating.toFixed(1)}`
+                    : "Rate"}
+                </span>
+                {isRated && (
+                  <Pencil
+                    size={11}
+                    strokeWidth={2.2}
+                    className="opacity-75 shrink-0"
+                  />
+                )}
               </button>
             </div>
           </div>
+
+          {/* ── Minimal Collapsible User Taste Strip (conserves space on mobile) ── */}
+          {ratingEntry ? (
+            <UserTasteStrip
+              entry={ratingEntry}
+              onEdit={() => setRateModalOpen(true)}
+            />
+          ) : (
+            <div className="mb-3" />
+          )}
 
           {/* Box office — mobile */}
           {hasBoxOffice && (
@@ -1069,11 +1129,152 @@ function FilmDetail({
           film={film}
         />
       )}
+
+      <RateFilmModal
+        open={rateModalOpen}
+        onClose={() => setRateModalOpen(false)}
+        film={filmEntry}
+      />
     </PageContainer>
   );
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+/**
+ * Minimal, single-line collapsible bar for the user's custom rating on the film details page.
+ * Collapsed by default to conserve vertical space on mobile; expands smoothly when tapped.
+ */
+function UserTasteStrip({
+  entry,
+  onEdit,
+}: {
+  entry: RatedFilmEntry;
+  onEdit: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const verdict = getRatingVerdict(entry.user_rating);
+  const hasBreakdown =
+    entry.taste_breakdown && Object.keys(entry.taste_breakdown).length > 0;
+  const hasTags = entry.taste_tags && entry.taste_tags.length > 0;
+  const hasNote = Boolean(entry.review_note);
+  const hasDetails = Boolean(hasBreakdown || hasTags || hasNote);
+
+  return (
+    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] px-3 py-2 mb-5 transition-colors">
+      <div className="flex items-center justify-between gap-2">
+        <div
+          onClick={hasDetails ? () => setExpanded((v) => !v) : onEdit}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              if (hasDetails) setExpanded((v) => !v);
+              else onEdit();
+            }
+          }}
+          className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer select-none"
+        >
+          <span
+            className="inline-flex items-center gap-1 px-2 py-[2px] rounded-[6px] text-[11px] font-bold flex-shrink-0"
+            style={{
+              color: "var(--user-rating)",
+              backgroundColor: "var(--user-rating-bg)",
+              border: "1px solid var(--user-rating-border)",
+            }}
+          >
+            <Star size={10} fill="var(--user-rating)" stroke="var(--user-rating)" />
+            {entry.user_rating.toFixed(1)}
+          </span>
+          <span className="text-[12px] font-medium text-[var(--text-dim)] truncate">
+            Your Taste ·{" "}
+            <strong className="text-[var(--text)] font-semibold">
+              {verdict.label}
+            </strong>
+          </span>
+          {!expanded && hasTags && (
+            <span className="hidden sm:inline text-[11px] text-[var(--text-muted)] truncate">
+              · {entry.taste_tags!.slice(0, 2).join(", ")}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {hasDetails && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-[6px] text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text)] bg-transparent border border-transparent hover:border-[var(--border)] cursor-pointer transition-colors"
+            >
+              <span>{expanded ? "Hide" : "Details"}</span>
+              <ChevronDown
+                size={12}
+                className={`transition-transform duration-200 ${
+                  expanded ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onEdit}
+            title="Edit your rating"
+            aria-label="Edit your rating"
+            className="w-7 h-7 rounded-[6px] bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-dim)] hover:text-[var(--user-rating)] hover:border-[var(--user-rating-border)] flex items-center justify-center cursor-pointer transition-colors"
+          >
+            <Pencil size={11} strokeWidth={2.2} />
+          </button>
+        </div>
+      </div>
+
+      {expanded && hasDetails && (
+        <div className="mt-2.5 pt-2.5 border-t border-[var(--border)] flex flex-col gap-2 slide-down">
+          {hasBreakdown && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {TASTE_DIMENSIONS.map((dim) => {
+                const val = entry.taste_breakdown?.[dim.key];
+                if (val === undefined) return null;
+                return (
+                  <span
+                    key={dim.key}
+                    className="text-[10px] sm:text-[11px] text-[var(--text-muted)] bg-[var(--bg-elevated)] border border-[var(--border)] px-2 py-[2px] rounded-[5px]"
+                  >
+                    {dim.shortLabel}{" "}
+                    <strong className="text-[var(--user-rating)] font-semibold">
+                      {val.toFixed(1)}
+                    </strong>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {hasTags && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Sparkles size={10} className="text-[var(--user-rating)]" />
+              {entry.taste_tags!.map((tag) => (
+                <span
+                  key={tag}
+                  className="text-[10px] font-medium text-[var(--user-rating)] bg-[var(--user-rating-bg)] border border-[var(--user-rating-border)] px-2 py-[1px] rounded-full"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {hasNote && (
+            <p className="text-[11px] sm:text-[12px] text-[var(--text-dim)] italic m-0 pl-2.5 border-l-2 border-[var(--user-rating)]/50 leading-relaxed">
+              &ldquo;{entry.review_note}&rdquo;
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function EditorAnnotation({ text }: { text: string }) {
   const translated = useTranslate(text);

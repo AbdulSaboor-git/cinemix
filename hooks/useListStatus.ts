@@ -1,18 +1,21 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { isInList } from "@/lib/userLists";
+import { isInList, getUserRating, RatedFilmEntry } from "@/lib/userLists";
 import { SESSION_KEY } from "@/lib/session";
 
 export interface ListStatus {
   isFav: boolean;
   isWL: boolean;
   isWatched: boolean;
+  isRated: boolean;
+  userRating: number | null;
+  ratingEntry: RatedFilmEntry | null;
   mounted: boolean;
   refresh: () => void;
 }
 
 /**
- * Reactive hook that keeps Favorites, Watch Later, and Watched states
+ * Reactive hook that keeps Favorites, Watch Later, Watched, and Custom Rating states
  * synchronized across all cards, rows, and modals whenever the session changes.
  */
 export function useListStatus(filmId?: number | null): ListStatus {
@@ -23,17 +26,20 @@ export function useListStatus(filmId?: number | null): ListStatus {
   const [isFav, setIsFav] = useState(false);
   const [isWL, setIsWL] = useState(false);
   const [isWatched, setIsWatched] = useState(false);
+  const [ratingEntry, setRatingEntry] = useState<RatedFilmEntry | null>(null);
 
   const sync = useCallback(() => {
     if (!validId) {
       setIsFav(false);
       setIsWL(false);
       setIsWatched(false);
+      setRatingEntry(null);
       return;
     }
     setIsFav(isInList("favorites", validId));
     setIsWL(isInList("watchlater", validId));
     setIsWatched(isInList("history", validId));
+    setRatingEntry(getUserRating(validId));
   }, [validId]);
 
   useEffect(() => {
@@ -53,5 +59,14 @@ export function useListStatus(filmId?: number | null): ListStatus {
     };
   }, [sync]);
 
-  return { isFav, isWL, isWatched, mounted, refresh: sync };
+  return {
+    isFav,
+    isWL,
+    isWatched,
+    isRated: ratingEntry !== null,
+    userRating: ratingEntry ? ratingEntry.user_rating : null,
+    ratingEntry,
+    mounted,
+    refresh: sync,
+  };
 }

@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { initSession } from "@/lib/session";
 import { forceUnlockScroll } from "@/lib/scrollLock";
-import { NAV_DEPTH_KEY } from "@/components/BackButton";
+import { readNavStack, writeNavStack } from "@/components/BackButton";
 
 /** Fires session geo-init once after hydration and tracks internal route changes + scroll safety */
 export default function SessionInit() {
@@ -16,10 +16,20 @@ export default function SessionInit() {
   useEffect(() => {
     // Safety reset so page scroll is never stuck after route transitions
     forceUnlockScroll();
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && pathname) {
       try {
-        const prev = parseInt(sessionStorage.getItem(NAV_DEPTH_KEY) || "0", 10);
-        sessionStorage.setItem(NAV_DEPTH_KEY, String(prev + 1));
+        const fullUrl = `${pathname}${window.location.search || ""}`;
+        const stack = readNavStack();
+        const last = stack[stack.length - 1];
+        const lastPathname = last ? last.split("?")[0].split("#")[0] : null;
+
+        if (lastPathname === pathname) {
+          // Update query string in-place for same-pathname transitions
+          stack[stack.length - 1] = fullUrl;
+        } else {
+          stack.push(fullUrl);
+        }
+        writeNavStack(stack);
       } catch {
         // ignore
       }

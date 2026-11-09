@@ -22,17 +22,18 @@ import {
   getPreferences,
   savePreferences,
 } from "@/lib/preferences";
-import {
-  exportSessionBackup,
-  importSessionBackup,
-  saveApiKeys,
-} from "@/lib/session";
+import { exportSessionBackup, importSessionBackup } from "@/lib/session";
 import {
   getApiKeyInfo,
   clearApiCache,
   validateConfiguredApiKeys,
 } from "@/lib/kinopoisk";
-import { clearFavorites, clearHistory, clearWatchLater } from "@/lib/userLists";
+import {
+  clearFavorites,
+  clearHistory,
+  clearWatchLater,
+  clearRatings,
+} from "@/lib/userLists";
 import { useToast } from "@/lib/toast";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import ApiKeyQuotaModal from "@/components/ApiKeyQuotaModal";
@@ -544,7 +545,7 @@ export default function PreferencesClient() {
             className="hidden"
           />
         </div>
-        <div className="p-4 sm:p-5 flex flex-col sm:flex-row gap-3">
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row flex-wrap gap-3">
           <ConfirmButton
             label="Clear History"
             onConfirm={() => {
@@ -564,6 +565,13 @@ export default function PreferencesClient() {
             onConfirm={() => {
               clearWatchLater();
               toast.info("Watch Later cleared.");
+            }}
+          />
+          <ConfirmButton
+            label="Clear Ratings"
+            onConfirm={() => {
+              clearRatings();
+              toast.info("Custom ratings cleared.");
             }}
           />
         </div>
@@ -670,32 +678,6 @@ export default function PreferencesClient() {
               }
             />
           </div>
-
-          {/* <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
-            <p className={`${lbl} mb-2`}>Catalog Priority</p>
-            <div className="flex gap-[5px] sm:gap-[6px] flex-wrap">
-              {(
-                [
-                  { id: "GLOBAL_FIRST", label: "Global & Hollywood" },
-                  { id: "BALANCED", label: "Balanced Mix" },
-                  { id: "ALL", label: "All Regions" },
-                ] as const
-              ).map((mode) => (
-                <button
-                  key={mode.id}
-                  type="button"
-                  onClick={() =>
-                    updatePref((p) => ({ ...p, contentRegionMode: mode.id }))
-                  }
-                  className={optBtn(
-                    (prefs.contentRegionMode ?? "GLOBAL_FIRST") === mode.id,
-                  )}
-                >
-                  {mode.label}
-                </button>
-              ))}
-            </div>
-          </div> */}
 
           <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)]">
             <p className={`${lbl} mb-1`}>Default Explore sort</p>
@@ -823,11 +805,10 @@ export default function PreferencesClient() {
                 "IMDb content advisories & age certifications",
               ],
             ] as [keyof Preferences["filmSections"], string, string][]
-          ).map(([key, label, hint_], i, arr) => (
+          ).map(([key, label], i, arr) => (
             <div key={key} className={i === arr.length - 1 ? rowLast : row}>
               <div>
                 <p className={lbl}>{label}</p>
-                {/* <p className={hint}>{hint_}</p> */}
               </div>
               <Toggle
                 checked={prefs.filmSections[key] ?? true}

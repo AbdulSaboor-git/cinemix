@@ -6,16 +6,26 @@ import {
   Heart,
   Clock,
   History,
-  Monitor,
+  Star,
+  Sparkles,
   ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import {
   getSession,
   getSessionName,
   saveSessionName,
   SessionMeta,
+  RatedFilmEntry,
 } from "@/lib/session";
-import { getList } from "@/lib/userLists";
+import {
+  getList,
+  getRatedFilms,
+  getTasteStats,
+  getRatingVerdict,
+  TASTE_DIMENSIONS,
+  TasteStats,
+} from "@/lib/userLists";
 import { useTranslate } from "@/hooks/useTranslate";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useToast } from "@/lib/toast";
@@ -24,16 +34,19 @@ import { verifyApiKeys } from "@/lib/kinopoisk";
 import PageContainer from "@/components/ui/PageContainer";
 import PosterImage from "@/components/ui/PosterImage";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
+import RateFilmModal, { RateFilmTarget } from "@/components/RateFilmModal";
 
 function StatCard({
   label,
   value,
+  sublabel,
   href,
   color = "var(--accent)",
   icon,
 }: {
   label: string;
-  value: number;
+  value: number | string;
+  sublabel?: string;
   href: string;
   color?: string;
   icon: React.ReactNode;
@@ -43,7 +56,7 @@ function StatCard({
       <div className="h-full bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] p-4 sm:p-5 flex flex-col gap-2 transition-all duration-200 hover:border-[rgba(229,9,20,0.35)] hover:shadow-[0_8px_32px_rgba(0,0,0,0.4)] active:scale-[0.97] cursor-pointer">
         <div className="flex items-center justify-between">
           <span
-            className="font-display text-[clamp(30px,6vw,42px)] leading-none"
+            className="font-display text-[clamp(28px,5.5vw,40px)] leading-none"
             style={{ color }}
           >
             {value}
@@ -52,9 +65,16 @@ function StatCard({
             {icon}
           </div>
         </div>
-        <span className="text-[10px] sm:text-[12px] text-[var(--text-muted)] group-hover:text-[var(--text-dim)] transition-colors font-medium uppercase tracking-[0.6px]">
-          {label}
-        </span>
+        <div className="flex items-center justify-between gap-1.5">
+          <span className="text-[10px] sm:text-[11px] text-[var(--text-muted)] group-hover:text-[var(--text-dim)] transition-colors font-medium uppercase tracking-[0.6px]">
+            {label}
+          </span>
+          {sublabel && (
+            <span className="text-[10px] font-semibold text-[var(--user-rating)]">
+              {sublabel}
+            </span>
+          )}
+        </div>
       </div>
     </Link>
   );
@@ -108,6 +128,150 @@ function RecentFilmRow({
   );
 }
 
+function RatedFilmRow({
+  entry,
+  onEdit,
+}: {
+  entry: RatedFilmEntry;
+  onEdit: (entry: RatedFilmEntry) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const translatedName = useTranslate(entry.film_name);
+  const displayName = translatedName || entry.film_name;
+  const verdict = getRatingVerdict(entry.user_rating);
+  const hasBreakdown =
+    entry.taste_breakdown && Object.keys(entry.taste_breakdown).length > 0;
+  const hasTags = entry.taste_tags && entry.taste_tags.length > 0;
+  const hasNote = Boolean(entry.review_note);
+  const hasDetails = Boolean(hasBreakdown || hasTags || hasNote);
+
+  return (
+    <div className="border-b border-[var(--border)] last:border-b-0">
+      <div className="flex items-center gap-3 py-2.5 sm:py-3">
+        <Link
+          href={`/film/${entry.film_id}`}
+          className="no-underline group flex items-center gap-3 flex-1 min-w-0 active:opacity-80 transition-opacity"
+        >
+          <PosterImage
+            src={entry.poster_url}
+            alt={displayName}
+            title={displayName}
+            filmId={entry.film_id}
+            year={entry.year}
+            fallbackType="mini"
+            className="w-9 h-[52px] sm:w-10 sm:h-[60px] rounded-[6px] overflow-hidden bg-[var(--bg-elevated)] flex-shrink-0 relative"
+          />
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-semibold text-[var(--text)] group-hover:text-white truncate transition-colors leading-[1.3] m-0">
+              {displayName}
+            </p>
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              {entry.year && (
+                <span className="text-[11px] text-[var(--text-muted)]">
+                  {entry.year}
+                </span>
+              )}
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded-[5px] text-[10px] font-bold"
+                style={{
+                  color: "var(--user-rating)",
+                  backgroundColor: "var(--user-rating-bg)",
+                  border: "1px solid var(--user-rating-border)",
+                }}
+              >
+                <Star
+                  size={9}
+                  fill="var(--user-rating)"
+                  stroke="var(--user-rating)"
+                />
+                {entry.user_rating.toFixed(1)}
+              </span>
+              <span className="text-[10px] text-[var(--text-muted)] hidden sm:inline">
+                {verdict.label}
+              </span>
+            </div>
+          </div>
+        </Link>
+
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {hasDetails && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+              title={expanded ? "Hide rating details" : "Show rating details"}
+              className="h-7 px-2 rounded-[6px] bg-transparent border border-[var(--border)] hover:border-[var(--border-hover)] text-[10px] font-medium text-[var(--text-muted)] hover:text-[var(--text)] inline-flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <span className="hidden sm:inline">
+                {expanded ? "Hide" : "Details"}
+              </span>
+              <ChevronDown
+                size={12}
+                className={`transition-transform duration-200 ${
+                  expanded ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onEdit(entry)}
+            title="Edit your rating"
+            aria-label={`Edit rating for ${displayName}`}
+            className="w-7 h-7 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[6px] cursor-pointer text-[var(--text-dim)] hover:text-[var(--user-rating)] hover:border-[var(--user-rating-border)] transition-colors flex items-center justify-center"
+          >
+            <Pencil size={11} strokeWidth={2.2} />
+          </button>
+        </div>
+      </div>
+
+      {expanded && hasDetails && (
+        <div className="pb-3 pt-0.5 pl-12 pr-1 flex flex-col gap-1.5 slide-down">
+          {hasBreakdown && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {TASTE_DIMENSIONS.map((dim) => {
+                const val = entry.taste_breakdown?.[dim.key];
+                if (val === undefined) return null;
+                return (
+                  <span
+                    key={dim.key}
+                    className="text-[10px] text-[var(--text-muted)] bg-[var(--bg-elevated)] border border-[var(--border)] px-1.5 py-[1px] rounded-[4px]"
+                  >
+                    {dim.shortLabel}{" "}
+                    <strong className="text-[var(--user-rating)] font-semibold">
+                      {val.toFixed(1)}
+                    </strong>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {hasTags && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <Sparkles size={10} className="text-[var(--user-rating)]" />
+              {entry.taste_tags!.map((tag) => (
+                <span
+                  key={tag}
+                  className="text-[10px] text-[var(--user-rating)] bg-[var(--user-rating-bg)] border border-[var(--user-rating-border)] px-2 py-[1px] rounded-full"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {hasNote && (
+            <p className="text-[11px] text-[var(--text-dim)] italic m-0 pl-2 border-l-2 border-[var(--user-rating)]/50 leading-relaxed">
+              &ldquo;{entry.review_note}&rdquo;
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SectionCard({
   title,
   icon,
@@ -152,24 +316,35 @@ export default function ProfileClient() {
   const [name, setName] = useState("");
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
-  const [meta, setMeta] = useState<SessionMeta | null>(null);
+  const [, setMeta] = useState<SessionMeta | null>(null);
   const [counts, setCounts] = useState({
     favorites: 0,
     watchlater: 0,
     history: 0,
+    ratings: 0,
   });
   const [recentHistory, setRecentHistory] = useState<
     ReturnType<typeof getList>
   >([]);
   const [recentFavs, setRecentFavs] = useState<ReturnType<typeof getList>>([]);
   const [recentWL, setRecentWL] = useState<ReturnType<typeof getList>>([]);
+  const [recentRatings, setRecentRatings] = useState<RatedFilmEntry[]>([]);
+  const [tasteStats, setTasteStats] = useState<TasteStats>({
+    count: 0,
+    avgRating: 0,
+    topTags: [],
+    highestRated: null,
+  });
+  const [editingFilm, setEditingFilm] = useState<RateFilmTarget | null>(null);
   const { toast } = useToast();
 
   const clearDisplayedLists = () => {
-    setCounts({ favorites: 0, watchlater: 0, history: 0 });
+    setCounts({ favorites: 0, watchlater: 0, history: 0, ratings: 0 });
     setRecentHistory([]);
     setRecentFavs([]);
     setRecentWL([]);
+    setRecentRatings([]);
+    setTasteStats({ count: 0, avgRating: 0, topTags: [], highestRated: null });
   };
 
   const refresh = () => {
@@ -180,6 +355,7 @@ export default function ProfileClient() {
     }
     const n = getSessionName();
     const s = getSession();
+    const rated = getRatedFilms();
     setName(n);
     setNameInput(n);
     setMeta(s.meta);
@@ -187,10 +363,13 @@ export default function ProfileClient() {
       favorites: getList("favorites").length,
       watchlater: getList("watchlater").length,
       history: getList("history").length,
+      ratings: rated.length,
     });
     setRecentHistory(getList("history").slice(0, 5));
     setRecentFavs(getList("favorites").slice(0, 5));
     setRecentWL(getList("watchlater").slice(0, 5));
+    setRecentRatings(rated.slice(0, 5));
+    setTasteStats(getTasteStats());
   };
 
   useEffect(() => {
@@ -311,7 +490,26 @@ export default function ProfileClient() {
       </div>
 
       {/* ── Stats ── */}
-      <div className="grid grid-cols-3 gap-3 mb-4 items-stretch">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 items-stretch">
+        <StatCard
+          label="My Ratings"
+          value={counts.ratings}
+          // sublabel={
+          //   tasteStats.count > 0
+          //     ? `★ ${tasteStats.avgRating.toFixed(1)}`
+          //     : undefined
+          // }
+          href="/profile/ratings"
+          color="var(--user-rating)"
+          icon={
+            <Star
+              size={20}
+              fill="var(--user-rating)"
+              stroke="var(--user-rating)"
+              strokeWidth={1.5}
+            />
+          }
+        />
         <StatCard
           label="Favorites"
           value={counts.favorites}
@@ -342,6 +540,54 @@ export default function ProfileClient() {
         />
       </div>
 
+      {/* ── My Taste & Rated Movies Section (Minimal & Expandable) ── */}
+      {recentRatings.length > 0 && (
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden mb-4">
+          <Link
+            href="/profile/ratings"
+            className="flex items-center justify-between px-4 sm:px-5 py-[13px] border-b border-[var(--border)] no-underline"
+          >
+            <div className="flex items-center gap-2">
+              <Star
+                size={14}
+                fill="var(--user-rating)"
+                stroke="var(--user-rating)"
+                strokeWidth={2}
+              />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.8px] text-[var(--text-dim)]">
+                My Ratings
+              </span>
+              {/* {tasteStats.count > 0 && (
+                <span className="text-[10px] font-semibold text-[var(--user-rating)] bg-[var(--user-rating-bg)] px-2 py-[1px] rounded-full">
+                  ★ {tasteStats.avgRating.toFixed(1)} avg
+                </span>
+              )} */}
+            </div>
+            <div className="text-[11px] text-[var(--accent)] hover:underline font-medium">
+              See all
+            </div>
+          </Link>
+
+          <div className="px-4 sm:px-5">
+            {recentRatings.map((entry) => (
+              <RatedFilmRow
+                key={entry.film_id}
+                entry={entry}
+                onEdit={(e) =>
+                  setEditingFilm({
+                    film_id: e.film_id,
+                    film_name: e.film_name,
+                    poster_url: e.poster_url,
+                    year: e.year,
+                    rating: e.rating,
+                  })
+                }
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Recent sections ── */}
       <SectionCard
         title="Recently Watched"
@@ -369,47 +615,12 @@ export default function ProfileClient() {
         items={recentWL}
       />
 
-      {/* ── Session Info ── */}
-      {/* {meta && (
-        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden mb-4">
-          <div className="flex items-center gap-2 px-4 sm:px-5 py-[13px] border-b border-[var(--border)]">
-            <Monitor size={14} stroke="var(--text-muted)" strokeWidth={2} />
-            <span className="text-[11px] font-semibold uppercase tracking-[0.8px] text-[var(--text-dim)]">
-              Session Info
-            </span>
-          </div>
-          <div className="px-4 sm:px-5 py-4 grid grid-cols-2 gap-x-4 gap-y-4">
-            {(
-              [
-                ["Session ID", meta.id],
-                ["Device", meta.device],
-                ["Browser", meta.browser],
-                ...(meta.country
-                  ? [
-                      [
-                        "Location",
-                        `${meta.city ? meta.city + ", " : ""}${meta.country}`,
-                      ],
-                    ]
-                  : []),
-                [
-                  "Member since",
-                  new Date(meta.created_at).toLocaleDateString(),
-                ],
-              ] as [string, string][]
-            ).map(([k, v]) => (
-              <div key={k} className="min-w-0">
-                <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-[0.5px] mb-[3px]">
-                  {k}
-                </p>
-                <p className="text-[12px] text-[var(--text)] font-mono truncate leading-[1.4]">
-                  {v}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )} */}
+      <RateFilmModal
+        open={editingFilm !== null}
+        onClose={() => setEditingFilm(null)}
+        film={editingFilm}
+        onSaved={() => refresh()}
+      />
     </PageContainer>
   );
 }
