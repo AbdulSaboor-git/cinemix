@@ -27,7 +27,6 @@ import {
   ExternalLink,
   Copy,
   Maximize2,
-  X,
 } from "lucide-react";
 import {
   getFilm,
