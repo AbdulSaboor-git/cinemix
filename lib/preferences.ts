@@ -38,6 +38,7 @@ export type Preferences = {
     popular: boolean;
     top250: boolean;
     recentReleases: boolean;
+    digitalReleases: boolean;
     series: boolean;
     action: boolean;
     drama: boolean;
@@ -109,6 +110,7 @@ export function getPreferences(): Preferences {
       popular: prefs.homeSections?.popular ?? true,
       top250: prefs.homeSections?.top250 ?? true,
       recentReleases: prefs.homeSections?.recentReleases ?? true,
+      digitalReleases: prefs.homeSections?.digitalReleases ?? true,
       series: prefs.homeSections?.series ?? true,
       action: prefs.homeSections?.action ?? true,
       drama: prefs.homeSections?.drama ?? true,

@@ -363,7 +363,7 @@ export default function SearchClient({
               href={`/explore?keyword=${encodeURIComponent(query)}`}
               className="no-underline"
             >
-              <span className="btn btn-ghost py-2 px-3.5 text-[12px]">
+              <span className="btn inline-flex items-center gap-2 btn-ghost py-2 px-3.5 text-[12px]">
                 <Compass size={13} />
                 Open in Advanced Explore
               </span>
@@ -426,7 +426,7 @@ export default function SearchClient({
               <button
                 type="submit"
                 disabled={!search.trim()}
-                className="btn btn-primary py-2.5 sm:py-3 px-4 sm:px-5 text-[13px] rounded-[10px] flex-shrink-0 disabled:opacity-40 disabled:pointer-events-none"
+                className="btn inline-flex items-center gap-2 btn-primary py-2.5 sm:py-3 px-4 sm:px-5 text-[13px] rounded-[10px] flex-shrink-0 disabled:opacity-40 disabled:pointer-events-none"
               >
                 <Search size={14} />
                 <span className="hidden xs:inline">Search</span>
@@ -721,7 +721,7 @@ export default function SearchClient({
 
           <Link
             href={`/person/${matchedPerson.personId}`}
-            className="btn btn-primary py-2 px-4 text-[12px] rounded-[9px] no-underline shrink-0"
+            className="btn inline-flex items-center gap-2 btn-primary py-2 px-4 text-[12px] rounded-[9px] no-underline shrink-0"
           >
             <span>Full Biography &amp; Filmography</span>
             <ArrowUpRight size={13} />

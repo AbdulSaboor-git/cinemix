@@ -342,9 +342,9 @@ body.scroll-locked {
 
   /* ── Shared button base ── */
   .btn {
-    display: inline-flex;
+    /* display: inline-flex; */
     align-items: center;
-    gap: 8px;
+    /* gap: 8px; */
     border: none;
     border-radius: var(--radius);
     font-family: var(--font-body);

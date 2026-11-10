@@ -16,11 +16,17 @@ import {
   Star,
   ShieldAlert,
   ArrowUpDown,
+  Globe,
+  Tv,
+  Sparkles,
 } from "lucide-react";
 import {
   getPremieres,
   getCachedPremieres,
+  getDigitalReleases,
+  getCachedDigitalReleases,
   isRussianDomesticFilm,
+  isEligibleForGlobalReleaseMonth,
   hydrateFilmWithCache,
 } from "@/lib/kinopoisk";
 import { Film } from "@/types/kinopoisk";
@@ -34,7 +40,6 @@ import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import {
   hasApiKeys,
   hasVerifiedApiKey,
-  getPreferences,
 } from "@/lib/preferences";
 import { getQuickCertBadge } from "@/lib/parentalGuide";
 import {
@@ -94,6 +99,16 @@ const MONTH_FULL = [
   "December",
 ];
 
+const MEDIA_TYPES = [
+  { id: "ALL", label: "All Titles" },
+  { id: "FILM", label: "Movies" },
+  { id: "TV_SERIES", label: "TV Series" },
+  { id: "MINI_SERIES", label: "Mini Series" },
+] as const;
+
+type ReleaseModeTab = "global" | "digital";
+type MediaTypeOption = (typeof MEDIA_TYPES)[number]["id"];
+
 const NOW = new Date();
 const CUR_YEAR = NOW.getFullYear();
 const CUR_MONTH_IDX = NOW.getMonth();
@@ -102,7 +117,7 @@ function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
 }
 
-// ── Module-level cache for instant 0ms month/year switching ──
+// ── Module-level cache for instant 0ms month/year/tab switching ──
 interface PremieresSnapshot {
   timestamp: number;
   items: Film[];
@@ -111,8 +126,12 @@ interface PremieresSnapshot {
 const SNAPSHOT_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const premieresCache = new Map<string, PremieresSnapshot>();
 
-function getCacheKey(year: number, monthStr: string): string {
-  return `${year}:${monthStr}`;
+function getCacheKey(
+  tab: ReleaseModeTab,
+  year: number,
+  monthStr: string,
+): string {
+  return `${tab}:${year}:${monthStr}`;
 }
 
 if (typeof window !== "undefined") {
@@ -122,12 +141,13 @@ if (typeof window !== "undefined") {
 }
 
 function getValidPremieresSnapshot(
+  tab: ReleaseModeTab,
   year: number,
   monthIdx: number,
 ): PremieresSnapshot | null {
   if (!hasVerifiedApiKey()) return null;
   const monthStr = MONTHS[monthIdx];
-  const key = getCacheKey(year, monthStr);
+  const key = getCacheKey(tab, year, monthStr);
   const existing = premieresCache.get(key);
   if (existing) {
     if (
@@ -139,8 +159,10 @@ function getValidPremieresSnapshot(
     premieresCache.delete(key);
   }
 
-  // Fallback to synchronous API cache (e.g. if HomeClient already fetched this month's premieres)
-  const syncCached = getCachedPremieres(year, monthStr);
+  const syncCached =
+    tab === "digital"
+      ? getCachedDigitalReleases(year, monthStr)
+      : getCachedPremieres(year, monthStr);
   if (syncCached && syncCached.items && syncCached.items.length > 0) {
     const snap: PremieresSnapshot = {
       timestamp: Date.now(),
@@ -157,10 +179,14 @@ export default function PremieresClient({
   year: yearParam,
   month: monthParam,
   sort: sortParam,
+  tab: tabParam,
+  type: typeParam,
 }: {
   year?: string;
   month?: string;
   sort?: string;
+  tab?: string;
+  type?: string;
 }) {
   const router = useRouter();
   const autoTranslate = useAutoTranslate();
@@ -177,7 +203,18 @@ export default function PremieresClient({
     11,
   );
 
+  const initTab: ReleaseModeTab =
+    tabParam?.toLowerCase() === "digital" ? "digital" : "global";
+  const initMediaType: MediaTypeOption =
+    typeParam === "FILM" ||
+    typeParam === "TV_SERIES" ||
+    typeParam === "MINI_SERIES"
+      ? typeParam
+      : "ALL";
+
   const [noKey, setNoKey] = useState(false);
+  const [activeTab, setActiveTab] = useState<ReleaseModeTab>(initTab);
+  const [mediaType, setMediaType] = useState<MediaTypeOption>(initMediaType);
   const [year, setYear] = useState(initYear);
   const [monthIdx, setMonthIdx] = useState(resolvedMonthIdx);
   const [films, setFilms] = useState<Film[]>([]);
@@ -190,6 +227,15 @@ export default function PremieresClient({
     }
     return "DATE";
   });
+
+  // Sync URL prop changes when navigating from Home ("Recent Digital Releases" -> /premieres?tab=digital)
+  useEffect(() => {
+    if (tabParam?.toLowerCase() === "digital") {
+      setActiveTab("digital");
+    } else if (tabParam?.toLowerCase() === "global") {
+      setActiveTab("global");
+    }
+  }, [tabParam]);
 
   // Restore saved sort & date from storage on client mount if not explicitly set in URL
   useEffect(() => {
@@ -215,12 +261,13 @@ export default function PremieresClient({
       }
     }
   }, [yearParam, monthParam, sortParam]);
-  const [regionMode, setRegionMode] = useState<string>("GLOBAL_FIRST");
-  const [parentalModalFilm, setParentalModalFilm] = useState<Film | null>(null);
 
+  const [parentalModalFilm, setParentalModalFilm] = useState<Film | null>(null);
   const didMountRef = useRef(false);
 
-  useDocumentTitle(`Premieres — ${MONTH_FULL[monthIdx]} ${year}`);
+  useDocumentTitle(
+    `${activeTab === "digital" ? "Digital Releases" : "Global Releases"} — ${MONTH_FULL[monthIdx]} ${year}`,
+  );
 
   const [keyEpoch, setKeyEpoch] = useState(0);
 
@@ -232,7 +279,6 @@ export default function PremieresClient({
         setFilms([]);
         setLoading(false);
       } else {
-        setRegionMode(getPreferences().contentRegionMode ?? "GLOBAL_FIRST");
         setNoKey((prev) => {
           if (prev) setKeyEpoch((e) => e + 1);
           return false;
@@ -248,7 +294,6 @@ export default function PremieresClient({
   }, []);
 
   useEffect(() => {
-    setRegionMode(getPreferences().contentRegionMode ?? "GLOBAL_FIRST");
     if (!hasApiKeys()) {
       premieresCache.clear();
       setNoKey(true);
@@ -259,19 +304,24 @@ export default function PremieresClient({
     setNoKey(false);
 
     const monthStr = MONTHS[monthIdx];
-    const cached = getValidPremieresSnapshot(year, monthIdx);
+    const cached = getValidPremieresSnapshot(activeTab, year, monthIdx);
     if (cached) {
       setFilms(cached.items);
       setLoading(false);
     } else {
       let cancelled = false;
       setLoading(true);
-      getPremieres(year, monthStr, "high")
+      const fetcher =
+        activeTab === "digital"
+          ? getDigitalReleases(year, monthStr, "high")
+          : getPremieres(year, monthStr, "high");
+
+      fetcher
         .then((d) => {
           if (cancelled) return;
           const list = d.items ?? [];
           if (list.length > 0) {
-            premieresCache.set(getCacheKey(year, monthStr), {
+            premieresCache.set(getCacheKey(activeTab, year, monthStr), {
               timestamp: Date.now(),
               items: list,
             });
@@ -295,7 +345,7 @@ export default function PremieresClient({
         cancelled = true;
       };
     }
-  }, [year, monthIdx, keyEpoch]);
+  }, [activeTab, year, monthIdx, keyEpoch]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -311,21 +361,25 @@ export default function PremieresClient({
     }
     const targetMonth = MONTHS[monthIdx];
     const sortQs = sortBy === "RATING" ? "&sort=RATING" : "";
-    if (
-      didMountRef.current &&
-      (String(year) !== yearParam ||
-        targetMonth !== (monthParam || "").toUpperCase() ||
-        sortBy !== (sortParam || "DATE"))
-    ) {
+    const tabQs = activeTab === "digital" ? "&tab=digital" : "";
+    const typeQs = mediaType !== "ALL" ? `&type=${mediaType}` : "";
+    if (didMountRef.current) {
       startTransition(() => {
         router.replace(
-          `/premieres?year=${year}&month=${targetMonth}${sortQs}`,
+          `/premieres?year=${year}&month=${targetMonth}${tabQs}${typeQs}${sortQs}`,
           { scroll: false },
         );
       });
     }
     didMountRef.current = true;
-  }, [year, monthIdx, sortBy, router, yearParam, monthParam, sortParam]);
+  }, [
+    activeTab,
+    mediaType,
+    year,
+    monthIdx,
+    sortBy,
+    router,
+  ]);
 
   // Silently prefetch adjacent months (next & prev) in low priority after idle
   useEffect(() => {
@@ -333,43 +387,79 @@ export default function PremieresClient({
     const timer = setTimeout(() => {
       const nextM = monthIdx === 11 ? 0 : monthIdx + 1;
       const nextY = monthIdx === 11 ? year + 1 : year;
-      if (!getValidPremieresSnapshot(nextY, nextM)) {
-        getPremieres(nextY, MONTHS[nextM], "low")
+      if (!getValidPremieresSnapshot(activeTab, nextY, nextM)) {
+        const fn =
+          activeTab === "digital" ? getDigitalReleases : getPremieres;
+        fn(nextY, MONTHS[nextM], "low")
           .then((d) => {
-            premieresCache.set(getCacheKey(nextY, MONTHS[nextM]), {
-              timestamp: Date.now(),
-              items: d.items ?? [],
-            });
+            if (d.items && d.items.length > 0) {
+              premieresCache.set(
+                getCacheKey(activeTab, nextY, MONTHS[nextM]),
+                {
+                  timestamp: Date.now(),
+                  items: d.items,
+                },
+              );
+            }
           })
           .catch(() => {});
       }
 
       const prevM = monthIdx === 0 ? 11 : monthIdx - 1;
       const prevY = monthIdx === 0 ? year - 1 : year;
-      if (!getValidPremieresSnapshot(prevY, prevM)) {
-        getPremieres(prevY, MONTHS[prevM], "low")
+      if (!getValidPremieresSnapshot(activeTab, prevY, prevM)) {
+        const fn =
+          activeTab === "digital" ? getDigitalReleases : getPremieres;
+        fn(prevY, MONTHS[prevM], "low")
           .then((d) => {
-            premieresCache.set(getCacheKey(prevY, MONTHS[prevM]), {
-              timestamp: Date.now(),
-              items: d.items ?? [],
-            });
+            if (d.items && d.items.length > 0) {
+              premieresCache.set(
+                getCacheKey(activeTab, prevY, MONTHS[prevM]),
+                {
+                  timestamp: Date.now(),
+                  items: d.items,
+                },
+              );
+            }
           })
           .catch(() => {});
       }
-    }, 400);
+    }, 450);
 
     return () => clearTimeout(timer);
-  }, [loading, noKey, year, monthIdx]);
+  }, [activeTab, loading, noKey, year, monthIdx]);
 
-  // Regional curation & sorting
+  // Strict Global Curation, Old Re-release Elimination, Media Type Filtering & Sorting
   const displayedFilms = useMemo(() => {
-    const base =
-      regionMode === "GLOBAL_FIRST"
-        ? films.filter((f) => !isRussianDomesticFilm(f))
-        : films;
-    const pool = base.length > 0 ? base : films;
+    const cleanPool = films.filter((f) => {
+      if (isRussianDomesticFilm(f)) return false;
+      if (activeTab === "global") {
+        if (!isEligibleForGlobalReleaseMonth(f, year, monthIdx + 1)) {
+          return false;
+        }
+      } else {
+        const yr = f.year ?? f.startYear;
+        if (yr && (yr < year - 1 || yr > year + 1)) return false;
+      }
 
-    return [...pool].sort((a, b) => {
+      if (mediaType !== "ALL") {
+        const isSeries =
+          f.serial === true ||
+          f.type === "TV_SERIES" ||
+          f.type === "MINI_SERIES";
+        if (mediaType === "FILM") {
+          if (isSeries) return false;
+        } else if (mediaType === "MINI_SERIES") {
+          if (f.type !== "MINI_SERIES") return false;
+        } else if (mediaType === "TV_SERIES") {
+          if (f.type !== "TV_SERIES" && !f.serial) return false;
+        }
+      }
+
+      return true;
+    });
+
+    return [...cleanPool].sort((a, b) => {
       if (sortBy === "RATING") {
         const ha = hydrateFilmWithCache(a);
         const hb = hydrateFilmWithCache(b);
@@ -377,11 +467,19 @@ export default function PremieresClient({
         const rB = hb.ratingImdb ?? hb.ratingKinopoisk ?? 0;
         return rB - rA;
       }
-      const dA = a.premiereRu ? new Date(a.premiereRu).getTime() || 0 : 0;
-      const dB = b.premiereRu ? new Date(b.premiereRu).getTime() || 0 : 0;
+      const dateStrA =
+        activeTab === "digital"
+          ? a.digitalReleaseDate || a.releaseDate || a.premiereRu
+          : a.releaseDate || a.premiereRu;
+      const dateStrB =
+        activeTab === "digital"
+          ? b.digitalReleaseDate || b.releaseDate || b.premiereRu
+          : b.releaseDate || b.premiereRu;
+      const dA = dateStrA ? new Date(dateStrA).getTime() || 0 : 0;
+      const dB = dateStrB ? new Date(dateStrB).getTime() || 0 : 0;
       return dA - dB;
     });
-  }, [films, sortBy, regionMode]);
+  }, [films, sortBy, activeTab, mediaType, year, monthIdx]);
 
   const handleCloseParentalGuide = useCallback(() => {
     setParentalModalFilm(null);
@@ -395,7 +493,7 @@ export default function PremieresClient({
 
   const switchDate = (nextY: number, nextM: number) => {
     if (nextY === year && nextM === monthIdx) return;
-    const snap = getValidPremieresSnapshot(nextY, nextM);
+    const snap = getValidPremieresSnapshot(activeTab, nextY, nextM);
     if (snap) {
       setFilms(snap.items);
       setLoading(false);
@@ -404,6 +502,18 @@ export default function PremieresClient({
     }
     setYear(nextY);
     setMonthIdx(nextM);
+  };
+
+  const switchTab = (nextTab: ReleaseModeTab) => {
+    if (nextTab === activeTab) return;
+    const snap = getValidPremieresSnapshot(nextTab, year, monthIdx);
+    if (snap) {
+      setFilms(snap.items);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+    setActiveTab(nextTab);
   };
 
   const prevMonth = () => {
@@ -426,9 +536,17 @@ export default function PremieresClient({
   return (
     <PageContainer>
       <PageHeader
-        eyebrow="Calendar"
-        eyebrowIcon={<Calendar size={14} stroke="var(--accent)" />}
-        title="PREMIERES"
+        eyebrow={
+          activeTab === "digital" ? "HD & Streaming Calendar" : "Global Release Calendar"
+        }
+        eyebrowIcon={
+          activeTab === "digital" ? (
+            <Sparkles size={14} stroke="var(--accent)" />
+          ) : (
+            <Globe size={14} stroke="var(--accent)" />
+          )
+        }
+        title={activeTab === "digital" ? "DIGITAL RELEASES" : "GLOBAL RELEASES"}
         subtitle={
           <>
             <span className="font-semibold text-[var(--text)]">
@@ -436,7 +554,8 @@ export default function PremieresClient({
             </span>
             {!loading && (
               <span className="text-[var(--text-muted)] ml-2">
-                · {displayedFilms.length} premiere
+                · {displayedFilms.length}{" "}
+                {activeTab === "digital" ? "digital release" : "release"}
                 {displayedFilms.length !== 1 ? "s" : ""}
               </span>
             )}
@@ -456,6 +575,49 @@ export default function PremieresClient({
           </div>
         }
       />
+
+      {/* ── Mode Switcher (Global Releases vs Digital Releases) + Media Type Filter ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-4">
+        <div className="inline-flex items-center p-1 rounded-[11px] bg-[var(--bg-card)] border border-[var(--border)] self-start">
+          <button
+            type="button"
+            onClick={() => switchTab("global")}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-[8px] text-[12px] font-semibold cursor-pointer transition-all border-none ${
+              activeTab === "global"
+                ? "bg-[var(--accent)] text-white shadow-sm"
+                : "bg-transparent text-[var(--text-dim)] hover:text-white"
+            }`}
+          >
+            <Globe size={13} />
+            <span>Global Releases</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => switchTab("digital")}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-[8px] text-[12px] font-semibold cursor-pointer transition-all border-none ${
+              activeTab === "digital"
+                ? "bg-[var(--accent)] text-white shadow-sm"
+                : "bg-transparent text-[var(--text-dim)] hover:text-white"
+            }`}
+          >
+            <Sparkles size={13} />
+            <span>Digital &amp; HD Releases</span>
+          </button>
+        </div>
+
+        <TabBar className="sm:w-auto">
+          {MEDIA_TYPES.map((mt) => (
+            <TabPill
+              key={mt.id}
+              active={mediaType === mt.id}
+              onClick={() => setMediaType(mt.id)}
+              className="!px-3 !py-1.5 !text-[11px] sm:!text-[12px]"
+            >
+              {mt.label}
+            </TabPill>
+          ))}
+        </TabBar>
+      </div>
 
       {/* Month / Year Navigator */}
       <div className="flex flex-col gap-3 mb-5 sm:mb-6">
@@ -541,8 +703,12 @@ export default function PremieresClient({
       ) : displayedFilms.length === 0 ? (
         <EmptyState
           icon={<Calendar size={36} />}
-          title="No Premieres Found"
-          description="Try selecting a different month or year."
+          title={
+            activeTab === "digital"
+              ? "No Digital Releases Found"
+              : "No Releases Found"
+          }
+          description="Try selecting a different month, year, or media type."
         />
       ) : (
         <div className="grid gap-3.5 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 fade-in">
@@ -558,6 +724,7 @@ export default function PremieresClient({
                   film={film}
                   index={i}
                   autoTranslate={autoTranslate}
+                  isDigitalMode={activeTab === "digital"}
                   onOpenParentalGuide={handleOpenParentalGuide}
                 />
               </div>
@@ -581,11 +748,13 @@ export const PremiereCard = memo(function PremiereCard({
   film: rawFilm,
   index,
   autoTranslate,
+  isDigitalMode = false,
   onOpenParentalGuide,
 }: {
   film: Film;
   index: number;
   autoTranslate: boolean;
+  isDigitalMode?: boolean;
   onOpenParentalGuide: (film: Film) => void;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
@@ -607,7 +776,11 @@ export const PremiereCard = memo(function PremiereCard({
     bindLongPress,
   } = useFilmLongPress(id, posterWrapRef);
 
-  const safePremiereDate = formatDateSafe(film.premiereRu, {
+  const effectiveReleaseDateStr = isDigitalMode
+    ? film.digitalReleaseDate || film.releaseDate || film.premiereRu
+    : rawFilm.releaseDate || film.releaseDate || film.premiereRu;
+
+  const safeReleaseDate = formatDateSafe(effectiveReleaseDateStr, {
     month: "short",
     day: "numeric",
   });
@@ -623,6 +796,17 @@ export const PremiereCard = memo(function PremiereCard({
     !displayRating && film.ratingAwait && film.ratingAwait > 0
       ? `${Math.round(film.ratingAwait)}%`
       : null;
+
+  const isSeries =
+    film.serial === true ||
+    film.type === "TV_SERIES" ||
+    film.type === "MINI_SERIES";
+  const seriesTypeLabel =
+    film.type === "MINI_SERIES"
+      ? "Mini-Series"
+      : isSeries
+        ? "Series"
+        : null;
 
   const genresText = useMemo(() => {
     if (!film.genres || film.genres.length === 0) return "";
@@ -677,7 +861,7 @@ export const PremiereCard = memo(function PremiereCard({
               title={name}
               filmId={id}
               imdbId={film.imdbId}
-              year={film.year}
+              year={film.year ?? film.startYear}
               size="sm"
               fallbackType="mini"
               priority={index < 6}
@@ -719,10 +903,20 @@ export const PremiereCard = memo(function PremiereCard({
               )}
             </div>
 
-            {genresText && (
-              <p className="text-[11px] sm:text-[12px] leading-snug text-[var(--text-muted)] capitalize truncate m-0">
-                {genresText}
-              </p>
+            {(seriesTypeLabel || genresText) && (
+              <div className="flex items-center gap-1.5 min-w-0">
+                {seriesTypeLabel && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.4px] px-1.5 py-0.5 rounded bg-[rgba(245,197,24,0.14)] text-[#f5c518] border border-[rgba(245,197,24,0.28)] shrink-0">
+                    <Tv size={9} />
+                    {seriesTypeLabel}
+                  </span>
+                )}
+                {genresText && (
+                  <p className="text-[11px] sm:text-[12px] leading-snug text-[var(--text-muted)] capitalize truncate m-0">
+                    {genresText}
+                  </p>
+                )}
+              </div>
             )}
 
             {(countriesText || formattedDuration) && (
@@ -745,13 +939,22 @@ export const PremiereCard = memo(function PremiereCard({
           </div>
 
           <div className="flex items-center justify-between gap-2 pt-1.5 mt-auto border-t border-white/[0.05] min-w-0">
-            {safePremiereDate ? (
-              <span className="text-[11px] sm:text-[12px] leading-none text-[var(--accent)] font-semibold whitespace-nowrap truncate">
-                {safePremiereDate}
-              </span>
-            ) : (
-              <span />
-            )}
+            <div className="flex items-center gap-1.5 min-w-0 truncate">
+              {safeReleaseDate ? (
+                <span className="text-[11px] sm:text-[12px] leading-none text-[var(--accent)] font-semibold whitespace-nowrap truncate">
+                  {safeReleaseDate}
+                </span>
+              ) : (
+                <span className="text-[11px] leading-none text-[var(--text-muted)]">
+                  {film.year ?? film.startYear ?? ""}
+                </span>
+              )}
+              {isDigitalMode && (
+                <span className="text-[9px] font-bold uppercase tracking-[0.4px] px-1.5 py-[2px] rounded bg-white/[0.06] text-[var(--text-dim)] border border-white/[0.08] shrink-0">
+                  Digital
+                </span>
+              )}
+            </div>
 
             {displayRating !== undefined && displayRating > 0 ? (
               <span className="inline-flex items-center gap-1 text-[11px] sm:text-[12px] leading-none text-[#f5c518] font-bold font-display whitespace-nowrap shrink-0 ml-auto">

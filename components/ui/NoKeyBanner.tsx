@@ -23,7 +23,7 @@ export default function NoKeyBanner() {
         </p>
 
         <Link href="/preferences" className="no-underline inline-flex">
-          <span className="btn btn-primary px-6 sm:px-8 py-[11px] text-[13px] sm:text-[14px]">
+          <span className="btn inline-flex items-center gap-2 btn-primary px-6 sm:px-8 py-[11px] text-[13px] sm:text-[14px]">
             <Settings size={14} strokeWidth={2.5} />
             Open Preferences
           </span>

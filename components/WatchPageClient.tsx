@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
+  Play,
   Heart,
   Clock,
   Star,
@@ -114,6 +115,15 @@ const DEFAULT_KDB_SERVERS: KinoDivBoxServer[] = [
   },
 ];
 
+const TRAILER_SERVER_FALLBACK: KinoDivBoxServer = {
+  index: 6,
+  id: "trailer",
+  name: "Trailer",
+  rawName: "Трейлер",
+  isTrailer: true,
+  active: true,
+};
+
 function getServerStorageKey(filmId: number | string) {
   return `cinemix_last_server_${filmId}`;
 }
@@ -166,6 +176,26 @@ function applySavedServerToList(
   }));
 
   return { list, matched };
+}
+
+function applyTrailerServerToList(servers: KinoDivBoxServer[]): {
+  list: KinoDivBoxServer[];
+  trailerSrv: KinoDivBoxServer;
+} {
+  const found =
+    servers.find((s) => s.isTrailer || s.id === "trailer") ??
+    TRAILER_SERVER_FALLBACK;
+  const hasTrailerInList = servers.some(
+    (s) => s.isTrailer || s.id === "trailer",
+  );
+  const baseList = hasTrailerInList
+    ? servers
+    : [...servers, { ...TRAILER_SERVER_FALLBACK, index: servers.length }];
+  const list = baseList.map((item) => ({
+    ...item,
+    active: Boolean(item.isTrailer || item.id === "trailer"),
+  }));
+  return { list, trailerSrv: found };
 }
 
 function buildInitialCachedWatchFilm(id: number): Film | null {
@@ -233,10 +263,42 @@ function EpisodeRow({
   );
 }
 
-export default function WatchPageClient({ filmId }: { filmId: string }) {
+export default function WatchPageClient({
+  filmId,
+  initialMode = "watch",
+}: {
+  filmId: string;
+  initialMode?: "watch" | "trailer";
+}) {
   const id = parseInt(filmId, 10);
   const { toast } = useToast();
   const autoTranslate = useAutoTranslate();
+
+  const [watchMode, setWatchMode] = useState<"watch" | "trailer">(() => {
+    if (initialMode === "trailer") return "trailer";
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get("mode")?.toLowerCase() === "trailer") return "trailer";
+    }
+    return "watch";
+  });
+  const watchModeRef = useRef<"watch" | "trailer">(watchMode);
+  watchModeRef.current = watchMode;
+
+  // Keep initial iframe URL mode stable per filmId so switching between Trailer Mode and Watch Mode
+  // uses smooth postMessage server switching without unmounting/reloading the iframe.
+  const initialIframeModeRef = useRef<{
+    filmId: number;
+    mode: "watch" | "trailer";
+  }>({
+    filmId: id,
+    mode: watchMode,
+  });
+  if (initialIframeModeRef.current.filmId !== id) {
+    initialIframeModeRef.current = { filmId: id, mode: watchMode };
+  }
+
+  const isTrailerMode = watchMode === "trailer";
 
   const [noKey, setNoKey] = useState(false);
   const [film, setFilm] = useState<Film | null>(null);
@@ -278,8 +340,11 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
   const [showParentalGuide, setShowParentalGuide] = useState<boolean>(
     () => getPreferences().filmSections.parentalGuide ?? true,
   );
-  const [kdbServers, setKdbServers] =
-    useState<KinoDivBoxServer[]>(DEFAULT_KDB_SERVERS);
+  const [kdbServers, setKdbServers] = useState<KinoDivBoxServer[]>(() =>
+    isTrailerMode
+      ? applyTrailerServerToList(DEFAULT_KDB_SERVERS).list
+      : DEFAULT_KDB_SERVERS,
+  );
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const lastServersSigRef = useRef<string>("");
@@ -292,16 +357,23 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
   const name = useFilmTitle(film, autoTranslate);
   const description = useTranslate(film?.description || film?.shortDescription);
-  useDocumentTitle(film ? `Watching ${name}` : "Watch");
+  useDocumentTitle(
+    film
+      ? isTrailerMode
+        ? `${name} — Official Trailer`
+        : `Watching ${name}`
+      : isTrailerMode
+        ? "Official Trailer"
+        : "Watch",
+  );
 
   const secondsRef = useRef(0);
   const addedRef = useRef(false);
   const latestNameRef = useRef(name);
   latestNameRef.current = name;
   const isTrailerActiveRef = useRef(false);
-  isTrailerActiveRef.current = Boolean(
-    kdbServers.find((s) => s.active)?.isTrailer,
-  );
+  isTrailerActiveRef.current =
+    isTrailerMode || Boolean(kdbServers.find((s) => s.active)?.isTrailer);
 
   const postServerSelectToIframe = useCallback(
     (srv: { index: number; id: string; rawName: string }) => {
@@ -318,15 +390,24 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     [],
   );
 
-  // Restore saved server selection (or reset to default) and reset episode pagination when switching films
+  // Restore saved server selection (or Trailer server if in Trailer Mode) and reset episode pagination when switching films
   useEffect(() => {
     const saved = !isNaN(id) ? readSavedServer(id) : null;
-    savedServerRef.current = saved;
-    needsIframeServerSyncRef.current = Boolean(saved);
+    // Never treat "trailer" as the user's saved full-stream server
+    const validSaved = saved && saved.id !== "trailer" ? saved : null;
+    savedServerRef.current = validSaved;
 
-    const { list } = applySavedServerToList(DEFAULT_KDB_SERVERS, saved);
-    setKdbServers(list);
-    lastServersSigRef.current = JSON.stringify(list);
+    if (watchModeRef.current === "trailer") {
+      needsIframeServerSyncRef.current = true;
+      const { list } = applyTrailerServerToList(DEFAULT_KDB_SERVERS);
+      setKdbServers(list);
+      lastServersSigRef.current = JSON.stringify(list);
+    } else {
+      needsIframeServerSyncRef.current = Boolean(validSaved);
+      const { list } = applySavedServerToList(DEFAULT_KDB_SERVERS, validSaved);
+      setKdbServers(list);
+      lastServersSigRef.current = JSON.stringify(list);
+    }
     setVisibleEpCount(EPISODES_PAGE_SIZE);
     setEpisodeQuery("");
   }, [id]);
@@ -343,21 +424,35 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         if (incoming.length === 0) return;
 
         let nextServers = incoming;
-        const saved = savedServerRef.current;
 
-        if (saved) {
-          const { list, matched } = applySavedServerToList(incoming, saved);
-          if (matched) {
-            nextServers = list;
-            const incomingActive = incoming.find((s) => s.active);
-            const alreadySyncedInIframe =
-              incomingActive &&
-              (incomingActive.id === matched.id ||
-                incomingActive.index === matched.index);
+        if (watchModeRef.current === "trailer") {
+          const { list, trailerSrv } = applyTrailerServerToList(incoming);
+          nextServers = list;
+          const incomingActive = incoming.find((s) => s.active);
+          const alreadyTrailerInIframe = Boolean(
+            incomingActive &&
+            (incomingActive.isTrailer || incomingActive.id === "trailer"),
+          );
+          if (needsIframeServerSyncRef.current || !alreadyTrailerInIframe) {
+            needsIframeServerSyncRef.current = false;
+            postServerSelectToIframe(trailerSrv);
+          }
+        } else {
+          const saved = savedServerRef.current;
+          if (saved) {
+            const { list, matched } = applySavedServerToList(incoming, saved);
+            if (matched) {
+              nextServers = list;
+              const incomingActive = incoming.find((s) => s.active);
+              const alreadySyncedInIframe =
+                incomingActive &&
+                (incomingActive.id === matched.id ||
+                  incomingActive.index === matched.index);
 
-            if (needsIframeServerSyncRef.current || !alreadySyncedInIframe) {
-              needsIframeServerSyncRef.current = false;
-              postServerSelectToIframe(matched);
+              if (needsIframeServerSyncRef.current || !alreadySyncedInIframe) {
+                needsIframeServerSyncRef.current = false;
+                postServerSelectToIframe(matched);
+              }
             }
           }
         }
@@ -380,19 +475,20 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         index: srv.index,
         rawName: srv.rawName,
       };
-      savedServerRef.current = selection;
-      needsIframeServerSyncRef.current = false;
-
-      if (!isNaN(id)) {
-        try {
-          localStorage.setItem(
-            getServerStorageKey(id),
-            JSON.stringify(selection),
-          );
-        } catch {
-          // ignore storage quota errors
+      if (!srv.isTrailer && srv.id !== "trailer") {
+        savedServerRef.current = selection;
+        if (!isNaN(id)) {
+          try {
+            localStorage.setItem(
+              getServerStorageKey(id),
+              JSON.stringify(selection),
+            );
+          } catch {
+            // ignore storage quota errors
+          }
         }
       }
+      needsIframeServerSyncRef.current = false;
 
       setKdbServers((prev) => {
         const next = prev.map((item) => ({
@@ -411,7 +507,6 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         {
           type: "info",
           icon: "default",
-          // description: srv.name,
           duration: 2000,
           dedupeKey: `watch-server-${id}`,
         },
@@ -419,6 +514,52 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
     },
     [id, postServerSelectToIframe, toast],
   );
+
+  // Switch from dedicated Trailer Mode to full Watch Mode (restores all servers & selects saved/first stream server)
+  const handleSwitchToWatchMode = useCallback(() => {
+    setWatchMode("watch");
+    watchModeRef.current = "watch";
+
+    if (typeof window !== "undefined") {
+      try {
+        window.history.replaceState(null, "", `/watch/${id}`);
+      } catch {
+        // ignore history error
+      }
+    }
+
+    const saved = savedServerRef.current;
+    const streamServers = kdbServers.filter(
+      (s) => !s.isTrailer && s.id !== "trailer",
+    );
+    const targetServer =
+      (saved &&
+        streamServers.find(
+          (s) =>
+            s.id === saved.id ||
+            s.rawName === saved.rawName ||
+            s.index === saved.index,
+        )) ||
+      streamServers[0] ||
+      DEFAULT_KDB_SERVERS[0];
+
+    setKdbServers((prev) => {
+      const next = prev.map((item) => ({
+        ...item,
+        active:
+          item.id === targetServer.id && item.index === targetServer.index,
+      }));
+      lastServersSigRef.current = JSON.stringify(next);
+      return next;
+    });
+
+    postServerSelectToIframe(targetServer);
+    toast.success(`Now watching ${latestNameRef.current || "Full Stream"}`, {
+      description: `Switched from Trailer Mode to Server ${targetServer.index + 1}`,
+      duration: 2400,
+      dedupeKey: `watch-mode-switch-${id}`,
+    });
+  }, [id, kdbServers, postServerSelectToIframe, toast]);
 
   useEffect(() => {
     if (!hasApiKeys()) {
@@ -654,8 +795,13 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
       ? `${Math.floor(film.filmLength / 60)}h ${film.filmLength % 60}m`
       : null;
   const certBadge = getQuickCertBadge(film);
+  const isSeries =
+    film.serial || film.type === "TV_SERIES" || film.type === "MINI_SERIES";
 
-  const playerUrl = `${PLAYER_PROXY_URL}?id=${id}`;
+  const playerUrl =
+    initialIframeModeRef.current.mode === "trailer"
+      ? `${PLAYER_PROXY_URL}?id=${id}&mode=trailer`
+      : `${PLAYER_PROXY_URL}?id=${id}`;
 
   const posterThumb = film.posterUrlPreview || film.posterUrl || null;
   const filmEntry = {
@@ -704,7 +850,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         } mx-auto transition-all duration-300 relative`}
       >
         {/* ── Top Header & Cinema Control Card ── */}
-        <div className="w-full flex flex-col gap-2.5 mb-2.5 sm:mb-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[14px] sm:rounded-[12px] p-3 sm:px-4 sm:py-2.5 shadow-[0_8px_28px_rgba(0,0,0,0.4)]">
+        <div className="w-full flex flex-col gap-2.5 mb-2.5 sm:mb-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-[14px] sm:rounded-[12px] p-3 sm:px-4 sm:py-2.5">
           {/* Header Row: Back + Title/Year on left, Action buttons on right */}
           <div className="w-full flex items-center sm:items-center justify-between gap-2.5 sm:gap-3">
             <div className="flex items-start sm:items-center gap-2 sm:gap-3 min-w-0 flex-1">
@@ -722,7 +868,14 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
 
               {/* Title + Metadata */}
               <div className="min-w-0 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 sm:flex-wrap flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                  {isTrailerMode && (
+                    <div className="hidden sm:flex items-center gap-2">
+                      <span className="text-[10px] font-medium uppercase tracking-[1.2px] text-[var(--text-muted)] flex-shrink-0">
+                        Trailer
+                      </span>
+                    </div>
+                  )}
                   <h1 className="font-display tracking-[1.1px] text-[15px] sm:text-[20px] text-white line-clamp-2">
                     {name}
                   </h1>
@@ -772,14 +925,25 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
               </div>
             </div>
 
-            {/* Quick Action Controls (Favorite, Watch Later, Rate, Desktop Wide Mode) */}
-            <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-              <div className="hidden md:inline-flex">
+            {/* Quick actions */}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {isTrailerMode && (
+                <button
+                  type="button"
+                  onClick={handleSwitchToWatchMode}
+                  title={`Watch the full ${isSeries ? "series" : "film"}`}
+                  className="hidden sm:inline-flex btn btn-primary h-8 px-3 sm:px-4 text-[11px] sm:text-[12px] rounded-[9px] font-semibold items-center gap-1.5"
+                >
+                  <Play size={12} fill="white" stroke="white" />
+                  <span>Watch</span>
+                </button>
+              )}
+              {/* <div className="hidden md:inline-flex">
                 <button
                   type="button"
                   onClick={() => setWideTheater((v) => !v)}
                   title="Toggle Wide Theater Mode (W)"
-                  className={`btn btn-ghost h-8 px-2.5 text-[12px] ${
+                  className={`btn inline-flex items-center gap-2 btn-ghost h-8 px-2.5 text-[12px] ${
                     wideTheater
                       ? "border-[rgba(229,9,20,0.5)] text-[var(--accent)]"
                       : ""
@@ -792,7 +956,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                   )}
                   <span>{wideTheater ? "Standard" : "Wide"}</span>
                 </button>
-              </div>
+              </div> */}
 
               <button
                 type="button"
@@ -828,7 +992,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                 onClick={handleFav}
                 aria-label={isFav ? "In Favorites" : "Add to Favorites"}
                 title={isFav ? "In Favorites" : "Add to Favorites"}
-                className={`btn btn-ghost h-8 w-8 p-0 inline-flex items-center justify-center rounded-[9px] transition-all active:scale-90 ${
+                className={`btn btn-ghost h-8 w-8 p-0 inline-flex items-center justify-center gap-2 rounded-[9px] transition-all active:scale-90 ${
                   isFav
                     ? "border-[rgba(229,9,20,0.45)] bg-[rgba(229,9,20,0.1)] text-[var(--accent)]"
                     : ""
@@ -846,7 +1010,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                 onClick={handleWL}
                 aria-label={isWL ? "In Watch Later" : "Save to Watch Later"}
                 title={isWL ? "In Watch Later" : "Save to Watch Later"}
-                className={`btn btn-ghost h-8 w-8 p-0 inline-flex items-center justify-center rounded-[9px] transition-all active:scale-90 ${
+                className={`btn btn-ghost h-8 w-8 p-0 inline-flex items-center justify-center gap-2 rounded-[9px] transition-all active:scale-90 ${
                   isWL
                     ? "border-[rgba(96,165,250,0.45)] bg-[rgba(96,165,250,0.1)] text-[#60a5fa]"
                     : ""
@@ -862,7 +1026,9 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                   if (navigator.share) {
                     try {
                       await navigator.share({
-                        title: `Watching ${name} — CineMix`,
+                        title: isTrailerMode
+                          ? `${name} — Official Trailer — CineMix`
+                          : `Watching ${name} — CineMix`,
                         url: shareUrl,
                       });
                       return;
@@ -871,22 +1037,49 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                     }
                   }
                   navigator.clipboard?.writeText(shareUrl);
-                  toast.success("Stream link copied", {
-                    description: name,
-                    posterUrl: posterThumb,
-                  });
+                  toast.success(
+                    isTrailerMode
+                      ? "Trailer link copied"
+                      : "Stream link copied",
+                    {
+                      description: name,
+                      posterUrl: posterThumb,
+                    },
+                  );
                 }}
                 aria-label="Share stream"
                 title="Share stream"
-                className="btn btn-ghost h-8 w-8 p-0 inline-flex items-center justify-center rounded-[9px] transition-all active:scale-90"
+                className="btn btn-ghost h-8 w-8 p-0 inline-flex items-center justify-center gap-2 rounded-[9px] transition-all active:scale-90"
               >
                 <Share2 size={14} />
               </button>
             </div>
           </div>
+          {isTrailerMode && (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="sm:hidden inline-flex m-0 btn btn-ghost h-10 px-3 text-[11px] rounded-[9px] font-semibold items-center justify-center gap-1.5">
+                <span className="text-[10px] font-medium uppercase tracking-[1.2px] text-(--text-dim) flexshrink-0">
+                  Trailer
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleSwitchToWatchMode}
+                title={`Watch the full ${isSeries ? "series" : "film"}`}
+                className="sm:hidden inline-flex m-0 btn btn-primary h-10 px-3 text-[11px] rounded-[9px] font-semibold items-center justify-center gap-1.5"
+              >
+                <Play
+                  size={16}
+                  className="mb-[2px]"
+                  fill="white"
+                  stroke="white"
+                />
+                <span className="m-0">Watch Now</span>
+              </button>
+            </div>
+          )}
 
-          {/* ── Desktop Server Selector Bar (hidden on mobile; relocated below player on mobile) ── */}
-          {kdbServers.length > 0 && (
+          {kdbServers.length > 0 && !isTrailerMode && (
             <div className="hidden sm:flex items-center overflow-x-auto scrollbar-none w-full gap-2 pt-2 pb-0.5 border-t border-[var(--border)]">
               <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[1px] text-[var(--text-muted)] flex-shrink-0 mr-1">
                 <Server size={12} className="text-[var(--accent)]" />
@@ -928,7 +1121,9 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                 { type: "CINEMIX_KDB_PING" },
                 "*",
               );
-              if (savedServerRef.current) {
+              if (watchModeRef.current === "trailer") {
+                postServerSelectToIframe(TRAILER_SERVER_FALLBACK);
+              } else if (savedServerRef.current) {
                 postServerSelectToIframe(savedServerRef.current);
               }
             }}
@@ -939,7 +1134,11 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
             allowFullScreen
             loading="eager"
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-            title={name || `Stream ${id}`}
+            title={
+              isTrailerMode
+                ? `${name || `Title ${id}`} — Official Trailer`
+                : name || `Stream ${id}`
+            }
             className={`w-full ${
               wideTheater
                 ? "aspect-video sm:aspect-auto sm:h-[500px] md:h-[440px] lg:h-[540px]"
@@ -948,8 +1147,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           />
         </div>
 
-        {/* ── Mobile Server Switcher Dock (placed directly beneath player for ergonomic thumb reach & zero clipping) ── */}
-        {kdbServers.length > 0 && (
+        {kdbServers.length > 0 && !isTrailerMode && (
           <div className="sm:hidden flex flex-col gap-2 mt-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-2.5 shadow-[0_6px_20px_rgba(0,0,0,0.35)]">
             <div className="flex items-center justify-between gap-2 px-0.5">
               <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[1px] text-[var(--text-muted)]">
@@ -969,7 +1167,6 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
             </div>
 
             <div className="flex items-center gap-1.5">
-              {/* Numbered Stream Servers */}
               <div className="grid grid-cols-6 gap-1.5 flex-1">
                 {kdbServers
                   .filter((srv) => !srv.isTrailer)
@@ -1008,6 +1205,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
               ))}
           </div>
         )}
+
         <div className="sm:hidden mt-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-[12px] p-2.5 shadow-[0_6px_20px_rgba(0,0,0,0.35)]">
           <div className="grid grid-cols-10 gap-2 sm:hidden pt-0.5">
             {/* 1: Release Year */}
@@ -1090,8 +1288,8 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
           )}
         </div>
 
-        {/* ── Seasons & Episodes (for TV Series) ── */}
-        {seasons.length > 0 && (
+        {/* ── Seasons & Episodes (for TV Series — shown only in full Watch Mode) ── */}
+        {!isTrailerMode && seasons.length > 0 && (
           <div className="mt-7 sm:mt-8">
             <SectionHeader
               title="SEASONS & EPISODES"
@@ -1133,7 +1331,12 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                     }
                   }}
                 >
-                  <span className="sm:hidden">S{s.number} ({s.episodes.length})</span><span className="hidden sm:inline">Season {s.number} ({s.episodes.length})</span>
+                  <span className="sm:hidden">
+                    S{s.number} ({s.episodes.length})
+                  </span>
+                  <span className="hidden sm:inline">
+                    Season {s.number} ({s.episodes.length})
+                  </span>
                 </TabPill>
               ))}
             </TabBar>
@@ -1159,13 +1362,15 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
                       onClick={() =>
                         setVisibleEpCount((c) => c + EPISODES_PAGE_SIZE)
                       }
-                      className="btn btn-ghost px-4 py-2 text-[12px]"
+                      className="btn inline-flex items-center gap-2 btn-ghost px-4 py-2 text-[12px]"
                     >
                       <span className="sm:hidden">
                         More ({currentSeasonEpisodes.length - visibleEpCount})
                       </span>
                       <span className="hidden sm:inline">
-                        Show More Episodes ({currentSeasonEpisodes.length - visibleEpCount} remaining)
+                        Show More Episodes (
+                        {currentSeasonEpisodes.length - visibleEpCount}{" "}
+                        remaining)
                       </span>
                     </button>
                   </div>
@@ -1176,7 +1381,7 @@ export default function WatchPageClient({ filmId }: { filmId: string }) {
         )}
 
         {/* ── Similar Films ── */}
-        {hydratedSimilars.length > 0 && (
+        {hydratedSimilars.length > 0 && !isTrailerMode && (
           <div className="mt-7 sm:mt-8">
             <SectionHeader
               title="SIMILAR FILMS"

@@ -68,10 +68,11 @@ function buildFallbackKdbHtml(): string {
       stage.appendChild(iframe);
     }
 
-    async function buildPlayers(id) {
+    async function buildPlayers(id, initialMode) {
       const switcher = document.getElementById("playerSwitcher");
       switcher.innerHTML = "";
       let firstBtn = null;
+      let trailerBtn = null;
       for (const item of players) {
         try {
           const src = await item.fn(id);
@@ -92,18 +93,22 @@ function buildFallbackKdbHtml(): string {
             showPlayer(src, item.label);
           });
           switcher.appendChild(btn);
-          if (!firstBtn) {
-            firstBtn = btn;
-            firstBtn.click();
-          }
+          if (item.key === "trailer") trailerBtn = btn;
+          if (!firstBtn) firstBtn = btn;
         } catch (e) {}
+      }
+      if (initialMode === "trailer" && trailerBtn) {
+        trailerBtn.click();
+      } else if (firstBtn) {
+        firstBtn.click();
       }
     }
 
     (function () {
       const params = new URLSearchParams(location.search);
       const id = params.get("id");
-      if (id) buildPlayers(id);
+      const mode = (params.get("mode") || "").toLowerCase();
+      if (id) buildPlayers(id, mode);
     })();
   </script>
 </body>
@@ -112,6 +117,9 @@ function buildFallbackKdbHtml(): string {
 
 export async function GET(req: NextRequest) {
   const id = (req.nextUrl.searchParams.get("id") || "").trim();
+  const mode = (req.nextUrl.searchParams.get("mode") || "").trim().toLowerCase();
+  const startInTrailerMode = mode === "trailer";
+
   if (!id || !/^\d+$/.test(id)) {
     return new NextResponse("Invalid film ID", { status: 400 });
   }
@@ -238,7 +246,6 @@ export async function GET(req: NextRequest) {
 </style>
 <script>
 (function () {
-  // 1. Prevent cross-origin ServiceWorker registration errors on proxied origin
   if (typeof navigator !== "undefined" && navigator.serviceWorker) {
     try {
       navigator.serviceWorker.register = function () {
@@ -247,8 +254,6 @@ export async function GET(req: NextRequest) {
     } catch (e) {}
   }
 
-  // 2. Intercept setAttribute("sandbox", ...) on iframes so KinoDivBox's /iframe script
-  // never sandboxes the inner video player (enables native download options & full playback).
   var origSetAttribute = Element.prototype.setAttribute;
   if (origSetAttribute) {
     Element.prototype.setAttribute = function (name, value) {
@@ -266,7 +271,6 @@ export async function GET(req: NextRequest) {
     };
   }
 
-  // 3. Cap slow third-party balancer checks (such as apivb.com for HDVB) at 3s
   if (typeof window !== "undefined" && typeof window.fetch === "function") {
     var origFetch = window.fetch.bind(window);
     window.fetch = function (input, init) {
@@ -285,10 +289,11 @@ export async function GET(req: NextRequest) {
     };
   }
 
+  var FILM_ID = ${JSON.stringify(id)};
   var LAST_SIGNATURE = "";
   var IS_SYNCING = false;
   var SYNC_TIMER = null;
-  var PENDING_SELECT = null;
+  var PENDING_SELECT = ${startInTrailerMode ? '{ id: "trailer", name: "Трейлер" }' : "null"};
   var OBSERVED_SWITCHER = null;
 
   function unsandboxVideoFrames() {
@@ -298,7 +303,6 @@ export async function GET(req: NextRequest) {
       if (f.hasAttribute("sandbox")) {
         try {
           f.removeAttribute("sandbox");
-          // Reload src if it was already mounted with a restrictive sandbox
           var currentSrc = f.getAttribute("src");
           if (currentSrc && !f.getAttribute("data-cinemix-unsandboxed")) {
             f.setAttribute("data-cinemix-unsandboxed", "1");
@@ -332,10 +336,60 @@ export async function GET(req: NextRequest) {
       return true;
     }
     var cls = el.className && typeof el.className === "string" ? el.className : "";
-    return /\b(active|selected|current|is-active|act)\b/i.test(cls);
+    return /\\b(active|selected|current|is-active|act)\\b/i.test(cls);
+  }
+
+  function ensureTrailerButtonInSwitcher() {
+    var switcher =
+      document.getElementById("playerSwitcher") ||
+      document.querySelector("nav.switcher, .switcher, .player-switch");
+    if (!switcher) return;
+    var existingBtns = Array.from(
+      switcher.querySelectorAll("button.switch-btn, button, [role='tab']")
+    );
+    if (existingBtns.length === 0) return;
+
+    var hasTrailer = existingBtns.some(function (b) {
+      var idSlug = getButtonServerId(b);
+      var txt = (b.textContent || "").trim();
+      return idSlug === "trailer" || /^(трейлер|trailer)$/i.test(txt);
+    });
+
+    if (!hasTrailer) {
+      var btn = document.createElement("button");
+      btn.className = "switch-btn";
+      btn.type = "button";
+      btn.textContent = "Трейлер";
+      btn.setAttribute("data-player", "trailer");
+      btn.setAttribute("aria-pressed", "false");
+      btn.addEventListener("click", function () {
+        var allBtns = switcher.querySelectorAll("button.switch-btn, button, [role='tab']");
+        for (var i = 0; i < allBtns.length; i++) {
+          allBtns[i].classList.remove("active");
+          allBtns[i].setAttribute("aria-pressed", "false");
+        }
+        btn.classList.add("active");
+        btn.setAttribute("aria-pressed", "true");
+        var stage = document.getElementById("stage") || document.querySelector(".stage");
+        if (stage) {
+          var iframe = document.createElement("iframe");
+          iframe.className = "video-frame";
+          iframe.src = "https://api.atomics.ws/embed/trailer-kp/" + FILM_ID;
+          iframe.loading = "eager";
+          iframe.title = "Видеоплеер Трейлер";
+          iframe.allowFullscreen = true;
+          iframe.setAttribute("allow", "autoplay; fullscreen; picture-in-picture; encrypted-media");
+          iframe.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+          stage.innerHTML = "";
+          stage.appendChild(iframe);
+        }
+      });
+      switcher.appendChild(btn);
+    }
   }
 
   function getSwitcherButtons() {
+    ensureTrailerButtonInSwitcher();
     var switcher =
       document.getElementById("playerSwitcher") ||
       document.querySelector("nav.switcher, .switcher, .player-switch");
@@ -349,7 +403,6 @@ export async function GET(req: NextRequest) {
 
   function triggerNativeButton(btn) {
     if (!btn) return false;
-    // Ensure button is enabled before triggering click (KinoDivBox temporarily sets disabled during transitions)
     if (btn.disabled) {
       btn.disabled = false;
       btn.removeAttribute("disabled");
@@ -378,7 +431,6 @@ export async function GET(req: NextRequest) {
     var targetId = req.id ? normalizeServerId(req.id) : "";
     var targetName = req.name ? normalizeServerId(req.name) : "";
 
-    // 1. Match by data-player attribute or button text
     for (var i = 0; i < btns.length; i++) {
       var btnId = getButtonServerId(btns[i]);
       var txtId = normalizeServerId(btns[i].textContent || "");
@@ -390,7 +442,6 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. Fallback to index
     if (typeof req.index === "number" && btns[req.index]) {
       return btns[req.index];
     }
@@ -405,7 +456,6 @@ export async function GET(req: NextRequest) {
       var btns = getSwitcherButtons();
       if (!btns.length) return;
 
-      // Apply queued server selection once buttons are ready and not disabled
       if (PENDING_SELECT) {
         var pendingBtn = findMatchingButton(btns, PENDING_SELECT);
         if (pendingBtn && !pendingBtn.disabled) {
@@ -444,7 +494,7 @@ export async function GET(req: NextRequest) {
       window.parent.postMessage(
         {
           type: "CINEMIX_KDB_SERVERS",
-          filmId: ${JSON.stringify(id)},
+          filmId: FILM_ID,
           servers: servers,
         },
         "*"
@@ -470,7 +520,6 @@ export async function GET(req: NextRequest) {
       return;
     }
     if (target.disabled) {
-      // Keep queued in case KinoDivBox is still in initial prepare state, and also trigger now
       PENDING_SELECT = req;
     } else {
       PENDING_SELECT = null;

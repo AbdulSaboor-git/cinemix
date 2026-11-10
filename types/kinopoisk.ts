@@ -86,6 +86,8 @@ export interface Film {
   filmLength?: number;
   duration?: number;
   premiereRu?: string;
+  releaseDate?: string;
+  digitalReleaseDate?: string;
   slogan?: string;
   description?: string;
   shortDescription?: string;

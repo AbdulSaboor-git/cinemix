@@ -206,15 +206,16 @@ function KeyField({
 
 const HOME_SECTION_LABELS: Record<string, string> = {
   top250: "Top 250",
-  recentReleases: "Recent Releases",
-  series: "Top Series",
+  recentReleases: "Recent Releases (Global)",
+  digitalReleases: "Recent Digital Releases",
+  premieres: "New This Month (Global Releases)",
+  upcoming: "Coming Soon (Global)",
+  series: "Popular Global Series",
   action: "Action",
   drama: "Drama",
   scifi: "Sci-Fi",
-  upcoming: "Most Anticipated",
   comedy: "Comedy",
   horror: "Horror",
-  premieres: "New Premieres",
 };
 
 export default function PreferencesClient() {
@@ -562,7 +563,7 @@ export default function PreferencesClient() {
             <div key={key} className={i === arr.length - 1 ? rowLast : row}>
               <p className={lbl}>{label}</p>
               <Toggle
-                checked={prefs.homeSections[key]}
+                checked={prefs.homeSections[key] ?? true}
                 onChange={(v) => setSection(key, v)}
               />
             </div>
@@ -792,7 +793,7 @@ export default function PreferencesClient() {
           <button
             type="button"
             onClick={handleExportBackup}
-            className="flex-1 btn btn-ghost justify-center text-[12px] py-2.5"
+            className="flex-1 btn inline-flex items-center gap-2 btn-ghost justify-center text-[12px] py-2.5"
           >
             <Download size={13} />
             Export Backup (.json)
@@ -800,7 +801,7 @@ export default function PreferencesClient() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="flex-1 btn btn-ghost justify-center text-[12px] py-2.5"
+            className="flex-1 btn inline-flex items-center gap-2 btn-ghost justify-center text-[12px] py-2.5"
           >
             <Upload size={13} />
             Import Backup (.json)

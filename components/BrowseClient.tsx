@@ -2824,7 +2824,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                 const qs = sp.toString();
                 return qs ? `/explore?${qs}` : "/explore";
               })()}
-              className="btn btn-ghost py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] no-underline"
+              className="btn inline-flex items-center gap-2 btn-ghost py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] no-underline"
             >
               <span className="">Simple Explore</span>
             </Link>
@@ -2835,7 +2835,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                   setLoading(true);
                   setRandomSeed((s) => s + 1);
                 }}
-                className="btn btn-ghost py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px]"
+                className="btn inline-flex items-center gap-2 btn-ghost py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px]"
                 title="Shuffle your personalized For You mix"
               >
                 <Shuffle size={13} className="text-[var(--accent)]" />
@@ -2847,7 +2847,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
               type="button"
               onClick={handleSurpriseMe}
               disabled={films.length === 0}
-              className="btn btn-primary py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] disabled:opacity-40"
+              className="btn inline-flex items-center gap-2 btn-primary py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] disabled:opacity-40"
             >
               <Shuffle size={13} />
               <span className="sm:hidden">Surprise</span>
@@ -2889,14 +2889,14 @@ export default function BrowseClient(props: ExploreSearchParams) {
             <button
               type="button"
               onClick={handleSaveCurrentPreset}
-              className="btn btn-primary py-1.5 px-3 text-[12px]"
+              className="btn inline-flex items-center gap-2 btn-primary py-1.5 px-3 text-[12px]"
             >
               Save
             </button>
             <button
               type="button"
               onClick={() => setShowSavePresetInput(false)}
-              className="btn btn-ghost py-1.5 px-2.5 text-[12px]"
+              className="btn inline-flex items-center gap-2 btn-ghost py-1.5 px-2.5 text-[12px]"
             >
               Cancel
             </button>
@@ -3206,7 +3206,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                 <button
                   type="button"
                   onClick={handleApplyDraftFilters}
-                  className="btn btn-primary py-1.5 px-4 text-[12px] animate-pulse"
+                  className="btn inline-flex items-center gap-2 btn-primary py-1.5 px-4 text-[12px] animate-pulse"
                 >
                   <Check size={13} strokeWidth={2.8} />
                   Apply Filters ({pendingChangesCount})
@@ -3236,7 +3236,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                   <button
                     type="button"
                     onClick={handleResetAllFilters}
-                    className="btn btn-ghost py-2 px-4 text-[12px]"
+                    className="btn inline-flex items-center gap-2 btn-ghost py-2 px-4 text-[12px]"
                   >
                     <RotateCcw size={12} />
                     Reset All
@@ -3244,7 +3244,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                   <button
                     type="button"
                     onClick={handleApplyDraftFilters}
-                    className="btn btn-primary py-2 px-5 text-[12px]"
+                    className="btn inline-flex items-center gap-2 btn-primary py-2 px-5 text-[12px]"
                   >
                     <Check size={13} strokeWidth={2.5} />
                     {pendingChangesCount > 0
@@ -3362,7 +3362,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
               <button
                 type="button"
                 onClick={handleResetAllFilters}
-                className="btn btn-ghost py-2.5 px-4 text-[13px] justify-center"
+                className="btn inline-flex items-center gap-2 btn-ghost py-2.5 px-4 text-[13px] justify-center"
               >
                 <RotateCcw size={13} />
                 Reset
@@ -3370,7 +3370,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
               <button
                 type="button"
                 onClick={handleApplyDraftFilters}
-                className="btn btn-primary flex-1 py-2.5 px-5 text-[13px] justify-center"
+                className="btn inline-flex items-center gap-2 btn-primary flex-1 py-2.5 px-5 text-[13px] justify-center"
               >
                 <Check size={14} strokeWidth={2.5} />
                 {pendingChangesCount > 0
@@ -3440,7 +3440,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
             type="button"
             onClick={handleLoadNextBatch}
             disabled={loadingMore}
-            className="btn btn-ghost border-[rgba(229,9,20,0.4)] text-white px-6 py-3 text-[13px] font-semibold hover:bg-[var(--accent-dim)]"
+            className="btn inline-flex items-center gap-2 btn-ghost border-[rgba(229,9,20,0.4)] text-white px-6 py-3 text-[13px] font-semibold hover:bg-[var(--accent-dim)]"
           >
             {loadingMore ? "Loading More…" : "Load More"}
           </button>
@@ -3650,7 +3650,7 @@ function QuickPeekModal({
             <button
               type="button"
               onClick={() => onWatchNow(id)}
-              className="btn btn-primary py-2 px-4 text-[12px]"
+              className="btn inline-flex items-center gap-2 btn-primary py-2 px-4 text-[12px]"
             >
               <Play size={13} fill="currentColor" />
               Watch Now
@@ -3658,7 +3658,7 @@ function QuickPeekModal({
             <button
               type="button"
               onClick={() => onOpenDetails(id)}
-              className="btn btn-ghost py-2 px-4 text-[12px]"
+              className="btn inline-flex items-center gap-2 btn-ghost py-2 px-4 text-[12px]"
             >
               Full Details
             </button>
@@ -3679,7 +3679,7 @@ function QuickPeekModal({
                   },
                 );
               }}
-              className="btn btn-ghost py-2 px-3 text-[12px]"
+              className="btn inline-flex items-center gap-2 btn-ghost py-2 px-3 text-[12px]"
             >
               <Heart
                 size={13}
@@ -3708,7 +3708,7 @@ function QuickPeekModal({
                   },
                 );
               }}
-              className="btn btn-ghost py-2 px-3 text-[12px]"
+              className="btn inline-flex items-center gap-2 btn-ghost py-2 px-3 text-[12px]"
             >
               <Clock size={13} />
               <span className="sm:hidden">{isWL ? "Listed" : "Later"}</span>
@@ -3786,7 +3786,7 @@ function SurpriseMeModal({
           <button
             type="button"
             onClick={onSpinAgain}
-            className="btn btn-ghost flex-1 justify-center py-2.5 text-[13px]"
+            className="btn inline-flex items-center gap-2 btn-ghost flex-1 justify-center py-2.5 text-[13px]"
           >
             <Shuffle size={14} />
             Spin Again
@@ -3794,7 +3794,7 @@ function SurpriseMeModal({
           <button
             type="button"
             onClick={() => onWatchNow(id)}
-            className="btn btn-primary flex-1 justify-center py-2.5 text-[13px]"
+            className="btn inline-flex items-center gap-2 btn-primary flex-1 justify-center py-2.5 text-[13px]"
           >
             <Play size={14} fill="currentColor" />
             Details & Watch

@@ -38,7 +38,7 @@ export default function EmptyState({
       )}
       {actionLabel && actionHref && (
         <Link href={actionHref} className="no-underline mt-2">
-          <span className="btn btn-primary px-5 py-2.5 text-[13px]">
+          <span className="btn inline-flex items-center gap-2 btn-primary px-5 py-2.5 text-[13px]">
             {actionLabel}
           </span>
         </Link>
@@ -47,7 +47,7 @@ export default function EmptyState({
         <button
           type="button"
           onClick={onAction}
-          className="btn btn-primary px-5 py-2.5 text-[13px] mt-2"
+          className="btn inline-flex items-center gap-2 btn-primary px-5 py-2.5 text-[13px] mt-2"
         >
           {actionLabel}
         </button>

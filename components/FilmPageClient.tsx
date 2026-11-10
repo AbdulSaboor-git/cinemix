@@ -27,6 +27,7 @@ import {
   ExternalLink,
   Copy,
   Maximize2,
+  Film as FilmIcon,
 } from "lucide-react";
 import {
   getFilm,
@@ -417,7 +418,14 @@ function FilmDetail({
 
   const [activeStaffDept, setActiveStaffDept] = useState<string>("ACTOR");
   const [posterEnlarged, setPosterEnlarged] = useState(false);
+  const [enlargedPosterUrl, setEnlargedPosterUrl] = useState<string | null>(
+    null,
+  );
   const [castExpanded, setCastExpanded] = useState(false);
+
+  useEffect(() => {
+    setEnlargedPosterUrl(null);
+  }, [filmId]);
 
   const [reviewsExpanded, setReviewsExpanded] = useState(false);
   const [reviewFilter, setReviewFilter] = useState<
@@ -456,7 +464,11 @@ function FilmDetail({
   }, [filmId]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !filmId || !hydratedFilmUiRef.current) {
+    if (
+      typeof window === "undefined" ||
+      !filmId ||
+      !hydratedFilmUiRef.current
+    ) {
       return;
     }
     try {
@@ -503,8 +515,8 @@ function FilmDetail({
     return () => window.removeEventListener("keydown", onKey);
   }, [posterEnlarged]);
 
-
-  const posterThumb = film.posterUrlPreview || film.posterUrl || null;
+  const posterThumb =
+    enlargedPosterUrl || film.posterUrlPreview || film.posterUrl || null;
   const filmEntry = {
     film_id: filmId,
     film_name: name,
@@ -691,6 +703,7 @@ function FilmDetail({
                 imdbId={film.imdbId}
                 year={primaryYear}
                 priority
+                onResolvedSrcChange={(highRes) => setEnlargedPosterUrl(highRes)}
               />
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity flex items-center justify-center text-white pointer-events-none">
                 <div className="p-2 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 shadow-lg">
@@ -829,19 +842,32 @@ function FilmDetail({
 
           {/* ── Native Android Action Row on Mobile / Inline on Desktop ── */}
           <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 mb-3">
-            <Link
-              href={`/watch/${filmId}`}
-              className="btn btn-primary w-full sm:w-auto justify-center px-6 py-3 sm:py-[10px] text-[14px] rounded-[10px] sm:rounded-[var(--radius)] no-underline"
-            >
-              <Play size={15} fill="white" stroke="white" />
-              Watch Now
-            </Link>
+            <div className="grid grid-cols-2 sm:flex items-center gap-2 sm:gap-2.5">
+              <Link
+                href={`/watch/${filmId}`}
+                className="btn inline-flex items-center gap-2 btn-primary w-full sm:w-auto justify-center px-5 sm:px-6 py-3 sm:py-[10px] text-[13px] sm:text-[14px] rounded-[10px] sm:rounded-[var(--radius)] no-underline"
+              >
+                <Play size={15} fill="white" stroke="white" />
+                Watch Now
+              </Link>
+
+              <Link
+                href={`/watch/${filmId}?mode=trailer`}
+                title="Watch Official Trailer"
+                className="flex items-center justify-center gap-2 rounded-[10px] sm:rounded-[var(--radius)] px-4 sm:px-5 py-3 sm:py-[10px] text-[13px] sm:text-[14px] font-semibold border bg-[var(--bg-elevated)] border-[var(--border-hover)] text-white hover:border-[var(--accent)] hover:bg-[rgba(229,9,20,0.12)] hover:text-white transition-all duration-150 no-underline shadow-[0_4px_14px_rgba(0,0,0,0.28)]"
+              >
+                <FilmIcon size={15} className="text-[var(--accent)] shrink-0" />
+                <span>Trailer</span>
+              </Link>
+            </div>
 
             <div className="grid grid-cols-4 sm:flex items-center gap-1.5 sm:gap-2.5">
               <button
                 type="button"
                 onClick={handleFav}
-                title={isFav ? "In Favorites (tap to remove)" : "Add to Favorites"}
+                title={
+                  isFav ? "In Favorites (tap to remove)" : "Add to Favorites"
+                }
                 className={`flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
                   isFav
                     ? "bg-[rgba(229,9,20,0.15)] border-[rgba(229,9,20,0.5)] text-[var(--accent)]"
@@ -866,14 +892,23 @@ function FilmDetail({
               <button
                 type="button"
                 onClick={handleWL}
-                title={isWL ? "In Watch Later (tap to remove)" : "Save to Watch Later"}
+                title={
+                  isWL
+                    ? "In Watch Later (tap to remove)"
+                    : "Save to Watch Later"
+                }
                 className={`flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
                   isWL
                     ? "bg-[rgba(96,165,250,0.12)] border-[rgba(96,165,250,0.4)] text-[#60a5fa]"
                     : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(96,165,250,0.4)] hover:text-[#60a5fa]"
                 }`}
               >
-                <Clock size={14} stroke="currentColor" strokeWidth={2} className="shrink-0" />
+                <Clock
+                  size={14}
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  className="shrink-0"
+                />
                 <span className="sm:hidden whitespace-nowrap">
                   {isWL ? "Listed" : "Later"}
                 </span>
@@ -1069,9 +1104,12 @@ function FilmDetail({
                 "Show top 20"
               ) : (
                 <>
-                  <span className="sm:hidden">All {deptList.length} credits</span>
+                  <span className="sm:hidden">
+                    All {deptList.length} credits
+                  </span>
                   <span className="hidden sm:inline">
-                    Show all {deptList.length} credits (+{deptList.length - 20} more)
+                    Show all {deptList.length} credits (+{deptList.length - 20}{" "}
+                    more)
                   </span>
                 </>
               )}
@@ -1118,12 +1156,14 @@ function FilmDetail({
                 {showSpoilers ? (
                   <>
                     <EyeOff size={13} />
-                    <span className="sm:hidden">Hide</span><span className="hidden sm:inline">Hide Spoilers</span>
+                    <span className="sm:hidden">Hide</span>
+                    <span className="hidden sm:inline">Hide Spoilers</span>
                   </>
                 ) : (
                   <>
                     <Eye size={13} />
-                    <span className="sm:hidden">Spoilers</span><span className="hidden sm:inline">Show Spoilers</span>
+                    <span className="sm:hidden">Spoilers</span>
+                    <span className="hidden sm:inline">Show Spoilers</span>
                   </>
                 )}
               </button>
@@ -1203,10 +1243,16 @@ function FilmDetail({
           </div>
           {processedReviews.length > 3 && (
             <ExpandBtn onClick={() => setReviewsExpanded((v) => !v)}>
-              {reviewsExpanded ? "Show less" : (
+              {reviewsExpanded ? (
+                "Show less"
+              ) : (
                 <>
-                  <span className="sm:hidden">All {processedReviews.length} reviews</span>
-                  <span className="hidden sm:inline">Show all {processedReviews.length} reviews</span>
+                  <span className="sm:hidden">
+                    All {processedReviews.length} reviews
+                  </span>
+                  <span className="hidden sm:inline">
+                    Show all {processedReviews.length} reviews
+                  </span>
                 </>
               )}
             </ExpandBtn>
@@ -1317,15 +1363,26 @@ function FilmDetail({
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={film.posterUrl || film.posterUrlPreview || ""}
+              src={
+                enlargedPosterUrl ||
+                film.posterUrl ||
+                film.posterUrlPreview ||
+                ""
+              }
               alt={name}
+              onError={(e) => {
+                const fallback = film.posterUrl || film.posterUrlPreview || "";
+                if (fallback && e.currentTarget.src !== fallback) {
+                  e.currentTarget.src = fallback;
+                }
+              }}
               className="max-h-[80vh] max-w-[88vw] w-auto h-auto object-contain rounded-xl shadow-[0_16px_60px_rgba(0,0,0,0.9)] border border-white/15"
             />
             <div className="mt-3 text-center">
               <p className="text-white font-display text-[17px] tracking-wide">
                 {name} {primaryYear ? `(${primaryYear})` : ""}
               </p>
-              <p className="text-[12px] text-[var(--text-muted)]">
+              <p className="hidden sm:block text-[12px] text-[var(--text-muted)]">
                 Click anywhere outside or press Esc to close
               </p>
             </div>
@@ -1408,7 +1465,9 @@ function UserTasteStrip({
               aria-expanded={expanded}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-[6px] text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text)] bg-transparent border border-transparent hover:border-[var(--border)] cursor-pointer transition-colors"
             >
-              <span className="hidden sm:inline">{expanded ? "Hide" : "Details"}</span>
+              <span className="hidden sm:inline">
+                {expanded ? "Hide" : "Details"}
+              </span>
               <ChevronDown
                 size={12}
                 className={`transition-transform duration-200 ${
@@ -1932,7 +1991,8 @@ function AwardsSection({
                   {nominations.length} Nom{nominations.length !== 1 ? "s" : ""}
                 </span>
                 <span className="hidden sm:inline">
-                  {nominations.length} Nomination{nominations.length !== 1 ? "s" : ""}
+                  {nominations.length} Nomination
+                  {nominations.length !== 1 ? "s" : ""}
                 </span>
               </span>
             )}
@@ -2112,7 +2172,19 @@ function DistributionsSection({
 }) {
   const [expanded, setExpanded] = useState(false);
   const sorted = [...distributions]
-    .filter((d) => d.date && formatDateSafe(d.date))
+    .filter((d) => {
+      if (!d.date || !formatDateSafe(d.date)) return false;
+      const cName = (d.country?.country || "").trim().toLowerCase();
+      if (
+        d.type === "LOCAL" ||
+        cName === "россия" ||
+        cName === "ссср" ||
+        cName === "russia"
+      ) {
+        return false;
+      }
+      return true;
+    })
     .sort(
       (a, b) =>
         (new Date(a.date!).getTime() || 0) - (new Date(b.date!).getTime() || 0),

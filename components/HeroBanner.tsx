@@ -424,7 +424,7 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
                 if (swipedRef.current) e.preventDefault();
               }}
             >
-              <span className="btn btn-primary px-4 sm:px-[22px] py-2 sm:py-[11px] text-[12px] sm:text-[14px]">
+              <span className="btn inline-flex items-center gap-2 btn-primary px-4 sm:px-[22px] py-2 sm:py-[11px] text-[12px] sm:text-[14px]">
                 <Play size={14} fill="white" stroke="white" />
                 Watch Now
               </span>
@@ -437,7 +437,7 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
                 if (swipedRef.current) e.preventDefault();
               }}
             >
-              <span className="btn btn-secondary px-4 sm:px-[20px] py-2 sm:py-[11px] text-[12px] sm:text-[14px]">
+              <span className="btn inline-flex items-center gap-2 btn-secondary px-4 sm:px-[20px] py-2 sm:py-[11px] text-[12px] sm:text-[14px]">
                 <Info size={14} strokeWidth={2.2} />
                 Details
               </span>
@@ -447,7 +447,7 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
                 type="button"
                 onClick={handleFav}
                 title={isFav ? "In Favorites" : "Add to Favorites"}
-                className={`btn btn-secondary px-3.5 py-[11px] text-[13px] ${
+                className={`btn inline-flex items-center gap-2 btn-secondary px-3.5 py-[11px] text-[13px] ${
                   isFav
                     ? "!border-[rgba(229,9,20,0.6)] !bg-[rgba(229,9,20,0.2)] !text-white"
                     : ""
@@ -467,7 +467,7 @@ export default function HeroBanner({ film, films }: HeroBannerProps) {
                 type="button"
                 onClick={handleWL}
                 title={isWL ? "In Watch Later" : "Save to Watch Later"}
-                className={`hidden md:inline-flex btn btn-secondary px-3.5 py-[11px] text-[13px] ${
+                className={`hidden md:inline-flex items-center gap-2 btn btn-secondary px-3.5 py-[11px] text-[13px] ${
                   isWL
                     ? "!border-[rgba(96,165,250,0.6)] !bg-[rgba(96,165,250,0.18)] !text-[#60a5fa]"
                     : ""

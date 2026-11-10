@@ -6,6 +6,7 @@ import {
   getTopFilms,
   getPremieres,
   getRecentReleases,
+  getRecentDigitalReleases,
   getUpcomingPremieres,
   getCuratedHomeSection,
   discoverTasteMatchedFilms,
@@ -42,6 +43,7 @@ interface HomeSnapshot {
   popularFilms: Film[];
   top250Films: Film[];
   recentReleaseFilms: Film[];
+  digitalReleaseFilms: Film[];
   premiereFilms: Film[];
   seriesFilms: Film[];
   actionFilms: Film[];
@@ -109,6 +111,7 @@ export default function HomeClient() {
   const [popularFilms, setPopularFilms] = useState<Film[]>([]);
   const [top250Films, setTop250Films] = useState<Film[]>([]);
   const [recentReleaseFilms, setRecentReleaseFilms] = useState<Film[]>([]);
+  const [digitalReleaseFilms, setDigitalReleaseFilms] = useState<Film[]>([]);
   const [seriesFilms, setSeriesFilms] = useState<Film[]>([]);
   const [actionFilms, setActionFilms] = useState<Film[]>([]);
   const [dramaFilms, setDramaFilms] = useState<Film[]>([]);
@@ -118,7 +121,7 @@ export default function HomeClient() {
   const [horrorFilms, setHorrorFilms] = useState<Film[]>([]);
   const [premiereFilms, setPremiereFilms] = useState<Film[]>([]);
 
-  // Personalized rows (Bug #6 Fixed: watchLaterFilms state is bound and rendered!)
+  // Personalized rows
   const [watchLaterFilms, setWatchLaterFilms] = useState<Film[]>([]);
   const [forYouFilms, setForYouFilms] = useState<Film[]>([]);
   const [forYouLoading, setForYouLoading] = useState(false);
@@ -134,8 +137,6 @@ export default function HomeClient() {
     null,
   );
 
-  // Bug #3 Fixed: Uses fetchTimestampRef (refreshed whenever network data is fetched)
-  // so expired timestamps are never preserved across fresh reloads.
   useEffect(() => {
     if (!loaded || !sections || noKey || !hasApiKeys()) return;
     homeCache = {
@@ -145,6 +146,7 @@ export default function HomeClient() {
       popularFilms,
       top250Films,
       recentReleaseFilms,
+      digitalReleaseFilms,
       premiereFilms,
       seriesFilms,
       actionFilms,
@@ -161,9 +163,11 @@ export default function HomeClient() {
     loaded,
     sections,
     noKey,
+    trendingFilms,
     popularFilms,
     top250Films,
     recentReleaseFilms,
+    digitalReleaseFilms,
     premiereFilms,
     seriesFilms,
     actionFilms,
@@ -360,7 +364,6 @@ export default function HomeClient() {
     setNoKey(false);
     const prefs = getPreferences();
     const s = prefs.homeSections;
-    const regionMode = prefs.contentRegionMode ?? "GLOBAL_FIRST";
     setSections(s);
 
     const validSnap =
@@ -376,6 +379,7 @@ export default function HomeClient() {
       setPopularFilms(validSnap.popularFilms);
       setTop250Films(validSnap.top250Films);
       setRecentReleaseFilms(validSnap.recentReleaseFilms ?? []);
+      setDigitalReleaseFilms(validSnap.digitalReleaseFilms ?? []);
       setPremiereFilms(validSnap.premiereFilms);
       setSeriesFilms(validSnap.seriesFilms);
       setActionFilms(validSnap.actionFilms);
@@ -389,6 +393,8 @@ export default function HomeClient() {
       const missingRecentOrPremieres =
         (s.recentReleases &&
           (validSnap.recentReleaseFilms?.length ?? 0) === 0) ||
+        (s.digitalReleases &&
+          (validSnap.digitalReleaseFilms?.length ?? 0) === 0) ||
         (s.premieres && (validSnap.premiereFilms?.length ?? 0) === 0);
       setSecondaryLoaded(
         validSnap.secondaryLoaded && !missingRecentOrPremieres,
@@ -451,11 +457,7 @@ export default function HomeClient() {
         }
         if (top250.status === "fulfilled" && top250.value) {
           const rawTop = top250.value.items;
-          setTop250Films(
-            regionMode === "GLOBAL_FIRST"
-              ? rawTop.filter((f) => !isRussianDomesticFilm(f))
-              : rawTop,
-          );
+          setTop250Films(rawTop.filter((f) => !isRussianDomesticFilm(f)));
         }
         setLoaded(true);
 
@@ -466,6 +468,9 @@ export default function HomeClient() {
           Promise.allSettled([
             s.recentReleases
               ? getRecentReleases("high")
+              : Promise.resolve(null),
+            s.digitalReleases
+              ? getRecentDigitalReleases("high")
               : Promise.resolve(null),
             s.premieres
               ? getPremieres(CURRENT_YEAR, CURRENT_MONTH, "high")
@@ -530,6 +535,7 @@ export default function HomeClient() {
           ]).then(
             ([
               recentReleases,
+              digitalReleases,
               premieres,
               series,
               action,
@@ -547,42 +553,38 @@ export default function HomeClient() {
                 recentReleases.status === "fulfilled" &&
                 recentReleases.value
               ) {
-                const rItems = recentReleases.value.items;
-                const globalR = rItems.filter((f) => !isRussianDomesticFilm(f));
-                const domesticR = rItems.filter((f) =>
-                  isRussianDomesticFilm(f),
+                const rItems = recentReleases.value.items.filter(
+                  (f) => !isRussianDomesticFilm(f),
                 );
-                const finalR =
-                  regionMode === "GLOBAL_FIRST"
-                    ? globalR.length >= 6
-                      ? globalR
-                      : [...globalR, ...domesticR]
-                    : rItems;
-                setRecentReleaseFilms(finalR);
+                setRecentReleaseFilms(rItems);
+              }
+
+              if (
+                digitalReleases.status === "fulfilled" &&
+                digitalReleases.value
+              ) {
+                const dItems = digitalReleases.value.items.filter(
+                  (f) => !isRussianDomesticFilm(f),
+                );
+                setDigitalReleaseFilms(dItems);
               }
 
               let shownPremiereIds = new Set<number>();
               if (premieres.status === "fulfilled" && premieres.value) {
                 const rawPItems = premieres.value.items.filter((f) => {
+                  if (isRussianDomesticFilm(f)) return false;
                   const yr = f.year ?? f.startYear;
-                  return !yr || yr >= CURRENT_YEAR - 1;
+                  return !yr || yr >= CURRENT_YEAR;
                 });
-                // Prefer already-released titles this month, but fall back to full month list if early in the month
-                const releasedThisMonth = rawPItems.filter(
-                  (f) => !f.premiereRu || f.premiereRu.slice(0, 10) <= todayStr,
-                );
-                const pItems =
-                  releasedThisMonth.length >= 4 ? releasedThisMonth : rawPItems;
-                const globalP = pItems.filter((f) => !isRussianDomesticFilm(f));
-                const domesticP = pItems.filter((f) =>
-                  isRussianDomesticFilm(f),
-                );
+                const releasedThisMonth = rawPItems.filter((f) => {
+                  const dStr = (f.releaseDate || f.premiereRu || "").slice(
+                    0,
+                    10,
+                  );
+                  return !dStr || dStr <= todayStr;
+                });
                 const finalP =
-                  regionMode === "GLOBAL_FIRST"
-                    ? globalP.length >= 6
-                      ? globalP
-                      : [...globalP, ...domesticP]
-                    : pItems;
+                  releasedThisMonth.length >= 4 ? releasedThisMonth : rawPItems;
                 setPremiereFilms(finalP);
                 shownPremiereIds = new Set(
                   finalP
@@ -607,27 +609,17 @@ export default function HomeClient() {
 
               if (upcoming.status === "fulfilled" && upcoming.value) {
                 const uItems = upcoming.value.items.filter((f) => {
+                  if (isRussianDomesticFilm(f)) return false;
                   const yr = f.year ?? f.startYear;
                   return !yr || yr >= CURRENT_YEAR;
                 });
-                const globalU = uItems.filter((f) => !isRussianDomesticFilm(f));
-                const domesticU = uItems.filter((f) =>
-                  isRussianDomesticFilm(f),
-                );
-                const regionCuratedU =
-                  regionMode === "GLOBAL_FIRST"
-                    ? globalU.length >= 6
-                      ? globalU
-                      : [...globalU, ...domesticU]
-                    : uItems;
-
-                const deduplicatedAgainstCurrent = regionCuratedU.filter(
+                const deduplicatedAgainstCurrent = uItems.filter(
                   (f) => !shownPremiereIds.has(f.kinopoiskId ?? f.filmId ?? 0),
                 );
                 setAwaitFilms(
-                  deduplicatedAgainstCurrent.length >= 8
+                  deduplicatedAgainstCurrent.length >= 6
                     ? deduplicatedAgainstCurrent
-                    : regionCuratedU,
+                    : uItems,
                 );
               }
 
@@ -651,7 +643,6 @@ export default function HomeClient() {
   }, [keyEpoch]);
 
   const heroSlides = useMemo(() => {
-    // Top carousel shows trending movies from our new trending system!
     const sourcePool =
       trendingFilms.length > 0
         ? trendingFilms
@@ -746,6 +737,13 @@ export default function HomeClient() {
             href="/explore?lens=RECENT_RELEASES"
           />
         )}
+        {s.digitalReleases && digitalReleaseFilms.length > 0 && (
+          <FilmRow
+            title="Recent Digital Releases"
+            films={digitalReleaseFilms.slice(0, 20)}
+            href="/premieres?tab=digital"
+          />
+        )}
         {s.top250 && top250Films.length > 0 && (
           <FilmRow
             title="Top 250 — All Time Greats"
@@ -836,7 +834,6 @@ export default function HomeClient() {
             />
           </LazySection>
         )}
-        {/* Bug #12 Fixed: Links to current month so remaining current-month upcoming releases are not skipped */}
         {s.upcoming && awaitFilms.length > 0 && (
           <LazySection>
             <FilmRow

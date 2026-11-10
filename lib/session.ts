@@ -148,6 +148,7 @@ export const DEFAULT_PREFERENCES: SessionPreferences = {
     popular: true,
     top250: true,
     recentReleases: true,
+    digitalReleases: true,
     series: true,
     action: true,
     drama: true,

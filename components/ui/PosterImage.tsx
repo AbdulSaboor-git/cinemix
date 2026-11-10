@@ -25,11 +25,11 @@ export interface PosterImageProps {
   disableEnglishLookup?: boolean;
   className?: string;
   imgClassName?: string;
+  onResolvedSrcChange?: (highResUrl: string, displayUrl: string) => void;
 }
 
 // ─── Persistent Client-Side English Poster Cache & Micro-Batcher ─────────────
 
-// Bumped to v2 so previously cached year-insensitive posters (e.g. Oldboy 2003 vs 2013) are invalidated
 const EN_POSTER_STORAGE_KEY = "cinemix_en_posters_v2";
 const HIT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const MISS_WITH_IMDB_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
@@ -92,7 +92,6 @@ function getCachedEnglishPoster(
   const entry = store[key];
   if (!entry) return undefined;
 
-  // If we now have an imdbId or release year that wasn't available when cached, re-resolve
   if (hasImdbId && !entry.hasImdbId) {
     delete store[key];
     return undefined;
@@ -251,6 +250,24 @@ function extractKpFilmId(url?: string | null): number | null {
   return !isNaN(parsed) && parsed > 0 ? parsed : null;
 }
 
+export function getHighResPosterUrl(rawUrl?: string | null): string | null {
+  const cleanUrl = sanitizePosterUrl(rawUrl);
+  if (!cleanUrl) return null;
+  if (cleanUrl.includes("m.media-amazon.com/images/")) {
+    if (/\._V1_.*?\.(jpg|jpeg|png)$/i.test(cleanUrl)) {
+      return cleanUrl.replace(
+        /\._V1_.*?\.(jpg|jpeg|png)$/i,
+        "._V1_QL90_UX1080_.$1",
+      );
+    }
+    return cleanUrl;
+  }
+  if (cleanUrl.includes("images.metahub.space/poster/")) {
+    return cleanUrl.replace("/poster/medium/", "/poster/large/");
+  }
+  return cleanUrl.replace("/images/posters/kp_small/", "/images/posters/kp/");
+}
+
 function optimizePosterUrl(
   rawUrl?: string | null,
   size?: "sm" | "md" | "lg",
@@ -311,6 +328,7 @@ export default function PosterImage({
   disableEnglishLookup = false,
   className = "w-full h-full relative overflow-hidden bg-[var(--surface)]",
   imgClassName = "w-full h-full object-cover block",
+  onResolvedSrcChange,
 }: PosterImageProps) {
   const autoTranslate = useAutoTranslate();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -422,8 +440,6 @@ export default function PosterImage({
     displayTitle,
   ]);
 
-  // Keep lookupKey stable per film (kpFilmId + year) so asynchronous title translation
-  // or imdbId hydration upgrades in-place without flashing back to the Russian poster.
   const lookupKey = useMemo(() => {
     if (!shouldUseEnglishPoster) return "";
     const yPart = resolvedYear ? String(resolvedYear) : "noyear";
@@ -594,6 +610,15 @@ export default function PosterImage({
     fallbackType,
     priority,
   ]);
+
+  // Notify parent (such as FilmPageClient's Enlarge Poster Lightbox) whenever the resolved English poster changes
+  useEffect(() => {
+    if (!onResolvedSrcChange) return;
+    const baseSource = resolvedEnRawUrl || activeSrc || cleanOriginalKpSrc;
+    if (!baseSource) return;
+    const highRes = getHighResPosterUrl(baseSource) || baseSource;
+    onResolvedSrcChange(highRes, activeSrc || baseSource);
+  }, [onResolvedSrcChange, resolvedEnRawUrl, activeSrc, cleanOriginalKpSrc]);
 
   // Reset loaded state whenever activeSrc changes
   useEffect(() => {

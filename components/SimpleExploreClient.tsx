@@ -1243,7 +1243,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
             type="button"
             onClick={handleSurpriseMe}
             disabled={films.length === 0}
-            className="btn btn-ghost py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] disabled:opacity-40"
+            className="btn inline-flex items-center gap-2 btn-ghost py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] disabled:opacity-40"
             title="Pick a random title from current grid"
           >
             <Shuffle size={13} className="text-[var(--accent)]" />
@@ -1252,7 +1252,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
           </button>
           <Link
             href={advancedExploreHref}
-            className="btn btn-primary py-1.5 px-3 sm:py-2 sm:px-4 text-[12px] no-underline"
+            className="btn inline-flex items-center gap-2 btn-primary py-1.5 px-3 sm:py-2 sm:px-4 text-[12px] no-underline"
             title="Open Advanced Explore Filter Studio"
           >
             <SlidersHorizontal size={13} />
@@ -1313,7 +1313,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
               {searchInput.trim().length > 0 && (
                 <button
                   type="submit"
-                  className="btn btn-primary p-2 sm:py-2.5 px-3.5 sm:px-4 text-[12px] sm:text-[13px] rounded-[10px] min-h-full"
+                  className="btn inline-flex items-center gap-2 btn-primary p-2 sm:py-2.5 px-3.5 sm:px-4 text-[12px] sm:text-[13px] rounded-[10px] min-h-full"
                 >
                   <Search size={13} />
                   <span className="hidden sm:inline">Search</span>
@@ -1659,7 +1659,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
             type="button"
             onClick={handleLoadNextBatch}
             disabled={loadingMore}
-            className="btn btn-ghost border-[rgba(229,9,20,0.35)] text-white px-6 py-2.5 text-[13px] font-semibold hover:bg-[var(--accent-dim)]"
+            className="btn inline-flex items-center gap-2 btn-ghost border-[rgba(229,9,20,0.35)] text-white px-6 py-2.5 text-[13px] font-semibold hover:bg-[var(--accent-dim)]"
           >
             {loadingMore ? "Loading More…" : "Load More"}
           </button>
@@ -1868,7 +1868,7 @@ function SimpleQuickPeekModal({
             <button
               type="button"
               onClick={() => onWatchNow(id)}
-              className="btn btn-primary py-2 px-4 text-[12px]"
+              className="btn inline-flex items-center gap-2 btn-primary py-2 px-4 text-[12px]"
             >
               <Play size={13} fill="currentColor" />
               Watch Now
@@ -1876,7 +1876,7 @@ function SimpleQuickPeekModal({
             <button
               type="button"
               onClick={() => onOpenDetails(id)}
-              className="btn btn-ghost py-2 px-4 text-[12px]"
+              className="btn inline-flex items-center gap-2 btn-ghost py-2 px-4 text-[12px]"
             >
               Details
             </button>
@@ -1894,7 +1894,7 @@ function SimpleQuickPeekModal({
                   },
                 );
               }}
-              className={`btn btn-ghost py-2 px-3 text-[12px] ${
+              className={`btn inline-flex items-center gap-2 btn-ghost py-2 px-3 text-[12px] ${
                 isFav
                   ? "!border-[rgba(229,9,20,0.5)] !text-[var(--accent)]"
                   : ""
@@ -1924,7 +1924,7 @@ function SimpleQuickPeekModal({
                   },
                 );
               }}
-              className={`btn btn-ghost py-2 px-3 text-[12px] ${
+              className={`btn inline-flex items-center gap-2 btn-ghost py-2 px-3 text-[12px] ${
                 isWL ? "!border-[#60a5fa] !text-[#60a5fa]" : ""
               }`}
             >
@@ -1992,7 +1992,7 @@ function SimpleSurpriseModal({
           <button
             type="button"
             onClick={onSpinAgain}
-            className="btn btn-ghost flex-1 justify-center py-2.5 text-[12px]"
+            className="btn inline-flex items-center gap-2 btn-ghost flex-1 justify-center py-2.5 text-[12px]"
           >
             <Shuffle size={13} />
             Spin Again
@@ -2000,7 +2000,7 @@ function SimpleSurpriseModal({
           <button
             type="button"
             onClick={() => onWatchNow(id)}
-            className="btn btn-primary flex-1 justify-center py-2.5 text-[12px]"
+            className="btn inline-flex items-center gap-2 btn-primary flex-1 justify-center py-2.5 text-[12px]"
           >
             <Play size={13} fill="currentColor" />
             Open Film

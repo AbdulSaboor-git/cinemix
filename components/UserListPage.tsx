@@ -698,7 +698,7 @@ export default function UserListPage({ type }: { type: ListType }) {
             <button
               type="button"
               onClick={handlePickRandom}
-              className="btn btn-ghost py-1.5 px-3 text-[12px]"
+              className="btn inline-flex items-center gap-2 btn-ghost py-1.5 px-3 text-[12px]"
             >
               <Shuffle size={13} />
               Pick Random
