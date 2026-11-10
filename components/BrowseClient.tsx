@@ -3006,7 +3006,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
 
       {/* ── LAYER 2: Category Selector Row + Collapsible Explore Controls ── */}
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-[14px] p-2.5 sm:p-4 mb-5 sm:mb-6 shadow-[0_12px_40px_rgba(0,0,0,0.4)]">
-        <div className="flex items-center gap-1.5 flex-wrap justify-center md:justify-start md:overflow-x-auto pb-0.5 scrollbar-none flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 justify-start overflow-x-auto pb-0.5 scrollbar-none flex-1 min-w-0">
           {TYPES.map((t) => {
             const isSelected = type === t.value;
             return (
@@ -3035,57 +3035,10 @@ export default function BrowseClient(props: ExploreSearchParams) {
               </button>
             );
           })}
-          <button
-            type="button"
-            onClick={() => setMobileControlsExpanded((v) => !v)}
-            aria-expanded={mobileControlsExpanded}
-            className={`md:hidden flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] text-[11px] font-semibold border cursor-pointer transition-all active:scale-95 ${
-              mobileControlsExpanded ||
-              activeFilterTags.length > 0 ||
-              pendingChangesCount > 0
-                ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
-                : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)]"
-            }`}
-          >
-            <SlidersHorizontal size={12} />
-            <span>Filters</span>
-            {(activeFilterTags.length > 0 || pendingChangesCount > 0) && (
-              <span className="bg-[var(--accent)] text-white text-[10px] font-bold rounded-full min-w-[16px] h-[16px] px-1 flex items-center justify-center">
-                {activeFilterTags.length + pendingChangesCount}
-              </span>
-            )}
-            {mobileControlsExpanded ? (
-              <ChevronUp size={12} />
-            ) : (
-              <ChevronDown size={12} />
-            )}
-          </button>
         </div>
 
-        <div
-          className={`${
-            mobileControlsExpanded ? "block" : "hidden md:block"
-          } mt-2.5 pt-2.5 border-t border-[var(--border)]`}
-        >
+        <div className={`mt-2.5 pt-2.5 border-t border-[var(--border)]`}>
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-            <button
-              type="button"
-              onClick={() => setMobileSheetOpen(true)}
-              className={`md:hidden flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-[8px] text-[12px] font-semibold border cursor-pointer transition-all ${
-                activeFilterTags.length > 0 || pendingChangesCount > 0
-                  ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
-                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)]"
-              }`}
-            >
-              <SlidersHorizontal size={13} />
-              <span>All Filters</span>
-              {(activeFilterTags.length > 0 || pendingChangesCount > 0) && (
-                <span className="bg-[var(--accent)] text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
-                  {activeFilterTags.length + pendingChangesCount}
-                </span>
-              )}
-            </button>
-
             <select
               className="select text-[12px] py-2 px-3 rounded-[8px] flex-1 sm:flex-initial min-w-[155px]"
               value={order}
@@ -3159,7 +3112,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                 e.preventDefault();
                 handleApplyDraftFilters();
               }}
-              className="relative w-full sm:w-[200px] sm:ml-auto"
+              className="relative w-full sm:w-[300px] sm:ml-auto"
             >
               <Search
                 size={13}
@@ -3187,6 +3140,25 @@ export default function BrowseClient(props: ExploreSearchParams) {
                 </button>
               )}
             </form>
+          </div>
+          <div className={`mt-2.5 pt-2.5 border-t border-[var(--border)]`}>
+            <button
+              type="button"
+              onClick={() => setMobileSheetOpen(true)}
+              className={`md:hidden w-full flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-[8px] text-[12px] font-semibold border cursor-pointer transition-all ${
+                activeFilterTags.length > 0 || pendingChangesCount > 0
+                  ? "bg-[var(--accent-dim)] border-[var(--accent)] text-white"
+                  : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)]"
+              }`}
+            >
+              <SlidersHorizontal size={13} />
+              <span>All Filters</span>
+              {(activeFilterTags.length > 0 || pendingChangesCount > 0) && (
+                <span className="bg-[var(--accent)] text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
+                  {activeFilterTags.length + pendingChangesCount}
+                </span>
+              )}
+            </button>
           </div>
 
           <div className="hidden md:flex items-center justify-between gap-2 pt-3 mt-3 border-t border-[var(--border)] flex-wrap">
