@@ -130,7 +130,10 @@ function getValidPremieresSnapshot(
   const key = getCacheKey(year, monthStr);
   const existing = premieresCache.get(key);
   if (existing) {
-    if (Date.now() - existing.timestamp < SNAPSHOT_TTL_MS) {
+    if (
+      existing.items.length > 0 &&
+      Date.now() - existing.timestamp < SNAPSHOT_TTL_MS
+    ) {
       return existing;
     }
     premieresCache.delete(key);
@@ -138,7 +141,7 @@ function getValidPremieresSnapshot(
 
   // Fallback to synchronous API cache (e.g. if HomeClient already fetched this month's premieres)
   const syncCached = getCachedPremieres(year, monthStr);
-  if (syncCached && syncCached.items) {
+  if (syncCached && syncCached.items && syncCached.items.length > 0) {
     const snap: PremieresSnapshot = {
       timestamp: Date.now(),
       items: syncCached.items,
@@ -267,10 +270,12 @@ export default function PremieresClient({
         .then((d) => {
           if (cancelled) return;
           const list = d.items ?? [];
-          premieresCache.set(getCacheKey(year, monthStr), {
-            timestamp: Date.now(),
-            items: list,
-          });
+          if (list.length > 0) {
+            premieresCache.set(getCacheKey(year, monthStr), {
+              timestamp: Date.now(),
+              items: list,
+            });
+          }
           setFilms(list);
         })
         .catch(() => {

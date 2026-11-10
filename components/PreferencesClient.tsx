@@ -376,12 +376,12 @@ export default function PreferencesClient() {
       <div className="sticky top-[var(--nav-height)] z-[100] -mx-4 sm:-mx-[var(--page-x)] px-4 sm:px-[var(--page-x)] py-[10px] mb-5 sm:mb-6 bg-[#080808e6] backdrop-blur-[20px] border-b border-[var(--border)] transition-all duration-300">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-[10px] min-w-0">
-            <Settings width={19} />
+            <Settings width={19} className="mb-1" />
             <h1 className="font-display tracking-[2px] text-[var(--text)] m-0 text-[clamp(16px,3vw,22px)]">
               PREFERENCES
             </h1>
             {unsaved && (
-              <span className="hidden sm:inline-flex items-center gap-[5px] bg-[rgba(229,9,20,0.1)] border border-[rgba(229,9,20,0.25)] rounded-full px-[10px] py-[3px] text-[11px] text-[var(--accent)] font-medium">
+              <span className="hidden mb-1 sm:inline-flex items-center gap-[5px] bg-[rgba(229,9,20,0.1)] border border-[rgba(229,9,20,0.25)] rounded-full px-[10px] py-[3px] text-[11px] text-[var(--accent)] font-medium">
                 <span className="w-[5px] h-[5px] rounded-full bg-[var(--accent)]" />
                 Unsaved
               </span>
@@ -421,227 +421,6 @@ export default function PreferencesClient() {
               )}
             </button>
           </div>
-        </div>
-      </div>
-
-      {/* API Keys */}
-      <div className={card}>
-        <div className={cardHdr}>
-          <SectionIcon>
-            <KeyRound size={15} strokeWidth={2} />
-          </SectionIcon>
-          <div className="flex-1 min-w-0">
-            <SectionTitle>Keys Management</SectionTitle>
-            <p className={`${hint} !mt-0`}>
-              Contact Cinemix team to get your key(s). Each key has a daily
-              limit. More than one key can be added. Keys rotate automatically
-              when the daily limit is hit.
-            </p>
-          </div>
-          {prefs.apiKeys.filter((k) => k.trim()).length > 0 && (
-            <button
-              type="button"
-              onClick={() => setQuotaOpen(true)}
-              className="flex-shrink-0 flex items-center gap-[6px] bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[var(--radius)] px-[10px] py-[7px] text-[11px] font-semibold text-[var(--text-dim)] cursor-pointer hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)] transition-all duration-150"
-            >
-              <Clock size={12} strokeWidth={2} />
-              <span className="hidden sm:inline">Quota</span>
-            </button>
-          )}
-        </div>
-        <div className="py-2">
-          {prefs.apiKeys.length === 0 ? (
-            <div className="p-3 sm:p-5">
-              <div className="bg-[rgba(229,9,20,0.06)] border border-dashed border-[rgba(229,9,20,0.3)] rounded-[var(--radius)] p-[14px_16px] sm:p-[16px_20px] flex items-start gap-3">
-                <CircleAlert
-                  size={18}
-                  stroke="var(--accent)"
-                  strokeWidth={2}
-                  className="flex-shrink-0 mt-[2px]"
-                />
-                <p className="text-[12px] sm:text-[13px] text-[var(--text-dim)] leading-[1.5] m-0">
-                  No keys configured. The app won&apos;t load content until you
-                  add one.
-                </p>
-              </div>
-            </div>
-          ) : (
-            prefs.apiKeys.map((key, i) => (
-              <KeyField
-                key={i}
-                value={key}
-                index={i}
-                onChange={(v) => setKey(i, v)}
-                onRemove={() => removeKey(i)}
-              />
-            ))
-          )}
-          <div className="px-3 sm:px-6 pt-[10px] pb-2 flex items-center gap-3 flex-wrap">
-            <button
-              type="button"
-              onClick={addKey}
-              className="inline-flex items-center gap-[7px] bg-transparent border border-dashed border-[var(--border-hover)] rounded-[var(--radius)] px-[12px] sm:px-[14px] py-[7px] text-[12px] font-semibold text-[var(--text-dim)] cursor-pointer transition-all duration-[180ms] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)] tracking-[0.3px]"
-            >
-              <Plus size={12} strokeWidth={2.5} />
-              {prefs.apiKeys.filter((k) => k.trim()).length === 0
-                ? "Add Key"
-                : "Add Another Key"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Watch History */}
-      <div className={card}>
-        <div className={cardHdr}>
-          <SectionIcon>
-            <History size={15} strokeWidth={2} />
-          </SectionIcon>
-          <SectionTitle>Watch History</SectionTitle>
-        </div>
-        <div className={rowLast}>
-          <div className="min-w-0 flex-1">
-            <p className={lbl}>Enable watch history</p>
-          </div>
-          <Toggle
-            checked={prefs.historyEnabled ?? true}
-            onChange={(v) => updatePref((p) => ({ ...p, historyEnabled: v }))}
-          />
-        </div>
-      </div>
-
-      {/* Data Management */}
-      <div className={card}>
-        <div className={cardHdr}>
-          <SectionIcon>
-            <CircleAlert size={15} strokeWidth={2} />
-          </SectionIcon>
-          <SectionTitle>Data Management</SectionTitle>
-        </div>
-        <div className="p-4 sm:p-5 border-b border-[var(--border)] flex flex-col sm:flex-row gap-3">
-          <button
-            type="button"
-            onClick={handleExportBackup}
-            className="flex-1 btn btn-ghost justify-center text-[12px] py-2.5"
-          >
-            <Download size={13} />
-            Export Backup (.json)
-          </button>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex-1 btn btn-ghost justify-center text-[12px] py-2.5"
-          >
-            <Upload size={13} />
-            Import Backup (.json)
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,application/json"
-            onChange={handleImportFile}
-            className="hidden"
-          />
-        </div>
-        <div className="p-4 sm:p-5 flex flex-col sm:flex-row flex-wrap gap-3">
-          <ConfirmButton
-            label="Clear History"
-            onConfirm={() => {
-              clearHistory();
-              toast.info("Watch history cleared.");
-            }}
-          />
-          <ConfirmButton
-            label="Clear Favorites"
-            onConfirm={() => {
-              clearFavorites();
-              toast.info("Favorites cleared.");
-            }}
-          />
-          <ConfirmButton
-            label="Clear Watch Later"
-            onConfirm={() => {
-              clearWatchLater();
-              toast.info("Watch Later cleared.");
-            }}
-          />
-          <ConfirmButton
-            label="Clear Ratings"
-            onConfirm={() => {
-              clearRatings();
-              toast.info("Custom ratings cleared.");
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className={card}>
-        <div className={cardHdr}>
-          <SectionIcon>
-            <Search size={15} strokeWidth={2} />
-          </SectionIcon>
-          <SectionTitle>Search</SectionTitle>
-        </div>
-        <div className="py-2">
-          <div className={row}>
-            <div>
-              <p className={lbl}>Search suggestions</p>
-            </div>
-            <Toggle
-              checked={prefs.searchSuggestionsEnabled}
-              onChange={(v) =>
-                updatePref((p) => ({ ...p, searchSuggestionsEnabled: v }))
-              }
-            />
-          </div>
-          {prefs.searchSuggestionsEnabled && (
-            <>
-              <div className={row}>
-                <div className="min-w-0 flex-1">
-                  <p className={lbl}>Suggestion delay</p>
-                </div>
-                <div className="flex items-center gap-[8px] sm:gap-[10px] flex-shrink-0">
-                  <input
-                    type="range"
-                    min={100}
-                    max={1000}
-                    step={50}
-                    value={prefs.suggestionDebounceMs}
-                    onChange={(e) =>
-                      updatePref((p) => ({
-                        ...p,
-                        suggestionDebounceMs: +e.target.value,
-                      }))
-                    }
-                    className="w-[72px] sm:w-[100px] cursor-pointer accent-[var(--accent)]"
-                  />
-                  <span className="text-[11px] sm:text-[12px] text-[var(--text-dim)] min-w-[46px] text-right">
-                    {prefs.suggestionDebounceMs}ms
-                  </span>
-                </div>
-              </div>
-              <div className={rowLast}>
-                <div>
-                  <p className={lbl}>Suggestions shown</p>
-                </div>
-                <div className="flex gap-[5px] sm:gap-[6px] flex-shrink-0">
-                  {[3, 4, 6, 8].map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() =>
-                        updatePref((p) => ({ ...p, suggestionLimit: n }))
-                      }
-                      className={`${optBtn(prefs.suggestionLimit === n)} w-8 sm:w-9 h-8`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
         </div>
       </div>
 
@@ -842,6 +621,227 @@ export default function PreferencesClient() {
               />
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className={card}>
+        <div className={cardHdr}>
+          <SectionIcon>
+            <Search size={15} strokeWidth={2} />
+          </SectionIcon>
+          <SectionTitle>Search</SectionTitle>
+        </div>
+        <div className="py-2">
+          <div className={row}>
+            <div>
+              <p className={lbl}>Search suggestions</p>
+            </div>
+            <Toggle
+              checked={prefs.searchSuggestionsEnabled}
+              onChange={(v) =>
+                updatePref((p) => ({ ...p, searchSuggestionsEnabled: v }))
+              }
+            />
+          </div>
+          {prefs.searchSuggestionsEnabled && (
+            <>
+              <div className={row}>
+                <div className="min-w-0 flex-1">
+                  <p className={lbl}>Suggestion delay</p>
+                </div>
+                <div className="flex items-center gap-[8px] sm:gap-[10px] flex-shrink-0">
+                  <input
+                    type="range"
+                    min={100}
+                    max={1000}
+                    step={50}
+                    value={prefs.suggestionDebounceMs}
+                    onChange={(e) =>
+                      updatePref((p) => ({
+                        ...p,
+                        suggestionDebounceMs: +e.target.value,
+                      }))
+                    }
+                    className="w-[72px] sm:w-[100px] cursor-pointer accent-[var(--accent)]"
+                  />
+                  <span className="text-[11px] sm:text-[12px] text-[var(--text-dim)] min-w-[46px] text-right">
+                    {prefs.suggestionDebounceMs}ms
+                  </span>
+                </div>
+              </div>
+              <div className={rowLast}>
+                <div>
+                  <p className={lbl}>Suggestions shown</p>
+                </div>
+                <div className="flex gap-[5px] sm:gap-[6px] flex-shrink-0">
+                  {[3, 4, 6, 8].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() =>
+                        updatePref((p) => ({ ...p, suggestionLimit: n }))
+                      }
+                      className={`${optBtn(prefs.suggestionLimit === n)} w-8 sm:w-9 h-8`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Watch History */}
+      <div className={card}>
+        <div className={cardHdr}>
+          <SectionIcon>
+            <History size={15} strokeWidth={2} />
+          </SectionIcon>
+          <SectionTitle>Watch History</SectionTitle>
+        </div>
+        <div className={rowLast}>
+          <div className="min-w-0 flex-1">
+            <p className={lbl}>Enable watch history</p>
+          </div>
+          <Toggle
+            checked={prefs.historyEnabled ?? true}
+            onChange={(v) => updatePref((p) => ({ ...p, historyEnabled: v }))}
+          />
+        </div>
+      </div>
+
+      {/* API Keys */}
+      <div className={card}>
+        <div className={cardHdr}>
+          <SectionIcon>
+            <KeyRound size={15} strokeWidth={2} />
+          </SectionIcon>
+          <div className="flex-1 min-w-0">
+            <SectionTitle>Keys Management</SectionTitle>
+            <p className={`${hint} !mt-0`}>
+              Contact Cinemix team to get your key(s). Each key has a daily
+              limit. More than one key can be added. Keys rotate automatically
+              when the daily limit is hit.
+            </p>
+          </div>
+          {prefs.apiKeys.filter((k) => k.trim()).length > 0 && (
+            <button
+              type="button"
+              onClick={() => setQuotaOpen(true)}
+              className="flex-shrink-0 flex items-center gap-[6px] bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[var(--radius)] px-[10px] py-[7px] text-[11px] font-semibold text-[var(--text-dim)] cursor-pointer hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)] transition-all duration-150"
+            >
+              <Clock size={12} strokeWidth={2} />
+              <span className="hidden sm:inline">Quota</span>
+            </button>
+          )}
+        </div>
+        <div className="py-2">
+          {prefs.apiKeys.length === 0 ? (
+            <div className="p-3 sm:p-5">
+              <div className="bg-[rgba(229,9,20,0.06)] border border-dashed border-[rgba(229,9,20,0.3)] rounded-[var(--radius)] p-[14px_16px] sm:p-[16px_20px] flex items-start gap-3">
+                <CircleAlert
+                  size={18}
+                  stroke="var(--accent)"
+                  strokeWidth={2}
+                  className="flex-shrink-0 mt-[2px]"
+                />
+                <p className="text-[12px] sm:text-[13px] text-[var(--text-dim)] leading-[1.5] m-0">
+                  No keys configured. The app won&apos;t load content until you
+                  add one.
+                </p>
+              </div>
+            </div>
+          ) : (
+            prefs.apiKeys.map((key, i) => (
+              <KeyField
+                key={i}
+                value={key}
+                index={i}
+                onChange={(v) => setKey(i, v)}
+                onRemove={() => removeKey(i)}
+              />
+            ))
+          )}
+          <div className="px-3 sm:px-6 pt-[10px] pb-2 flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={addKey}
+              className="inline-flex items-center gap-[7px] bg-transparent border border-dashed border-[var(--border-hover)] rounded-[var(--radius)] px-[12px] sm:px-[14px] py-[7px] text-[12px] font-semibold text-[var(--text-dim)] cursor-pointer transition-all duration-[180ms] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)] tracking-[0.3px]"
+            >
+              <Plus size={12} strokeWidth={2.5} />
+              {prefs.apiKeys.filter((k) => k.trim()).length === 0
+                ? "Add Key"
+                : "Add Another Key"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Data Management */}
+      <div className={card}>
+        <div className={cardHdr}>
+          <SectionIcon>
+            <CircleAlert size={15} strokeWidth={2} />
+          </SectionIcon>
+          <SectionTitle>Data Management</SectionTitle>
+        </div>
+        <div className="p-4 sm:p-5 border-b border-[var(--border)] flex flex-col sm:flex-row gap-3">
+          <button
+            type="button"
+            onClick={handleExportBackup}
+            className="flex-1 btn btn-ghost justify-center text-[12px] py-2.5"
+          >
+            <Download size={13} />
+            Export Backup (.json)
+          </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex-1 btn btn-ghost justify-center text-[12px] py-2.5"
+          >
+            <Upload size={13} />
+            Import Backup (.json)
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            onChange={handleImportFile}
+            className="hidden"
+          />
+        </div>
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row flex-wrap gap-3">
+          <ConfirmButton
+            label="Clear History"
+            onConfirm={() => {
+              clearHistory();
+              toast.info("Watch history cleared.");
+            }}
+          />
+          <ConfirmButton
+            label="Clear Favorites"
+            onConfirm={() => {
+              clearFavorites();
+              toast.info("Favorites cleared.");
+            }}
+          />
+          <ConfirmButton
+            label="Clear Watch Later"
+            onConfirm={() => {
+              clearWatchLater();
+              toast.info("Watch Later cleared.");
+            }}
+          />
+          <ConfirmButton
+            label="Clear Ratings"
+            onConfirm={() => {
+              clearRatings();
+              toast.info("Custom ratings cleared.");
+            }}
+          />
         </div>
       </div>
 

@@ -386,9 +386,15 @@ export default function HomeClient() {
       setHorrorFilms(validSnap.horrorFilms);
       setForYouFilms(validSnap.forYouFilms);
       setWatchLaterFilms(validSnap.watchLaterFilms ?? []);
-      setSecondaryLoaded(validSnap.secondaryLoaded);
+      const missingRecentOrPremieres =
+        (s.recentReleases &&
+          (validSnap.recentReleaseFilms?.length ?? 0) === 0) ||
+        (s.premieres && (validSnap.premiereFilms?.length ?? 0) === 0);
+      setSecondaryLoaded(
+        validSnap.secondaryLoaded && !missingRecentOrPremieres,
+      );
       setLoaded(true);
-      if (validSnap.secondaryLoaded) {
+      if (validSnap.secondaryLoaded && !missingRecentOrPremieres) {
         return;
       }
     }
@@ -407,14 +413,12 @@ export default function HomeClient() {
 
       // Stage 1 (High Priority): Trending Movies from New Trending System + Top 250 & Popular
       Promise.allSettled([
-        discoverFilms(
-          {
-            order: "TRENDING",
-            type: "FILM",
-            trendingWindow: true,
-            page: 1,
-          },
-        ),
+        discoverFilms({
+          order: "TRENDING",
+          type: "FILM",
+          trendingWindow: true,
+          page: 1,
+        }),
         s.popular
           ? getCuratedHomeSection(
               {
@@ -460,9 +464,11 @@ export default function HomeClient() {
           if (!mounted) return;
 
           Promise.allSettled([
-            s.recentReleases ? getRecentReleases("low") : Promise.resolve(null),
+            s.recentReleases
+              ? getRecentReleases("high")
+              : Promise.resolve(null),
             s.premieres
-              ? getPremieres(CURRENT_YEAR, CURRENT_MONTH, "low")
+              ? getPremieres(CURRENT_YEAR, CURRENT_MONTH, "high")
               : Promise.resolve(null),
             s.series
               ? getCuratedHomeSection(
@@ -557,15 +563,16 @@ export default function HomeClient() {
 
               let shownPremiereIds = new Set<number>();
               if (premieres.status === "fulfilled" && premieres.value) {
-                // Exclude unreleased future dates (`premiereRu > todayStr`) from "New This Month"
-                const pItems = premieres.value.items.filter((f) => {
+                const rawPItems = premieres.value.items.filter((f) => {
                   const yr = f.year ?? f.startYear;
-                  if (yr && yr < CURRENT_YEAR) return false;
-                  if (f.premiereRu && f.premiereRu.slice(0, 10) > todayStr) {
-                    return false;
-                  }
-                  return true;
+                  return !yr || yr >= CURRENT_YEAR - 1;
                 });
+                // Prefer already-released titles this month, but fall back to full month list if early in the month
+                const releasedThisMonth = rawPItems.filter(
+                  (f) => !f.premiereRu || f.premiereRu.slice(0, 10) <= todayStr,
+                );
+                const pItems =
+                  releasedThisMonth.length >= 4 ? releasedThisMonth : rawPItems;
                 const globalP = pItems.filter((f) => !isRussianDomesticFilm(f));
                 const domesticP = pItems.filter((f) =>
                   isRussianDomesticFilm(f),
@@ -710,7 +717,10 @@ export default function HomeClient() {
         {s.popular && (trendingFilms.length > 0 || popularFilms.length > 0) && (
           <FilmRow
             title="Trending Blockbusters"
-            films={(trendingFilms.length > 0 ? trendingFilms : popularFilms).slice(0, 20)}
+            films={(trendingFilms.length > 0
+              ? trendingFilms
+              : popularFilms
+            ).slice(0, 20)}
             href="/explore?type=FILM&order=TRENDING"
           />
         )}

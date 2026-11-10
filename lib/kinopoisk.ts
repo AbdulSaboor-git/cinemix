@@ -477,36 +477,25 @@ function sleep(ms: number): Promise<void> {
 async function waitRateLimitSlot(
   priority: "high" | "low" = "high",
 ): Promise<void> {
+  const now = Date.now();
   if (priority === "high") {
-    const now = Date.now();
     if (now < nextHighSlot) {
       const waitMs = nextHighSlot - now;
-      nextHighSlot += 75;
+      nextHighSlot += 65;
       await sleep(waitMs);
     } else {
-      nextHighSlot = now + 75;
+      nextHighSlot = now + 65;
     }
     return;
   }
 
-  // Low-priority background requests yield whenever foreground requests are active
-  // and re-verify their slot after waking so they never burst simultaneously.
-  for (;;) {
-    while (activeHighPriorityCount > 0) {
-      await sleep(140);
-    }
-    const now = Date.now();
-    const earliest = Math.max(now, nextHighSlot, nextLowSlot);
-    const waitMs = earliest - now;
-    if (waitMs <= 0) {
-      nextLowSlot = now + 220;
-      return;
-    }
-    nextLowSlot = earliest + 220;
+  // Low-priority requests pace themselves at 130ms intervals after any scheduled high-priority slot
+  // without spinning in an infinite loop if a background request is still pending.
+  const earliest = Math.max(now, nextHighSlot, nextLowSlot);
+  const waitMs = earliest - now;
+  nextLowSlot = earliest + 130;
+  if (waitMs > 0) {
     await sleep(waitMs);
-    if (activeHighPriorityCount === 0) {
-      return;
-    }
   }
 }
 
@@ -516,8 +505,7 @@ async function processHydrationQueue(): Promise<void> {
   try {
     while (hydrationQueue.length > 0) {
       if (activeHighPriorityCount > 0) {
-        await sleep(200);
-        continue;
+        await sleep(120);
       }
       const nextId = hydrationQueue.shift();
       if (!nextId) continue;
@@ -824,6 +812,7 @@ async function apiFetch<T>(
       try {
         res = await fetch(`${BASE_URL}${path}`, {
           headers: { "X-API-KEY": key, "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(12000),
         });
       } catch (err) {
         if (err instanceof TypeError && !/^[ -~]+$/.test(key)) {
@@ -4664,17 +4653,48 @@ export async function getPremieres(
   month: string,
   priority: "high" | "low" = "high",
 ): Promise<FilmsResponse> {
+  const cleanMonth = month.trim().toUpperCase();
   const raw = await apiFetch<Record<string, unknown>>(
-    `/v2.2/films/premieres?year=${year}&month=${month}`,
+    `/v2.2/films/premieres?year=${year}&month=${cleanMonth}`,
     3600,
     priority,
   );
-  return normalizeFilmsResponse(raw);
+  const res = normalizeFilmsResponse(raw);
+  if (res.items.length > 0) {
+    return res;
+  }
+
+  // Fallback when Kinopoisk /v2.2/films/premieres has no calendar entries for the requested year/month:
+  // fetch releases for that year from /v2.2/films so the Premieres page and Home row are never blank!
+  const monthIdx = Math.max(
+    0,
+    PREMIERE_MONTH_NAMES.indexOf(
+      cleanMonth as (typeof PREMIERE_MONTH_NAMES)[number],
+    ),
+  );
+  const fallbackPage = (monthIdx % 5) + 1;
+  const fallback = await getFilmsByFilter(
+    {
+      type: "FILM",
+      yearFrom: year,
+      yearTo: year,
+      order: "NUM_VOTE",
+      page: fallbackPage,
+    },
+    priority,
+  ).catch(() => ({ items: [] as Film[], total: 0, totalPages: 1 }));
+
+  return {
+    items: fallback.items,
+    total: fallback.items.length,
+    totalPages: 1,
+  };
 }
 
 /**
  * Fetches already-released recent films from the past 90 days across the current month
- * and previous 2 calendar months, strictly excluding unreleased future dates (`premiereRu > todayStr`).
+ * and previous 2 calendar months, strictly excluding unreleased future dates (`premiereRu > todayStr`),
+ * and supplementing with current-year global releases if the monthly calendar is sparse.
  */
 export async function getRecentReleases(
   priority: "high" | "low" = "low",
@@ -4701,21 +4721,40 @@ export async function getRecentReleases(
     },
   ];
 
-  const settled = await Promise.allSettled(
-    targets.map((t) => getPremieres(t.year, t.month, priority)),
-  );
+  const [settledPremieres, recentFilterRes] = await Promise.all([
+    Promise.allSettled(
+      targets.map((t) => getPremieres(t.year, t.month, priority)),
+    ),
+    getFilmsByFilter(
+      {
+        type: "FILM",
+        yearFrom: curYear,
+        yearTo: curYear,
+        ratingFrom: 5.8,
+        order: "NUM_VOTE",
+        page: 1,
+      },
+      priority,
+    ).catch(() => ({ items: [] as Film[], total: 0, totalPages: 1 })),
+  ]);
 
   const recentPool: Film[] = [];
-  for (const res of settled) {
+  for (const res of settledPremieres) {
     if (res.status !== "fulfilled" || !res.value?.items) continue;
     for (const film of res.value.items) {
       const filmYear = film.year ?? film.startYear;
       if (filmYear && filmYear < curYear - 1) continue;
-      if (!film.premiereRu) continue;
-      const pDate = film.premiereRu.slice(0, 10);
-      if (pDate > todayStr || pDate < cutoffStr) continue;
+      if (film.premiereRu) {
+        const pDate = film.premiereRu.slice(0, 10);
+        if (pDate > todayStr || pDate < cutoffStr) continue;
+      }
       recentPool.push(film);
     }
+  }
+
+  for (const film of recentFilterRes.items ?? []) {
+    if (film.premiereRu && film.premiereRu.slice(0, 10) > todayStr) continue;
+    recentPool.push(film);
   }
 
   const unique = deduplicateFilms(recentPool);
