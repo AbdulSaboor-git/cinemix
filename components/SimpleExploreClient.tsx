@@ -1239,21 +1239,6 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {activeFeed === "FOR_YOU" && !activeSearchQuery && (
-            <button
-              type="button"
-              onClick={() => {
-                setLoading(true);
-                setRandomSeed((s) => s + 1);
-              }}
-              className="btn btn-ghost py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px]"
-              title="Shuffle your personalized For You mix"
-            >
-              <Shuffle size={13} className="text-[var(--accent)]" />
-              <span className="sm:hidden">Mix</span>
-              <span className="hidden sm:inline">Shuffle Mix</span>
-            </button>
-          )}
           <button
             type="button"
             onClick={handleSurpriseMe}
@@ -1485,7 +1470,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
           </div>
 
           {/* Sort Selector + Direction */}
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-stretch gap-1.5 flex-shrink-0">
             <select
               className="select text-[12px] py-1.5 px-3 rounded-[8px] flex-1 sm:flex-initial min-w-[155px]"
               value={order}

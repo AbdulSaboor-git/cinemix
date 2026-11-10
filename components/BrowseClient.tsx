@@ -2826,8 +2826,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
               })()}
               className="btn btn-ghost py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] no-underline"
             >
-              <span className="sm:hidden">← Simple</span>
-              <span className="hidden sm:inline">← Simple Explore</span>
+              <span className="">Simple Explore</span>
             </Link>
             {activeLens === "FOR_YOU" && (
               <button
