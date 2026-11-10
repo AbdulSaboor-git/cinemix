@@ -3038,7 +3038,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
         </div>
 
         <div className={`mt-2.5 pt-2.5 border-t border-[var(--border)]`}>
-          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          <div className="flex items-stretch gap-2 flex-wrap sm:flex-nowrap">
             <select
               className="select text-[12px] py-2 px-3 rounded-[8px] flex-1 sm:flex-initial min-w-[155px]"
               value={order}
