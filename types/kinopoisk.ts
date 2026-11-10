@@ -26,6 +26,7 @@ export type MediaTypeFilter =
   | "MINI_SERIES";
 
 export type ExploreSortOrder =
+  | "TASTE_MATCH"
   | "TRENDING"
   | "NUM_VOTE"
   | "RATING"

@@ -548,22 +548,25 @@ export async function GET(req: NextRequest) {
     for (const s of suggestions) {
       if (!s.id || !s.l) continue;
       const qid = (s.qid || s.q || "").toLowerCase();
-      if (qid.includes("videogame") || qid.includes("video game")) continue;
+      if (
+        qid.includes("videogame") ||
+        qid.includes("video game") ||
+        qid.includes("podcast")
+      ) {
+        continue;
+      }
+      // Strictly include only movies & series (exclude person/actor records to prevent character-name false positives)
       const isTitle = /^tt\d+$/i.test(s.id);
-      const isPerson = /^nm\d+$/i.test(s.id);
-      if (!isTitle && !isPerson) continue;
+      if (!isTitle) continue;
       items.push({
         imdbId: s.id.toLowerCase(),
         title: s.l,
         year: extractItemStartYear(s),
-        kind: isPerson
-          ? "person"
-          : qid.includes("series") || qid.includes("tv")
-            ? "series"
-            : "movie",
+        kind:
+          qid.includes("series") || qid.includes("tv") ? "series" : "movie",
         posterUrl: isValidPosterUrl(s.i?.imageUrl) ? s.i!.imageUrl! : null,
       });
-      if (items.length >= 6) break;
+      if (items.length >= 10) break;
     }
     return NextResponse.json(
       { items },

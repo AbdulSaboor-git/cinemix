@@ -24,8 +24,6 @@ import {
   ArrowUp,
   Shuffle,
   History,
-  User,
-  ArrowUpRight,
   Eye,
   Play,
   Heart,
@@ -116,7 +114,7 @@ const FEEDS: FeedConfig[] = [
   {
     id: "FOR_YOU",
     label: "For You",
-    defaultOrder: "TRENDING",
+    defaultOrder: "TASTE_MATCH",
     icon: <Sparkles size={13} />,
   },
   {
@@ -140,7 +138,7 @@ const FEEDS: FeedConfig[] = [
   {
     id: "TOP_RATED",
     label: "Top Rated",
-    defaultOrder: "IMDB_RATING",
+    defaultOrder: "RATING",
     icon: <Star size={13} />,
   },
 ];
@@ -153,21 +151,77 @@ const TYPES = [
   { value: "TV_SHOW", label: "TV Shows" },
 ] as const;
 
-const SORT_ORDERS: { value: ExploreSortOrder; label: string }[] = [
-  { value: "TRENDING", label: "Trending" },
-  { value: "NUM_VOTE", label: "Most Popular" },
-  { value: "RATING", label: "Top Rated" },
-  { value: "IMDB_RATING", label: "IMDb Rating" },
-  { value: "KP_RATING", label: "Kinopoisk Rating" },
-  { value: "CRITICS", label: "Critics Score" },
-  { value: "YEAR", label: "Release Year" },
-  { value: "HIDDEN_GEMS", label: "Hidden Gems" },
-  { value: "RANDOM", label: "Random Roulette" },
-];
+/**
+ * Returns the streamlined, non-contradictory sort options tailored to the active Feed or Search context.
+ * Inspired by IMDb & Letterboxd: removes redundant rating sub-variants and hides incompatible preset sorts
+ * (such as "Trending" inside "For You" or "Hidden Gems" outside the Hidden Gems feed).
+ */
+function getScopedSortOptions(
+  activeFeed: ExploreFeedId,
+  hasSearchQuery: boolean,
+): { value: ExploreSortOrder; label: string }[] {
+  if (hasSearchQuery) {
+    return [
+      { value: "TRENDING", label: "Best Match (Relevance)" },
+      { value: "RATING", label: "User Rating" },
+      { value: "NUM_VOTE", label: "Most Popular (Votes)" },
+      { value: "YEAR", label: "Release Date" },
+      { value: "TITLE", label: "Title (A–Z)" },
+    ];
+  }
+
+  switch (activeFeed) {
+    case "FOR_YOU":
+      return [
+        { value: "TASTE_MATCH", label: "Taste Match (For You)" },
+        { value: "RATING", label: "Highest Rated" },
+        { value: "YEAR", label: "Release Year" },
+        { value: "NUM_VOTE", label: "Most Popular" },
+        { value: "RANDOM", label: "Surprise Shuffle" },
+      ];
+    case "RECENT_RELEASES":
+      return [
+        { value: "YEAR", label: "Release Date (Newest)" },
+        { value: "TRENDING", label: "Trending Now" },
+        { value: "RATING", label: "Highest Rated" },
+        { value: "NUM_VOTE", label: "Most Popular" },
+      ];
+    case "BLOCKBUSTERS":
+      return [
+        { value: "NUM_VOTE", label: "Most Popular (Votes)" },
+        { value: "RATING", label: "Highest Rated" },
+        { value: "YEAR", label: "Release Year" },
+        { value: "RANDOM", label: "Surprise Shuffle" },
+      ];
+    case "HIDDEN_GEMS":
+      return [
+        { value: "HIDDEN_GEMS", label: "Cult Gem Score" },
+        { value: "RATING", label: "Highest Rated" },
+        { value: "YEAR", label: "Release Year" },
+        { value: "RANDOM", label: "Surprise Shuffle" },
+      ];
+    case "TOP_RATED":
+      return [
+        { value: "RATING", label: "Highest Rated" },
+        { value: "NUM_VOTE", label: "Most Popular (Votes)" },
+        { value: "YEAR", label: "Release Year" },
+        { value: "RANDOM", label: "Surprise Shuffle" },
+      ];
+    case "TRENDING":
+    default:
+      return [
+        { value: "TRENDING", label: "Trending Momentum" },
+        { value: "NUM_VOTE", label: "Most Popular (Votes)" },
+        { value: "RATING", label: "Highest Rated" },
+        { value: "YEAR", label: "Release Year" },
+        { value: "RANDOM", label: "Surprise Shuffle" },
+      ];
+  }
+}
 
 const QUICK_SEARCH_IDEAS = [
   "Interstellar",
-  "Cillian Murphy",
+  "Harry Potter",
   "Dune 2021",
   "Time Travel",
   "Mind Bending",
@@ -335,6 +389,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
   const [recentTerms, setRecentTerms] = useState<string[]>([]);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchWrapperRef = useRef<HTMLDivElement>(null);
+  const quickTermsRef = useRef<HTMLDivElement>(null);
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -373,8 +428,8 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
       if (
-        searchWrapperRef.current &&
-        !searchWrapperRef.current.contains(e.target as Node)
+        !searchWrapperRef.current?.contains(e.target as Node) &&
+        !quickTermsRef.current?.contains(e.target as Node)
       ) {
         setSugVisible(false);
         setSearchFocused(false);
@@ -513,19 +568,36 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
     p.type ? p.type : activeFeed === "FOR_YOU" ? "ALL" : prefType || "ALL"
   ) as "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
 
-  // Scoped Sort Order: defaults to the active feed's natural order unless user explicitly picked a sort
+  const availableSortOptions = useMemo(
+    () => getScopedSortOptions(activeFeed, Boolean(activeSearchQuery)),
+    [activeFeed, activeSearchQuery],
+  );
+
+  // Scoped Sort Order: strictly respects the active feed's natural order unless the user
+  // explicitly selected a compatible sort option for this feed.
   const order: ExploreSortOrder = useMemo(() => {
-    if (p.order) {
-      if (p.order === "YEAR_DESC") return "YEAR";
-      if (p.order === "YEAR_ASC") return "YEAR";
-      if (p.order === "RELEVANCE") return "TRENDING";
-      return p.order as ExploreSortOrder;
+    if (activeSearchQuery && !p.order) {
+      return "TRENDING";
     }
-    if (!p.feed && !p.lens && prefOrder) {
-      return prefOrder;
+    if (p.order) {
+      let normalized: ExploreSortOrder = p.order as ExploreSortOrder;
+      if (p.order === "YEAR_DESC" || p.order === "YEAR_ASC") {
+        normalized = "YEAR";
+      } else if (p.order === "RELEVANCE") {
+        normalized = "TRENDING";
+      } else if (
+        p.order === "IMDB_RATING" ||
+        p.order === "KP_RATING" ||
+        p.order === "CRITICS"
+      ) {
+        normalized = "RATING";
+      }
+      if (availableSortOptions.some((o) => o.value === normalized)) {
+        return normalized;
+      }
     }
     return feedMeta.defaultOrder;
-  }, [p.order, p.feed, p.lens, prefOrder, feedMeta]);
+  }, [p.order, activeSearchQuery, availableSortOptions, feedMeta]);
 
   const direction: SortDirection =
     p.dir === "ASC" || p.order === "YEAR_ASC" ? "ASC" : "DESC";
@@ -1084,8 +1156,13 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
 
   const advancedExploreHref = useMemo(() => {
     const sp = new URLSearchParams();
+    if (!activeSearchQuery && activeFeed !== "TRENDING") {
+      const mappedLens =
+        activeFeed === "BLOCKBUSTERS" ? "HOLLYWOOD_BLOCKBUSTERS" : activeFeed;
+      sp.set("lens", mappedLens);
+    }
     if (type !== "ALL") sp.set("type", type);
-    if (order !== "TRENDING") sp.set("order", order);
+    if (order !== feedMeta.defaultOrder) sp.set("order", order);
     if (direction !== "DESC") sp.set("dir", direction);
     if (activeSearchQuery) sp.set("keyword", activeSearchQuery);
     if (p.genres) sp.set("genres", p.genres);
@@ -1095,6 +1172,8 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
     const qs = sp.toString();
     return qs ? `/explore/advanced?${qs}` : "/explore/advanced";
   }, [
+    activeFeed,
+    feedMeta.defaultOrder,
     type,
     order,
     direction,
@@ -1203,8 +1282,8 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
         {/* Top Search Bar */}
         <form onSubmit={handleSearchSubmit}>
           <div ref={searchWrapperRef} className="relative w-full">
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1 min-w-0">
+            <div className="flex items-stretch gap-2 ">
+              <div className="relative flex-1 min-w-0 ">
                 <Search
                   size={15}
                   strokeWidth={2.2}
@@ -1231,7 +1310,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
                       setSugVisible(true);
                     }
                   }}
-                  placeholder="Search titles, release years, actors, or themes…"
+                  placeholder="Search titles, franchises, release years, or themes…"
                   className="input w-full text-[13px] sm:text-[14px] py-2 sm:py-2.5 pl-9 pr-9 rounded-[10px] bg-[var(--bg-elevated)] border-[var(--border)] focus:border-[var(--accent)]"
                 />
                 {(searchInput || activeSearchQuery) && (
@@ -1249,7 +1328,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
               {searchInput.trim().length > 0 && (
                 <button
                   type="submit"
-                  className="btn btn-primary py-2 sm:py-2.5 px-3.5 sm:px-4 text-[12px] sm:text-[13px] rounded-[10px] flex-shrink-0"
+                  className="btn btn-primary p-2 sm:py-2.5 px-3.5 sm:px-4 text-[12px] sm:text-[13px] rounded-[10px] min-h-full"
                 >
                   <Search size={13} />
                   <span className="hidden sm:inline">Search</span>
@@ -1281,39 +1360,45 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
 
         {/* Collapsible Recent Searches & Quick Ideas when search input is focused and empty */}
         {searchFocused && !searchInput.trim() && (
-          <div className="flex flex-col gap-2 mt-2.5 pt-2.5 border-t border-[var(--border)] fade-in">
-            {recentTerms.length > 0 && (
+          <div
+            ref={quickTermsRef}
+            className="flex flex-col gap-2 mt-2.5 pt-2.5 border-t border-[var(--border)] fade-in"
+          >
+            {
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-[10.5px] font-bold uppercase tracking-[0.8px] text-[var(--text-muted)] inline-flex items-center gap-1 mr-1">
                   <History size={11} className="text-[#60a5fa]" />
                   Recent:
                 </span>
-                {recentTerms.slice(0, 6).map((term) => (
+                {recentTerms.length > 0 &&
+                  recentTerms.slice(0, 6).map((term) => (
+                    <button
+                      key={term}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handlePickQuickTerm(term)}
+                      className="px-2.5 py-1 rounded-[7px] text-[11px] font-medium bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text)] hover:border-[#60a5fa] cursor-pointer transition-colors"
+                    >
+                      {term}
+                    </button>
+                  ))}
+                {recentTerms.length > 0 && (
                   <button
-                    key={term}
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handlePickQuickTerm(term)}
-                    className="px-2.5 py-1 rounded-[7px] text-[11px] font-medium bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text)] hover:border-[#60a5fa] cursor-pointer transition-colors"
+                    onClick={() => {
+                      clearRecentSearches();
+                      setRecentTerms([]);
+                    }}
+                    className="text-[11px] text-[var(--text-muted)] hover:text-white underline bg-transparent border-none cursor-pointer ml-1"
                   >
-                    {term}
+                    Clear
                   </button>
-                ))}
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    clearRecentSearches();
-                    setRecentTerms([]);
-                  }}
-                  className="text-[11px] text-[var(--text-muted)] hover:text-white underline bg-transparent border-none cursor-pointer ml-1"
-                >
-                  Clear
-                </button>
+                )}
               </div>
-            )}
+            }
 
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="hidden sm:flex items-center gap-1.5 flex-wrap">
               <span className="text-[10.5px] font-bold uppercase tracking-[0.8px] text-[var(--text-muted)] inline-flex items-center gap-1 mr-1">
                 <Sparkles size={11} className="text-[var(--accent)]" />
                 Try:
@@ -1402,7 +1487,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
           {/* Sort Selector + Direction */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <select
-              className="select text-[12px] py-1.5 px-3 rounded-[8px] flex-1 sm:flex-initial min-w-[140px]"
+              className="select text-[12px] py-1.5 px-3 rounded-[8px] flex-1 sm:flex-initial min-w-[155px]"
               value={order}
               onChange={(e) => {
                 const nextOrd = e.target.value as ExploreSortOrder;
@@ -1421,20 +1506,19 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
                     ? { feed: activeFeed }
                     : {}),
                   order: selectingFeedDefault ? undefined : nextOrd,
+                  dir: nextOrd === "TITLE" ? "ASC" : undefined,
                 });
               }}
               aria-label="Sort titles by"
             >
-              {SORT_ORDERS.map((o) => (
+              {availableSortOptions.map((o) => (
                 <option key={o.value} value={o.value}>
-                  {activeSearchQuery && o.value === "TRENDING"
-                    ? "Best Match & Trending"
-                    : o.label}
+                  {o.label}
                 </option>
               ))}
             </select>
 
-            {order !== "RANDOM" ? (
+            {order !== "RANDOM" && order !== "TASTE_MATCH" ? (
               <button
                 type="button"
                 onClick={() =>
@@ -1552,54 +1636,6 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
             )}
           </div>
         )}
-
-      {activeSearchQuery && !loading && matchedPerson && (
-        <div className="mb-5 bg-gradient-to-r from-[rgba(229,9,20,0.12)] via-[var(--bg-card)] to-[var(--bg-card)] border border-[rgba(229,9,20,0.32)] rounded-[14px] p-3.5 sm:p-4 flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-12 h-16 sm:w-14 sm:h-[74px] rounded-[8px] overflow-hidden flex-shrink-0 bg-[var(--surface)] border border-white/15 relative">
-              <PosterImage
-                src={matchedPerson.posterUrl}
-                alt={personDisplayName}
-                title={personDisplayName}
-                fallbackType="person"
-                disableEnglishLookup
-                className="w-full h-full relative overflow-hidden bg-[var(--surface)]"
-              />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-bold uppercase tracking-[0.8px] text-white bg-[var(--accent)] rounded px-2 py-0.5 inline-flex items-center gap-1">
-                  <User size={10} />
-                  Matched Person
-                </span>
-                {personDisplayProf && (
-                  <span className="text-[11.5px] text-[var(--text-muted)] font-medium">
-                    {personDisplayProf}
-                  </span>
-                )}
-              </div>
-              <h2 className="font-display text-[20px] sm:text-[24px] tracking-[0.8px] text-white m-0 mt-1 leading-tight">
-                {personDisplayName}
-              </h2>
-              <p className="text-[12px] text-[var(--text-dim)] m-0 mt-0.5">
-                Showing {matchedPerson.creditsCount} film &amp; series credits
-                below
-              </p>
-            </div>
-          </div>
-
-          <Link
-            href={`/person/${matchedPerson.personId}`}
-            className="btn btn-primary py-2 px-4 text-[12px] rounded-[9px] no-underline shrink-0"
-          >
-            <span className="sm:hidden">Full Profile</span>
-            <span className="hidden sm:inline">
-              Full Biography &amp; Filmography
-            </span>
-            <ArrowUpRight size={13} />
-          </Link>
-        </div>
-      )}
 
       {/* ── Poster Grid ── */}
       {loading ? (

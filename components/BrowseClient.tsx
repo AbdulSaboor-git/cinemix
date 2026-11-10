@@ -103,17 +103,86 @@ const TYPES = [
   { value: "TV_SHOW", label: "TV Shows" },
 ] as const;
 
-const SORT_ORDERS: { value: ExploreSortOrder; label: string }[] = [
-  { value: "TRENDING", label: "Trending" },
-  { value: "NUM_VOTE", label: "Most Popular" },
-  { value: "RATING", label: "Top Rated" },
-  { value: "IMDB_RATING", label: "IMDb Rating" },
-  { value: "KP_RATING", label: "Kinopoisk Rating" },
-  { value: "YEAR", label: "Release Year" },
-  { value: "HIDDEN_GEMS", label: "Hidden Gems" },
-  { value: "CRITICS", label: "Critics Score" },
-  { value: "RANDOM", label: "Random Roulette" },
-];
+/**
+ * Context-Aware Sort Options for Advanced Explore Studio (inspired by IMDb & TMDB Discover):
+ * - Eliminates duplicate rating sub-options (IMDb / KP / Critics are already controlled by Rating Source)
+ * - Removes contradictory preset-sorts ("Trending" is hidden inside "For You" and historical era presets;
+ *   "Hidden Gems" is only shown when the Hidden Gems lens is active)
+ * - Dynamically updates the Rating label to reflect the active Rating Source
+ */
+function getAdvancedSortOptions(
+  activeLens: string | undefined,
+  ratingSource: RatingSource,
+  hasKeyword: boolean,
+  hasHistoricalEraConstraint: boolean,
+): { value: ExploreSortOrder; label: string }[] {
+  const ratingLabel =
+    ratingSource === "IMDB"
+      ? "IMDb Rating"
+      : ratingSource === "KP"
+        ? "Kinopoisk Rating"
+        : ratingSource === "CRITICS"
+          ? "Critics Score"
+          : ratingSource === "AVERAGE"
+            ? "Combined Rating"
+            : "User Rating";
+
+  if (activeLens === "FOR_YOU") {
+    return [
+      { value: "TASTE_MATCH", label: "Taste Match (For You)" },
+      { value: "RATING", label: ratingLabel },
+      { value: "YEAR", label: "Release Year" },
+      { value: "NUM_VOTE", label: "Popularity (Votes)" },
+      { value: "TITLE", label: "Title (A–Z)" },
+      { value: "RANDOM", label: "Surprise Shuffle" },
+    ];
+  }
+
+  if (activeLens === "HIDDEN_GEMS") {
+    return [
+      { value: "HIDDEN_GEMS", label: "Cult Gem Score" },
+      { value: "RATING", label: ratingLabel },
+      { value: "YEAR", label: "Release Year" },
+      { value: "TITLE", label: "Title (A–Z)" },
+      { value: "RANDOM", label: "Surprise Shuffle" },
+    ];
+  }
+
+  if (activeLens === "RECENT_RELEASES") {
+    return [
+      { value: "YEAR", label: "Release Date" },
+      { value: "TRENDING", label: "Trending Momentum" },
+      { value: "RATING", label: ratingLabel },
+      { value: "NUM_VOTE", label: "Popularity (Votes)" },
+      { value: "TITLE", label: "Title (A–Z)" },
+    ];
+  }
+
+  const options: { value: ExploreSortOrder; label: string }[] = [];
+
+  if (!hasHistoricalEraConstraint) {
+    options.push({
+      value: "TRENDING",
+      label: hasKeyword ? "Best Match & Trending" : "Trending Momentum",
+    });
+  }
+
+  options.push(
+    {
+      value: "NUM_VOTE",
+      label:
+        hasKeyword && hasHistoricalEraConstraint
+          ? "Best Match & Popularity"
+          : "Popularity (Votes)",
+    },
+    { value: "RATING", label: ratingLabel },
+    { value: "YEAR", label: "Release Year" },
+    { value: "TITLE", label: "Title (A–Z)" },
+    { value: "RANDOM", label: "Surprise Shuffle" },
+  );
+
+  return options;
+}
 
 const RATING_TIERS: { label: string; min: number; max: number }[] = [
   { label: "Masterpieces (8.5–10)", min: 8.5, max: 10 },
@@ -169,7 +238,7 @@ const SMART_LENSES: SmartLens[] = [
     badge: "Taste Match",
     params: {
       lens: "FOR_YOU",
-      order: "TRENDING",
+      order: "TASTE_MATCH",
       hideWatched: "1",
     },
   },
@@ -212,6 +281,18 @@ const SMART_LENSES: SmartLens[] = [
     },
   },
   {
+    id: "TOP_RATED",
+    label: "Top Rated",
+    badge: "7.5+ Acclaimed",
+    params: {
+      lens: "TOP_RATED",
+      order: "RATING",
+      dir: "DESC",
+      ratingFrom: "7.5",
+      minVotes: "10000",
+    },
+  },
+  {
     id: "MIND_BENDING",
     label: "Mind-Bending Sci-Fi",
     badge: "Sci-Fi + Thriller",
@@ -220,7 +301,7 @@ const SMART_LENSES: SmartLens[] = [
       type: "FILM",
       genres: "6,1",
       genreMode: "OR",
-      order: "IMDB_RATING",
+      order: "RATING",
       dir: "DESC",
       ratingFrom: "7",
     },
@@ -232,7 +313,7 @@ const SMART_LENSES: SmartLens[] = [
     params: {
       lens: "OSCAR_WINNERS",
       collection: "OSKAR_WINNERS_2021",
-      order: "IMDB_RATING",
+      order: "RATING",
       dir: "DESC",
     },
   },
@@ -713,7 +794,13 @@ export default function BrowseClient(props: ExploreSearchParams) {
     };
   }, []);
 
-  const activeLens = p.lens === "recent_releases" ? "RECENT_RELEASES" : p.lens;
+  const rawLensParam = p.lens || p.feed;
+  const activeLens =
+    rawLensParam === "recent_releases" || rawLensParam === "RECENT"
+      ? "RECENT_RELEASES"
+      : rawLensParam === "BLOCKBUSTERS"
+        ? "HOLLYWOOD_BLOCKBUSTERS"
+        : rawLensParam;
   const type = (
     p.type ? p.type : activeLens === "FOR_YOU" ? "ALL" : prefType || "ALL"
   ) as "ALL" | "FILM" | "TV_SERIES" | "TV_SHOW" | "MINI_SERIES";
@@ -726,60 +813,127 @@ export default function BrowseClient(props: ExploreSearchParams) {
     () => SMART_LENSES.find((l) => l.id === activeLens) ?? null,
     [activeLens],
   );
+
+  // Inherit baseline parameters from active SmartLens when deep-linked with ?lens=...
+  const effectiveYearFromStr = p.yearFrom ?? activeLensObj?.params.yearFrom;
+  const effectiveYearToStr = p.yearTo ?? activeLensObj?.params.yearTo;
+  const yearFrom =
+    effectiveYearFromStr !== undefined && effectiveYearFromStr !== ""
+      ? parseInt(effectiveYearFromStr, 10)
+      : undefined;
+  const yearTo =
+    effectiveYearToStr !== undefined && effectiveYearToStr !== ""
+      ? parseInt(effectiveYearToStr, 10)
+      : undefined;
+
+  const ratingSource: RatingSource = useMemo(() => {
+    if (p.ratingSource) return p.ratingSource as RatingSource;
+    if (p.order === "IMDB_RATING") return "IMDB";
+    if (p.order === "KP_RATING") return "KP";
+    if (p.order === "CRITICS") return "CRITICS";
+    return "AUTO";
+  }, [p.ratingSource, p.order]);
+
+  const hasHistoricalEraConstraint =
+    (yearTo !== undefined && yearTo < CURRENT_YEAR - 1) ||
+    activeLens === "GOLDEN_90S_00S" ||
+    activeLens === "OSCAR_WINNERS";
+
+  const availableSortOptions = useMemo(
+    () =>
+      getAdvancedSortOptions(
+        activeLens,
+        ratingSource,
+        Boolean(p.keyword?.trim() || p.q?.trim()),
+        hasHistoricalEraConstraint,
+      ),
+    [activeLens, ratingSource, p.keyword, p.q, hasHistoricalEraConstraint],
+  );
+
   const lensDefaultOrder =
     (activeLensObj?.params.order as ExploreSortOrder) || undefined;
-  const order = (p.order ||
-    lensDefaultOrder ||
-    prefOrder ||
-    "TRENDING") as ExploreSortOrder;
+
+  const order: ExploreSortOrder = useMemo(() => {
+    const rawOrder = p.order as string | undefined;
+    let candidate: ExploreSortOrder = (rawOrder ||
+      lensDefaultOrder ||
+      prefOrder ||
+      "TRENDING") as ExploreSortOrder;
+
+    if (
+      rawOrder === "IMDB_RATING" ||
+      rawOrder === "KP_RATING" ||
+      rawOrder === "CRITICS"
+    ) {
+      candidate = "RATING";
+    } else if (rawOrder === "YEAR_DESC" || rawOrder === "YEAR_ASC") {
+      candidate = "YEAR";
+    }
+
+    if (availableSortOptions.some((o) => o.value === candidate)) {
+      return candidate;
+    }
+    return lensDefaultOrder &&
+      availableSortOptions.some((o) => o.value === lensDefaultOrder)
+      ? lensDefaultOrder
+      : (availableSortOptions[0]?.value ?? "NUM_VOTE");
+  }, [p.order, lensDefaultOrder, prefOrder, availableSortOptions]);
+
   const isTrendingWindow =
     activeLens === "TRENDING" ||
     (!activeLens &&
       order === "TRENDING" &&
-      p.yearFrom === undefined &&
-      p.yearTo === undefined);
+      yearFrom === undefined &&
+      yearTo === undefined);
   const direction: SortDirection = p.dir === "ASC" ? "ASC" : "DESC";
-  const genreMatchMode: "AND" | "OR" = p.genreMode === "OR" ? "OR" : "AND";
-  const ratingSource: RatingSource = (p.ratingSource as RatingSource) || "AUTO";
+  const genreMatchMode: "AND" | "OR" =
+    (p.genreMode ?? activeLensObj?.params.genreMode) === "OR" ? "OR" : "AND";
+
+  const effectiveRatingFromStr =
+    p.ratingFrom ?? activeLensObj?.params.ratingFrom;
+  const effectiveRatingToStr = p.ratingTo ?? activeLensObj?.params.ratingTo;
   const ratingFrom =
-    p.ratingFrom !== undefined && p.ratingFrom !== ""
-      ? parseFloat(p.ratingFrom)
+    effectiveRatingFromStr !== undefined && effectiveRatingFromStr !== ""
+      ? parseFloat(effectiveRatingFromStr)
       : undefined;
   const ratingTo =
-    p.ratingTo !== undefined && p.ratingTo !== ""
-      ? parseFloat(p.ratingTo)
+    effectiveRatingToStr !== undefined && effectiveRatingToStr !== ""
+      ? parseFloat(effectiveRatingToStr)
       : undefined;
+
+  const isUpcomingEra = yearFrom !== undefined && yearFrom > CURRENT_YEAR;
+  const effectiveMinVotesStr = isUpcomingEra
+    ? undefined
+    : (p.minVotes ?? activeLensObj?.params.minVotes);
   const minVotes =
-    p.minVotes !== undefined && p.minVotes !== ""
-      ? parseInt(p.minVotes, 10)
+    effectiveMinVotesStr !== undefined && effectiveMinVotesStr !== ""
+      ? parseInt(effectiveMinVotesStr, 10)
       : undefined;
-  const requireImdb = p.requireImdb === "1";
-  const yearFrom =
-    p.yearFrom !== undefined && p.yearFrom !== ""
-      ? parseInt(p.yearFrom, 10)
-      : undefined;
-  const yearTo =
-    p.yearTo !== undefined && p.yearTo !== ""
-      ? parseInt(p.yearTo, 10)
-      : undefined;
+  const requireImdb = isUpcomingEra
+    ? false
+    : (p.requireImdb ?? activeLensObj?.params.requireImdb) === "1";
   const runtimeBucket: RuntimeBucket = (p.runtime as RuntimeBucket) || "ANY";
+  const effectiveAgeStr = p.age ?? activeLensObj?.params.age;
   const includeAgeTiers = useMemo(
-    () => parseStringList(p.age) as AgeTierFilter[],
-    [p.age],
+    () => parseStringList(effectiveAgeStr) as AgeTierFilter[],
+    [effectiveAgeStr],
   );
   const excludeAgeTiers = useMemo(
     () => parseStringList(p.excludeAge) as AgeTierFilter[],
     [p.excludeAge],
   );
   const seriesStatus: SeriesStatusFilter =
-    (p.status as SeriesStatusFilter) || "ALL";
-  const collectionPreset = p.collection as CollectionType | undefined;
-  const hideWatched = p.hideWatched === "1";
+    type === "FILM" ? "ALL" : (p.status as SeriesStatusFilter) || "ALL";
+  const collectionPreset = (p.collection ??
+    activeLensObj?.params.collection) as CollectionType | undefined;
+  const hideWatched =
+    (p.hideWatched ?? activeLensObj?.params.hideWatched) === "1";
   const hideFavorites = p.hideFavorites === "1";
   const hideWatchLater = p.hideWatchLater === "1";
 
+  const effectiveGenresStr = p.genres ?? activeLensObj?.params.genres;
   const [resolvedIncludeGenres, setResolvedIncludeGenres] = useState<number[]>(
-    () => resolveGenreTokensFromList(p.genres, []),
+    () => resolveGenreTokensFromList(effectiveGenresStr, []),
   );
   const [resolvedExcludeGenres, setResolvedExcludeGenres] = useState<number[]>(
     () => resolveGenreTokensFromList(p.excludeGenres, []),
@@ -814,7 +968,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
       includeAgeTiers,
       excludeAgeTiers,
       seriesStatus,
-      keyword: p.keyword?.trim() || "",
+      keyword: (p.keyword || p.q)?.trim() || "",
       collectionPreset,
       activeLens,
       hideWatched,
@@ -931,7 +1085,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
   }, []);
 
   useEffect(() => {
-    const incG = resolveGenreTokensFromList(p.genres, genres);
+    const incG = resolveGenreTokensFromList(effectiveGenresStr, genres);
     const excG = resolveGenreTokensFromList(p.excludeGenres, genres);
     const incC = resolveCountryTokensFromList(p.countries, countries);
     const excC = resolveCountryTokensFromList(p.excludeCountries, countries);
@@ -967,7 +1121,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
   }, [
     genres,
     countries,
-    p.genres,
+    effectiveGenresStr,
     p.excludeGenres,
     p.countries,
     p.excludeCountries,
@@ -976,42 +1130,43 @@ export default function BrowseClient(props: ExploreSearchParams) {
   useEffect(() => {
     setDraft((prev) => ({
       ...prev,
-      genreMatchMode: p.genreMode === "OR" ? "OR" : "AND",
-      ratingFrom: p.ratingFrom || "",
-      ratingTo: p.ratingTo || "",
-      ratingSource: (p.ratingSource as RatingSource) || "AUTO",
-      minVotes: p.minVotes || "",
-      requireImdb: p.requireImdb === "1",
-      yearFrom: p.yearFrom || "",
-      yearTo: p.yearTo || "",
-      runtimeBucket: (p.runtime as RuntimeBucket) || "ANY",
-      includeAgeTiers: parseStringList(p.age) as AgeTierFilter[],
+      genreMatchMode,
+      ratingFrom: effectiveRatingFromStr || "",
+      ratingTo: effectiveRatingToStr || "",
+      ratingSource,
+      minVotes: effectiveMinVotesStr || "",
+      requireImdb,
+      yearFrom: effectiveYearFromStr || "",
+      yearTo: effectiveYearToStr || "",
+      runtimeBucket,
+      includeAgeTiers: parseStringList(effectiveAgeStr) as AgeTierFilter[],
       excludeAgeTiers: parseStringList(p.excludeAge) as AgeTierFilter[],
-      seriesStatus: (p.status as SeriesStatusFilter) || "ALL",
-      keyword: p.keyword || "",
-      collectionPreset: p.collection as CollectionType | undefined,
-      hideWatched: p.hideWatched === "1",
-      hideFavorites: p.hideFavorites === "1",
-      hideWatchLater: p.hideWatchLater === "1",
+      seriesStatus,
+      keyword: p.keyword || p.q || "",
+      collectionPreset,
+      hideWatched,
+      hideFavorites,
+      hideWatchLater,
     }));
   }, [
-    p.genreMode,
-    p.ratingFrom,
-    p.ratingTo,
-    p.ratingSource,
-    p.minVotes,
-    p.requireImdb,
-    p.yearFrom,
-    p.yearTo,
-    p.runtime,
-    p.age,
+    genreMatchMode,
+    effectiveRatingFromStr,
+    effectiveRatingToStr,
+    ratingSource,
+    effectiveMinVotesStr,
+    requireImdb,
+    effectiveYearFromStr,
+    effectiveYearToStr,
+    runtimeBucket,
+    effectiveAgeStr,
     p.excludeAge,
-    p.status,
+    seriesStatus,
     p.keyword,
-    p.collection,
-    p.hideWatched,
-    p.hideFavorites,
-    p.hideWatchLater,
+    p.q,
+    collectionPreset,
+    hideWatched,
+    hideFavorites,
+    hideWatchLater,
   ]);
 
   const pendingChangesCount = useMemo(() => {
@@ -1021,18 +1176,18 @@ export default function BrowseClient(props: ExploreSearchParams) {
     if (draft.genreMatchMode !== genreMatchMode) diff++;
     if (!sameNumArray(draft.includeCountries, resolvedIncludeCountries)) diff++;
     if (!sameNumArray(draft.excludeCountries, resolvedExcludeCountries)) diff++;
-    if (draft.ratingFrom.trim() !== (p.ratingFrom || "")) diff++;
-    if (draft.ratingTo.trim() !== (p.ratingTo || "")) diff++;
+    if (draft.ratingFrom.trim() !== (effectiveRatingFromStr || "")) diff++;
+    if (draft.ratingTo.trim() !== (effectiveRatingToStr || "")) diff++;
     if (draft.ratingSource !== ratingSource) diff++;
-    if (draft.minVotes.trim() !== (p.minVotes || "")) diff++;
+    if (draft.minVotes.trim() !== (effectiveMinVotesStr || "")) diff++;
     if (draft.requireImdb !== requireImdb) diff++;
-    if (draft.yearFrom.trim() !== (p.yearFrom || "")) diff++;
-    if (draft.yearTo.trim() !== (p.yearTo || "")) diff++;
+    if (draft.yearFrom.trim() !== (effectiveYearFromStr || "")) diff++;
+    if (draft.yearTo.trim() !== (effectiveYearToStr || "")) diff++;
     if (draft.runtimeBucket !== runtimeBucket) diff++;
     if (!sameStrArray(draft.includeAgeTiers, includeAgeTiers)) diff++;
     if (!sameStrArray(draft.excludeAgeTiers, excludeAgeTiers)) diff++;
     if (draft.seriesStatus !== seriesStatus) diff++;
-    if (draft.keyword.trim() !== (p.keyword || "").trim()) diff++;
+    if (draft.keyword.trim() !== (p.keyword || p.q || "").trim()) diff++;
     if (draft.collectionPreset !== collectionPreset) diff++;
     if (draft.hideWatched !== hideWatched) diff++;
     if (draft.hideFavorites !== hideFavorites) diff++;
@@ -1045,18 +1200,19 @@ export default function BrowseClient(props: ExploreSearchParams) {
     genreMatchMode,
     resolvedIncludeCountries,
     resolvedExcludeCountries,
-    p.ratingFrom,
-    p.ratingTo,
+    effectiveRatingFromStr,
+    effectiveRatingToStr,
     ratingSource,
-    p.minVotes,
+    effectiveMinVotesStr,
     requireImdb,
-    p.yearFrom,
-    p.yearTo,
+    effectiveYearFromStr,
+    effectiveYearToStr,
     runtimeBucket,
     includeAgeTiers,
     excludeAgeTiers,
     seriesStatus,
     p.keyword,
+    p.q,
     collectionPreset,
     hideWatched,
     hideFavorites,
@@ -1230,6 +1386,35 @@ export default function BrowseClient(props: ExploreSearchParams) {
   );
 
   const handleApplyDraftFilters = useCallback(() => {
+    let rFrom = draft.ratingFrom.trim();
+    let rTo = draft.ratingTo.trim();
+    if (rFrom && rTo && parseFloat(rFrom) > parseFloat(rTo)) {
+      [rFrom, rTo] = [rTo, rFrom];
+    }
+
+    let yFrom = draft.yearFrom.trim();
+    let yTo = draft.yearTo.trim();
+    if (yFrom && yTo && parseInt(yFrom, 10) > parseInt(yTo, 10)) {
+      [yFrom, yTo] = [yTo, yFrom];
+    }
+
+    const isFutureOnly = yFrom !== "" && parseInt(yFrom, 10) > CURRENT_YEAR;
+
+    // Detach SmartLens if the user explicitly removed or contradicted its core collection or era
+    let nextLens = activeLens;
+    if (
+      activeLens === "OSCAR_WINNERS" &&
+      draft.collectionPreset !== "OSKAR_WINNERS_2021"
+    ) {
+      nextLens = undefined;
+    } else if (
+      (activeLens === "TRENDING" || activeLens === "RECENT_RELEASES") &&
+      yTo !== "" &&
+      parseInt(yTo, 10) < CURRENT_YEAR - 1
+    ) {
+      nextLens = undefined;
+    }
+
     pushFilters({
       genres:
         draft.includeGenres.length > 0
@@ -1249,14 +1434,18 @@ export default function BrowseClient(props: ExploreSearchParams) {
         draft.excludeCountries.length > 0
           ? draft.excludeCountries.join(",")
           : undefined,
-      ratingFrom: draft.ratingFrom.trim() || undefined,
-      ratingTo: draft.ratingTo.trim() || undefined,
+      ratingFrom: rFrom || undefined,
+      ratingTo: rTo || undefined,
       ratingSource:
         draft.ratingSource !== "AUTO" ? draft.ratingSource : undefined,
-      minVotes: draft.minVotes.trim() || undefined,
-      requireImdb: draft.requireImdb ? "1" : undefined,
-      yearFrom: draft.yearFrom.trim() || undefined,
-      yearTo: draft.yearTo.trim() || undefined,
+      minVotes: isFutureOnly ? undefined : draft.minVotes.trim() || undefined,
+      requireImdb: isFutureOnly
+        ? undefined
+        : draft.requireImdb
+          ? "1"
+          : undefined,
+      yearFrom: yFrom || undefined,
+      yearTo: yTo || undefined,
       runtime: draft.runtimeBucket !== "ANY" ? draft.runtimeBucket : undefined,
       age:
         draft.includeAgeTiers.length > 0
@@ -1266,16 +1455,22 @@ export default function BrowseClient(props: ExploreSearchParams) {
         draft.excludeAgeTiers.length > 0
           ? draft.excludeAgeTiers.join(",")
           : undefined,
-      status: draft.seriesStatus !== "ALL" ? draft.seriesStatus : undefined,
+      status:
+        type === "FILM"
+          ? undefined
+          : draft.seriesStatus !== "ALL"
+            ? draft.seriesStatus
+            : undefined,
       keyword: draft.keyword.trim() || undefined,
       collection: draft.collectionPreset,
       hideWatched: draft.hideWatched ? "1" : undefined,
       hideFavorites: draft.hideFavorites ? "1" : undefined,
       hideWatchLater: draft.hideWatchLater ? "1" : undefined,
-      lens: activeLens,
+      lens: nextLens,
+      feed: undefined,
     });
     setMobileSheetOpen(false);
-  }, [draft, pushFilters]);
+  }, [draft, activeLens, type, pushFilters]);
 
   const handleResetAllFilters = useCallback(() => {
     setDraft({
@@ -1406,7 +1601,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
       includeAgeTiers,
       excludeAgeTiers,
       seriesStatus,
-      keyword: p.keyword?.trim() || undefined,
+      keyword: (p.keyword || p.q)?.trim() || undefined,
       collectionPreset,
       lens: activeLens,
       trendingWindow: isTrendingWindow,
@@ -1533,7 +1728,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
           includeAgeTiers,
           excludeAgeTiers,
           seriesStatus,
-          keyword: p.keyword?.trim() || undefined,
+          keyword: (p.keyword || p.q)?.trim() || undefined,
           collectionPreset,
           lens: activeLens,
           trendingWindow: isTrendingWindow,
@@ -2605,7 +2800,30 @@ export default function BrowseClient(props: ExploreSearchParams) {
         rightSlot={
           <div className="flex items-center gap-2">
             <Link
-              href="/explore"
+              href={(() => {
+                const sp = new URLSearchParams();
+                if (
+                  activeLens &&
+                  [
+                    "TRENDING",
+                    "FOR_YOU",
+                    "RECENT_RELEASES",
+                    "HOLLYWOOD_BLOCKBUSTERS",
+                    "HIDDEN_GEMS",
+                    "TOP_RATED",
+                  ].includes(activeLens)
+                ) {
+                  const feedId =
+                    activeLens === "HOLLYWOOD_BLOCKBUSTERS"
+                      ? "BLOCKBUSTERS"
+                      : activeLens;
+                  if (feedId !== "TRENDING") sp.set("feed", feedId);
+                }
+                if (type !== "ALL") sp.set("type", type);
+                if (p.keyword?.trim()) sp.set("q", p.keyword.trim());
+                const qs = sp.toString();
+                return qs ? `/explore?${qs}` : "/explore";
+              })()}
               className="btn btn-ghost py-1.5 px-2.5 sm:py-2 sm:px-3.5 text-[12px] no-underline"
             >
               <span className="sm:hidden">← Simple</span>
@@ -2805,6 +3023,7 @@ export default function BrowseClient(props: ExploreSearchParams) {
                           ? "ALL"
                           : undefined
                         : t.value,
+                    ...(t.value === "FILM" ? { status: undefined } : {}),
                   });
                 }}
                 className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold border transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
@@ -2869,30 +3088,29 @@ export default function BrowseClient(props: ExploreSearchParams) {
             </button>
 
             <select
-              className="select text-[12px] py-2 px-3 rounded-[8px] flex-1 sm:flex-initial min-w-[135px]"
+              className="select text-[12px] py-2 px-3 rounded-[8px] flex-1 sm:flex-initial min-w-[155px]"
               value={order}
               onChange={(e) => {
                 const nextOrd = e.target.value as ExploreSortOrder;
                 if (nextOrd === "RANDOM") {
                   setRandomSeed((s) => s + 1);
                 }
+                const defaultOrd = lensDefaultOrder || prefOrder || "TRENDING";
                 pushFilters({
-                  order:
-                    nextOrd === (lensDefaultOrder || prefOrder || "TRENDING")
-                      ? undefined
-                      : nextOrd,
+                  order: nextOrd === defaultOrd ? undefined : nextOrd,
+                  dir: nextOrd === "TITLE" ? "ASC" : undefined,
                 });
               }}
               aria-label="Sort films by"
             >
-              {SORT_ORDERS.map((o) => (
+              {availableSortOptions.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
               ))}
             </select>
 
-            {order !== "RANDOM" ? (
+            {order !== "RANDOM" && order !== "TASTE_MATCH" ? (
               <button
                 type="button"
                 onClick={() =>
@@ -3224,51 +3442,6 @@ export default function BrowseClient(props: ExploreSearchParams) {
             </div>
           </div>
         )}
-
-      {p.keyword?.trim() && !loading && matchedPerson && (
-        <div className="mb-5 bg-gradient-to-r from-[rgba(229,9,20,0.14)] via-[var(--bg-card)] to-[var(--bg-card)] border border-[rgba(229,9,20,0.35)] rounded-[14px] p-3.5 sm:p-4 flex items-center justify-between gap-4 flex-wrap shadow-[0_8px_32px_rgba(0,0,0,0.35)]">
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-12 h-16 sm:w-14 sm:h-[74px] rounded-[8px] overflow-hidden flex-shrink-0 bg-[var(--surface)] border border-white/15 relative">
-              <PosterImage
-                src={matchedPerson.posterUrl}
-                alt={matchedPersonDisplayName}
-                title={matchedPersonDisplayName}
-                fallbackType="person"
-                disableEnglishLookup
-                className="w-full h-full relative overflow-hidden bg-[var(--surface)]"
-              />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-bold uppercase tracking-[0.8px] text-white bg-[var(--accent)] rounded px-2 py-0.5 inline-flex items-center gap-1">
-                  <User size={10} />
-                  Matched Person
-                </span>
-                {matchedPersonDisplayProf && (
-                  <span className="text-[11.5px] text-[var(--text-muted)] font-medium">
-                    {matchedPersonDisplayProf}
-                  </span>
-                )}
-              </div>
-              <h2 className="font-display text-[20px] sm:text-[24px] tracking-[0.8px] text-white m-0 mt-1 leading-tight">
-                {matchedPersonDisplayName}
-              </h2>
-              <p className="text-[12px] text-[var(--text-dim)] m-0 mt-0.5">
-                Showing {matchedPerson.creditsCount} film &amp; series credits
-                below
-              </p>
-            </div>
-          </div>
-
-          <Link
-            href={`/person/${matchedPerson.personId}`}
-            className="btn btn-primary py-2 px-4 text-[12px] rounded-[9px] no-underline shrink-0"
-          >
-            <span>Full Biography &amp; Filmography</span>
-            <ArrowUpRight size={13} />
-          </Link>
-        </div>
-      )}
 
       {/* ── LAYER 3: Poster Grid (Shows FilmCardSkeletonGrid whenever loading an uncached tab or filter) ── */}
       {loading ? (

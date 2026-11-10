@@ -179,7 +179,6 @@ export interface SearchSuggestionDropdownProps {
 
 export default function SearchSuggestionDropdown({
   suggestions,
-  matchedPerson,
   semanticMeta,
   selectedIdx,
   sugLoading,
@@ -191,12 +190,6 @@ export default function SearchSuggestionDropdown({
   const autoTranslate = useAutoTranslate();
   const router = useRouter();
 
-  const rawPersonName =
-    autoTranslate && matchedPerson?.nameEn && !isRussian(matchedPerson.nameEn)
-      ? matchedPerson.nameEn
-      : matchedPerson?.nameRu || matchedPerson?.nameEn || "";
-  const personName = useTranslate(rawPersonName) || rawPersonName;
-
   const corrected = semanticMeta?.correctedQuery;
   const concept = semanticMeta?.matchedConcept;
   const targetYear = semanticMeta?.targetYear;
@@ -205,12 +198,7 @@ export default function SearchSuggestionDropdown({
     corrected || concept || targetYear || relatedPills.length > 0,
   );
 
-  if (
-    !sugLoading &&
-    suggestions.length === 0 &&
-    !hasTopStrip &&
-    !matchedPerson
-  ) {
+  if (!sugLoading && suggestions.length === 0 && !hasTopStrip) {
     return null;
   }
 
@@ -325,9 +313,7 @@ export default function SearchSuggestionDropdown({
             <span className="inline-flex items-center gap-1.5 truncate">
               <Search size={12} />
               <span className="truncate">
-                {matchedPerson
-                  ? `See all ${matchedPerson.creditsCount} credits for “${personName || search.trim()}”`
-                  : `See all results for “${search.trim()}”`}
+                {`See all results for “${search.trim()}”`}
               </span>
             </span>
             <ArrowUpRight size={13} className="flex-shrink-0" />

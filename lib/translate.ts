@@ -591,6 +591,142 @@ export const INTERNATIONAL_TITLE_ALIASES: InternationalTitleAlias[] = [
     orig: ["Cidade de Deus"],
     ru: ["Город Бога"],
   },
+  // Major Global Franchises & Blockbusters (ensures instant 0ms Russian/English title expansion on Kinopoisk)
+  {
+    en: "Harry Potter",
+    orig: ["Harry Potter"],
+    ru: ["Гарри Поттер"],
+  },
+  {
+    en: "The Lord of the Rings",
+    orig: ["The Lord of the Rings", "Lord of the Rings"],
+    ru: ["Властелин колец"],
+  },
+  {
+    en: "Star Wars",
+    orig: ["Star Wars"],
+    ru: ["Звездные войны", "Звёздные войны"],
+  },
+  {
+    en: "Spider-Man",
+    orig: ["Spider-Man", "Spiderman", "Spider Man"],
+    ru: ["Человек-паук"],
+  },
+  {
+    en: "The Avengers",
+    orig: ["The Avengers", "Avengers"],
+    ru: ["Мстители"],
+  },
+  {
+    en: "The Dark Knight",
+    orig: ["The Dark Knight", "Dark Knight"],
+    ru: ["Темный рыцарь", "Тёмный рыцарь"],
+  },
+  {
+    en: "Pirates of the Caribbean",
+    orig: ["Pirates of the Caribbean"],
+    ru: ["Пираты Карибского моря"],
+  },
+  {
+    en: "Fast & Furious",
+    orig: ["Fast & Furious", "The Fast and the Furious", "Fast and Furious"],
+    ru: ["Форсаж"],
+  },
+  {
+    en: "The Matrix",
+    orig: ["The Matrix", "Matrix"],
+    ru: ["Матрица"],
+  },
+  {
+    en: "Inception",
+    orig: ["Inception"],
+    ru: ["Начало"],
+  },
+  {
+    en: "Interstellar",
+    orig: ["Interstellar"],
+    ru: ["Интерстеллар"],
+  },
+  {
+    en: "Dune",
+    orig: ["Dune"],
+    ru: ["Дюна"],
+  },
+  {
+    en: "Game of Thrones",
+    orig: ["Game of Thrones"],
+    ru: ["Игра престолов"],
+  },
+  {
+    en: "Breaking Bad",
+    orig: ["Breaking Bad"],
+    ru: ["Во все тяжкие"],
+  },
+  {
+    en: "Stranger Things",
+    orig: ["Stranger Things"],
+    ru: ["Очень странные дела"],
+  },
+  {
+    en: "The Shawshank Redemption",
+    orig: ["The Shawshank Redemption", "Shawshank Redemption"],
+    ru: ["Побег из Шоушенка"],
+  },
+  {
+    en: "The Godfather",
+    orig: ["The Godfather", "Godfather"],
+    ru: ["Крестный отец", "Крёстный отец"],
+  },
+  {
+    en: "Pulp Fiction",
+    orig: ["Pulp Fiction"],
+    ru: ["Криминальное чтиво"],
+  },
+  {
+    en: "Fight Club",
+    orig: ["Fight Club"],
+    ru: ["Бойцовский клуб"],
+  },
+  {
+    en: "Forrest Gump",
+    orig: ["Forrest Gump"],
+    ru: ["Форрест Гамп"],
+  },
+  {
+    en: "John Wick",
+    orig: ["John Wick"],
+    ru: ["Джон Уик"],
+  },
+  {
+    en: "Mission: Impossible",
+    orig: ["Mission: Impossible", "Mission Impossible"],
+    ru: ["Миссия невыполнима"],
+  },
+  {
+    en: "Back to the Future",
+    orig: ["Back to the Future"],
+    ru: ["Назад в будущее"],
+  },
+  {
+    en: "The Terminator",
+    orig: ["The Terminator", "Terminator"],
+    ru: ["Терминатор"],
+  },
+  {
+    en: "Alien",
+    orig: ["Alien", "Aliens"],
+    ru: ["Чужой", "Чужие"],
+  },
+  {
+    en: "Shrek",
+    orig: ["Shrek"],
+    ru: ["Шрэк", "Шрек"],
+  },
+  {
+    en: "Toy Story",
+    orig: ["Toy Story"],
+    ru: ["История игрушек"],
+  },
   // Japanese & Asian hits
   {
     en: "Spirited Away",
@@ -702,6 +838,10 @@ const AMBIGUOUS_SINGLE_WORD_RU = new Set(
     "нигде",
     "берлин",
     "элита",
+    "начало",
+    "дюна",
+    "матрица",
+    "чужой",
   ].map((w) => normAliasKey(w)),
 );
 

@@ -568,9 +568,26 @@ export function queueFilmMetaHydration(filmId: number, priority = false): void {
   void processHydrationQueue();
 }
 
-// ─── API Key Rotation & Exhaustion Tracking ───────────────────────────────────
+// ─── API Key Rotation & Exhaustion Tracking (Moscow Daily Cycle + Self-Healing) ──
 
 let exhaustedSynced = false;
+let lastExhaustedProbeAt = 0;
+
+/**
+ * Kinopoisk Unofficial API resets daily quotas at 00:00 Moscow Time (UTC+3).
+ * Also allows a key to be re-probed if it was marked exhausted more than 20 minutes ago
+ * and all keys are currently flagged exhausted, so manual or server-side quota resets
+ * recover automatically without requiring the user to re-save Preferences.
+ */
+function getMoscowDayStamp(ts: number): string {
+  const mskTime = new Date(ts + 3 * 60 * 60 * 1000);
+  return mskTime.toISOString().slice(0, 10);
+}
+
+function isExhaustionStillActive(ts: number, now = Date.now()): boolean {
+  if (now - ts >= DAY_MS) return false;
+  return getMoscowDayStamp(ts) === getMoscowDayStamp(now);
+}
 
 function syncExhaustedFromStorage() {
   if (typeof window === "undefined" || exhaustedSynced) return;
@@ -582,7 +599,7 @@ function syncExhaustedFromStorage() {
     const now = Date.now();
     let changed = false;
     for (const [k, ts] of Object.entries(parsed)) {
-      if (now - ts < DAY_MS) {
+      if (isExhaustionStillActive(ts, now)) {
         exhausted.set(k, ts);
       } else {
         changed = true;
@@ -600,7 +617,7 @@ function persistExhaustedToStorage() {
     const obj: Record<string, number> = {};
     const now = Date.now();
     for (const [k, ts] of exhausted.entries()) {
-      if (now - ts < DAY_MS) obj[k] = ts;
+      if (isExhaustionStillActive(ts, now)) obj[k] = ts;
     }
     localStorage.setItem(EXHAUSTED_KEYS_STORAGE, JSON.stringify(obj));
   } catch {
@@ -608,25 +625,50 @@ function persistExhaustedToStorage() {
   }
 }
 
+export function clearKeyExhausted(key: string): void {
+  const clean = key.trim();
+  if (!clean) return;
+  if (exhausted.has(clean)) {
+    exhausted.delete(clean);
+    persistExhaustedToStorage();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("cinemix-session-change"));
+    }
+  }
+}
+
 function getKey(): string {
   syncExhaustedFromStorage();
   const now = Date.now();
+  let expiredAny = false;
   for (const [k, t] of exhausted) {
-    if (now - t > DAY_MS) exhausted.delete(k);
+    if (!isExhaustionStillActive(t, now)) {
+      exhausted.delete(k);
+      expiredAny = true;
+    }
   }
+  if (expiredAny) persistExhaustedToStorage();
+
   const keys = getApiKeys();
   if (keys.length === 0) {
     throw new Error("No API key configured.");
   }
   const available = keys.filter((k) => !exhausted.has(k));
   if (!available.length) {
+    // Self-healing fallback: if all keys are marked exhausted, allow a live retry probe
+    // every 45 seconds so as soon as quota resets, content loads automatically!
+    if (now - lastExhaustedProbeAt > 45_000) {
+      lastExhaustedProbeAt = now;
+      return keys[0];
+    }
     throw new Error("All API keys exhausted for today.");
   }
   return available[0];
 }
 
 function markExhausted(key: string) {
-  exhausted.set(key, Date.now());
+  exhausted.set(key.trim(), Date.now());
+  lastExhaustedProbeAt = Date.now();
   persistExhaustedToStorage();
   const keys = getApiKeys();
   console.warn(
@@ -816,6 +858,9 @@ async function apiFetch<T>(
 
       if (!res.ok) throw new Error(`API error: ${res.status} ${path}`);
       markKeyValid(key);
+      if (exhausted.has(key)) {
+        clearKeyExhausted(key);
+      }
       const data = (await res.json()) as T;
       setCachedApi(path, data, revalidate);
       return data;
@@ -1282,21 +1327,25 @@ export function computeTrendingScore(
     (effectiveVotes / (effectiveVotes + m)) * safeR +
     (m / (effectiveVotes + m)) * C;
 
-  // Estimate age in months for vote velocity calculation
+  // Estimate age in months using Global/US release year (`year` / `startYear`) first,
+  // preventing old films with recent Russian theatrical re-releases (`premiereRu`) from faking recency.
   const yr = parseYearNumber(film.year) ?? parseYearNumber(film.startYear) ?? curYear;
   let monthsOld = 8;
-  if (film.premiereRu) {
+  if (yr < curYear - 1) {
+    monthsOld = Math.max(18, (curYear - yr) * 12);
+  } else if (film.premiereRu) {
     const pTime = new Date(film.premiereRu).getTime();
-    if (!isNaN(pTime)) {
+    const pYear = new Date(pTime).getFullYear();
+    if (!isNaN(pTime) && Math.abs(pYear - yr) <= 1) {
       const diffDays = Math.max(7, (now.getTime() - pTime) / DAY_MS);
       monthsOld = Math.max(0.4, diffDays / 30);
+    } else {
+      monthsOld = yr >= curYear ? 3.5 : 11;
     }
   } else if (yr >= curYear) {
     monthsOld = 3.5;
-  } else if (yr === curYear - 1) {
-    monthsOld = 11;
   } else {
-    monthsOld = Math.max(18, (curYear - yr) * 12);
+    monthsOld = 11;
   }
 
   const voteVelocity = effectiveVotes / monthsOld;
@@ -1384,47 +1433,77 @@ export async function discoverFilms(
       opts.type === "ALL" || !opts.type
         ? undefined
         : (opts.type as "FILM" | "TV_SHOW" | "TV_SERIES" | "MINI_SERIES");
-    const primaryGenre = (opts.includeGenres ?? [])[0];
-    const primaryCountry = (opts.includeCountries ?? [])[0];
+    const incGenres = (opts.includeGenres ?? []).filter(
+      (id) => !isSafeModeActive() || (id !== 28 && id !== 25),
+    );
+    const incCountries = opts.includeCountries ?? [];
+    const genreTargets =
+      incGenres.length > 1 ? incGenres.slice(0, 3) : [incGenres[0]];
+    const countryTargets =
+      incCountries.length > 1 ? incCountries.slice(0, 2) : [incCountries[0]];
+    const rawKw = opts.keyword?.trim();
+    const parsedKw = rawKw ? parseQueryWithYear(rawKw) : null;
+    const effectiveKw = parsedKw ? parsedKw.cleanQuery : undefined;
+    const effectiveYearFrom = opts.yearFrom ?? curYear - 1;
+    const effectiveYearTo = opts.yearTo ?? curYear;
+    const apiPage = ((page - 1) % 5) + 1;
 
-    const [recentPremieresRes, recentByYearRes, recentByVotesRes] =
+    const filterQueries: Promise<FilmsResponse>[] = [];
+    for (const gId of genreTargets) {
+      for (const cId of countryTargets) {
+        filterQueries.push(
+          getFilmsByFilter({
+            type: baseType,
+            genres: gId,
+            countries: cId,
+            yearFrom: effectiveYearFrom,
+            yearTo: effectiveYearTo,
+            ratingFrom: opts.ratingFrom ?? 5.5,
+            ratingTo: opts.ratingTo,
+            keyword: effectiveKw,
+            order: "YEAR",
+            page: apiPage,
+          }),
+        );
+        if (filterQueries.length <= 4) {
+          filterQueries.push(
+            getFilmsByFilter({
+              type: baseType,
+              genres: gId,
+              countries: cId,
+              yearFrom: effectiveYearFrom,
+              yearTo: effectiveYearTo,
+              ratingFrom: opts.ratingFrom ?? 5.8,
+              ratingTo: opts.ratingTo,
+              keyword: effectiveKw,
+              order: "NUM_VOTE",
+              page: apiPage,
+            }),
+          );
+        }
+      }
+    }
+
+    const [recentPremieresRes, ...recentFilterSettled] =
       await Promise.allSettled([
-        page <= 2 && !primaryGenre && !primaryCountry && (!baseType || baseType === "FILM")
+        page <= 2 &&
+        incGenres.length === 0 &&
+        incCountries.length === 0 &&
+        !effectiveKw &&
+        (!baseType || baseType === "FILM")
           ? getRecentReleases("high")
           : Promise.resolve({ items: [] as Film[], total: 0, totalPages: 1 }),
-        getFilmsByFilter({
-          type: baseType,
-          genres: primaryGenre,
-          countries: primaryCountry,
-          yearFrom: curYear - 1,
-          yearTo: curYear,
-          ratingFrom: opts.ratingFrom ?? 5.5,
-          ratingTo: opts.ratingTo,
-          order: "YEAR",
-          page: ((page - 1) % 5) + 1,
-        }),
-        getFilmsByFilter({
-          type: baseType,
-          genres: primaryGenre,
-          countries: primaryCountry,
-          yearFrom: curYear - 1,
-          yearTo: curYear,
-          ratingFrom: opts.ratingFrom ?? 5.8,
-          ratingTo: opts.ratingTo,
-          order: "NUM_VOTE",
-          page: ((page - 1) % 5) + 1,
-        }),
+        ...filterQueries,
       ]);
 
     const pool: Film[] = [];
     if (recentPremieresRes.status === "fulfilled") {
       pool.push(...recentPremieresRes.value.items);
     }
-    if (recentByYearRes.status === "fulfilled") {
-      pool.push(...recentByYearRes.value.items);
-    }
-    if (recentByVotesRes.status === "fulfilled") {
-      pool.push(...recentByVotesRes.value.items);
+    for (const res of recentFilterSettled) {
+      if (res.status === "fulfilled" && res.value?.items) {
+        pool.push(...res.value.items);
+      }
     }
 
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -1441,7 +1520,7 @@ export async function discoverFilms(
       ratingSource,
     );
 
-    // Respect user's selected sort order within Recent Releases scope
+    // Respect user's selected sort order within Recent Releases scope (using Global/US release year)
     const sorted =
       opts.order && opts.order !== "YEAR"
         ? sortDiscoveryPool(
@@ -1453,13 +1532,9 @@ export async function discoverFilms(
           )
         : [...filtered].sort((a, b) => {
             const dirMult = direction === "ASC" ? 1 : -1;
-            const dA = a.premiereRu
-              ? new Date(a.premiereRu).getTime() || 0
-              : (a.year ?? a.startYear ?? 0) * 31536000000;
-            const dB = b.premiereRu
-              ? new Date(b.premiereRu).getTime() || 0
-              : (b.year ?? b.startYear ?? 0) * 31536000000;
-            if (dA !== dB) return (dA - dB) * dirMult;
+            const yA = a.year ?? a.startYear ?? 0;
+            const yB = b.year ?? b.startYear ?? 0;
+            if (yA !== yB) return (yA - yB) * dirMult;
             return (
               (computeTrendingScore(a, undefined, ratingSource) -
                 computeTrendingScore(b, undefined, ratingSource)) *
@@ -1519,14 +1594,16 @@ export async function discoverFilms(
   const effectiveKeyword = parsedKeyword ? parsedKeyword.cleanQuery : undefined;
 
   // 5. Determine base API order, Trending Rolling Window (currentYear - 1 .. currentYear), & Year Cap
+  // Crucially, sorting a historical preset (like OSCAR_WINNERS or MIND_BENDING) by TRENDING
+  // only ranks that preset's pool by momentum without erasing pre-2025 titles.
   const currentYear = new Date().getFullYear();
   const isTrendingScope =
     !rawKeyword &&
     opts.yearFrom === undefined &&
     opts.yearTo === undefined &&
-    (order === "TRENDING" ||
-      opts.lens === "TRENDING" ||
-      Boolean(opts.trendingWindow));
+    (opts.lens === "TRENDING" ||
+      Boolean(opts.trendingWindow) ||
+      (!opts.lens && order === "TRENDING"));
 
   const apiOrder: "RATING" | "NUM_VOTE" | "YEAR" =
     order === "YEAR"
@@ -1534,7 +1611,8 @@ export async function discoverFilms(
       : order === "RATING" ||
           order === "KP_RATING" ||
           order === "IMDB_RATING" ||
-          order === "CRITICS"
+          order === "CRITICS" ||
+          (order === "HIDDEN_GEMS" && opts.lens !== "HIDDEN_GEMS")
         ? "RATING"
         : "NUM_VOTE";
 
@@ -1549,7 +1627,7 @@ export async function discoverFilms(
   const maxY =
     opts.yearTo !== undefined
       ? opts.yearTo
-      : isTrendingScope || order === "YEAR" || order === "TRENDING"
+      : !rawKeyword && (isTrendingScope || order === "YEAR" || order === "TRENDING")
         ? currentYear
         : (parsedKeyword?.targetYear ?? undefined);
 
@@ -1615,10 +1693,12 @@ export async function discoverFilms(
     }
   }
 
-  if (order === "HIDDEN_GEMS") {
-    if (queryRatingFrom === undefined || queryRatingFrom < 7) {
-      queryRatingFrom = 7;
-    }
+  if (
+    (opts.lens === "HIDDEN_GEMS" || order === "HIDDEN_GEMS") &&
+    opts.ratingFrom === undefined &&
+    queryRatingFrom === undefined
+  ) {
+    queryRatingFrom = 7.0;
   }
 
   const incGenres = (opts.includeGenres ?? []).filter(
@@ -2192,9 +2272,19 @@ export async function discoverTasteMatchedFilms(
 
   const seedBucketPromises: Promise<Film[]>[] = [];
 
+  const baseType =
+    opts.type && opts.type !== "ALL"
+      ? (opts.type as "FILM" | "TV_SHOW" | "TV_SERIES" | "MINI_SERIES")
+      : undefined;
+
   if (safePage <= 3 && rotatedSeeds.length > 0) {
     for (let i = 0; i < rotatedSeeds.length; i++) {
       const seedId = rotatedSeeds[i];
+      // If a specific media type (like TV_SERIES or MINI_SERIES) is selected, skip seeds known to be of a different type
+      const seedMeta = getCachedFilmMeta(seedId);
+      if (baseType && seedMeta?.type && seedMeta.type !== baseType) {
+        continue;
+      }
       const isTopRatedSeed = highRatedSeedIds.has(seedId);
       const reqPriority = priority === "high" && i < 3 ? "high" : "low";
       seedBucketPromises.push(
@@ -2207,21 +2297,29 @@ export async function discoverTasteMatchedFilms(
           const items: Film[] = [];
           if (simRes.status === "fulfilled" && simRes.value.items) {
             for (const sf of simRes.value.items) {
-              items.push(
-                hydrateFilmWithCache({
-                  kinopoiskId: sf.filmId,
-                  filmId: sf.filmId,
-                  nameRu: sf.nameRu,
-                  nameEn: sf.nameEn,
-                  nameOriginal: sf.nameOriginal,
-                  posterUrl: sf.posterUrl,
-                  posterUrlPreview: sf.posterUrlPreview,
-                }),
-              );
+              const hydrated = hydrateFilmWithCache({
+                kinopoiskId: sf.filmId,
+                filmId: sf.filmId,
+                nameRu: sf.nameRu,
+                nameEn: sf.nameEn,
+                nameOriginal: sf.nameOriginal,
+                posterUrl: sf.posterUrl,
+                posterUrlPreview: sf.posterUrlPreview,
+              });
+              // When a specific media type filter is active, only include similar items whose type is verified to match
+              if (baseType && hydrated.type !== baseType) {
+                continue;
+              }
+              items.push(hydrated);
             }
           }
           if (relRes.status === "fulfilled" && Array.isArray(relRes.value)) {
-            items.push(...relRes.value);
+            for (const rel of relRes.value) {
+              if (baseType && rel.type !== baseType) {
+                continue;
+              }
+              items.push(rel);
+            }
           }
           return seededShuffle(items, randomSeed + seedId + safePage * 13);
         }),
@@ -2229,25 +2327,29 @@ export async function discoverTasteMatchedFilms(
     }
   }
 
-  const baseType =
-    opts.type && opts.type !== "ALL"
-      ? (opts.type as "FILM" | "TV_SHOW" | "TV_SERIES" | "MINI_SERIES")
-      : undefined;
-
   const dynamicRatingFloor =
     opts.ratingFrom ?? (prefersHighAcclaim ? 7.1 : 6.9);
+
+  const incCountries = opts.includeCountries ?? [];
+  const rawKw = opts.keyword?.trim();
+  const parsedKw = rawKw ? parseQueryWithYear(rawKw) : null;
+  const effectiveKw = parsedKw ? parsedKw.cleanQuery : undefined;
 
   const genrePoolPromises = effectiveGenres.slice(0, 3).map((gId, idx) =>
     getFilmsByFilter(
       {
         genres: gId,
         type: baseType,
-        countries: opts.includeCountries?.[0],
+        countries:
+          incCountries.length > 0
+            ? incCountries[idx % incCountries.length]
+            : undefined,
         order: idx % 2 === 0 ? "NUM_VOTE" : "RATING",
         ratingFrom: dynamicRatingFloor,
         ratingTo: opts.ratingTo,
         yearFrom: opts.yearFrom,
         yearTo: opts.yearTo,
+        keyword: effectiveKw,
         page: ((safePage + idx - 1) % 5) + 1,
       },
       priority === "high" && idx < 2 ? "high" : "low",
@@ -2258,17 +2360,73 @@ export async function discoverTasteMatchedFilms(
       .catch(() => [] as Film[]),
   );
 
-  const fallbackCuratedPromise =
-    uniqueSeeds.length === 0 || safePage > 1
-      ? getTopFilms(
-          safePage % 2 === 1 ? "TOP_POPULAR_MOVIES" : "TOP_250_MOVIES",
-          ((safePage - 1) % 5) + 1,
+  // Also fetch a second page of type-specific genre recommendations when a non-FILM type is selected
+  // so TV Series, Mini Series, and TV Shows always have a deep, rich candidate pool!
+  if (baseType && baseType !== "FILM") {
+    for (let idx = 0; idx < Math.min(2, effectiveGenres.length); idx++) {
+      const gId = effectiveGenres[idx];
+      genrePoolPromises.push(
+        getFilmsByFilter(
+          {
+            genres: gId,
+            type: baseType,
+            countries:
+              incCountries.length > 0
+                ? incCountries[idx % incCountries.length]
+                : undefined,
+            order: idx % 2 === 0 ? "RATING" : "NUM_VOTE",
+            ratingFrom: Math.max(6.2, dynamicRatingFloor - 0.5),
+            ratingTo: opts.ratingTo,
+            yearFrom: opts.yearFrom,
+            yearTo: opts.yearTo,
+            keyword: effectiveKw,
+            page: ((safePage + idx + 1) % 5) + 1,
+          },
           "low",
         )
           .then((r) =>
-            seededShuffle(r.items ?? [], randomSeed + safePage * 29),
+            seededShuffle(r.items ?? [], randomSeed + gId * 43 + safePage * 23),
           )
-          .catch(() => [] as Film[])
+          .catch(() => [] as Film[]),
+      );
+    }
+  }
+
+  const fallbackCuratedPromise =
+    uniqueSeeds.length === 0 || safePage > 1
+      ? !baseType || baseType === "FILM"
+        ? getTopFilms(
+            safePage % 2 === 1 ? "TOP_POPULAR_MOVIES" : "TOP_250_MOVIES",
+            ((safePage - 1) % 5) + 1,
+            "low",
+          )
+            .then((r) =>
+              seededShuffle(r.items ?? [], randomSeed + safePage * 29),
+            )
+            .catch(() => [] as Film[])
+        : baseType === "TV_SERIES"
+          ? getTopFilms(
+              safePage % 2 === 1 ? "POPULAR_SERIES" : "TOP_250_TV_SHOWS",
+              ((safePage - 1) % 5) + 1,
+              "low",
+            )
+              .then((r) =>
+                seededShuffle(r.items ?? [], randomSeed + safePage * 29),
+              )
+              .catch(() => [] as Film[])
+          : getFilmsByFilter(
+              {
+                type: baseType,
+                order: "NUM_VOTE",
+                ratingFrom: 6.5,
+                page: ((safePage - 1) % 5) + 1,
+              },
+              "low",
+            )
+              .then((r) =>
+                seededShuffle(r.items ?? [], randomSeed + safePage * 29),
+              )
+              .catch(() => [] as Film[])
       : Promise.resolve([] as Film[]);
 
   const [seedBuckets, genreBuckets, fallbackBucket] = await Promise.all([
@@ -2304,13 +2462,13 @@ export async function discoverTasteMatchedFilms(
   );
 
   let finalOrdered: Film[];
-  if (
-    (opts.order && opts.order !== "TRENDING") ||
-    (opts.direction && opts.direction === "ASC")
-  ) {
+  const isDefaultTasteOrder =
+    !opts.order || opts.order === "TASTE_MATCH";
+
+  if (!isDefaultTasteOrder) {
     finalOrdered = sortDiscoveryPool(
       filtered,
-      opts.order ?? "TRENDING",
+      opts.order!,
       opts.direction ?? "DESC",
       opts.ratingSource ?? "AUTO",
       randomSeed + safePage,
@@ -2347,7 +2505,9 @@ export async function discoverTasteMatchedFilms(
       list.push(item.film);
       tierBuckets.set(item.tier, list);
     }
-    const sortedTiers = Array.from(tierBuckets.keys()).sort((a, b) => b - a);
+    const sortedTiers = Array.from(tierBuckets.keys()).sort((a, b) =>
+      opts.direction === "ASC" ? a - b : b - a,
+    );
     finalOrdered = [];
     for (const t of sortedTiers) {
       finalOrdered.push(
@@ -2423,9 +2583,18 @@ function applyClientDiscoveryFilters(
     if (favSet && favSet.has(id)) return false;
     if (wlSet && wlSet.has(id)) return false;
 
-    // 3. Selected Media Type
-    if (opts.type && opts.type !== "ALL" && film.type && film.type !== opts.type) {
-      return false;
+    // 3. Selected Media Type (Strict match so untyped movie items never leak into Series/Mini-Series/TV Shows)
+    if (opts.type && opts.type !== "ALL") {
+      if (film.type) {
+        if (film.type !== opts.type) return false;
+      } else if (opts.type === "FILM") {
+        if (film.serial === true) return false;
+      } else {
+        // For TV_SERIES, MINI_SERIES, or TV_SHOW, require explicit matching type (or serial===true when type is TV_SERIES)
+        if (opts.type !== "TV_SERIES" || film.serial !== true) {
+          return false;
+        }
+      }
     }
 
     // 4. Excluded Media Types
@@ -2563,26 +2732,35 @@ function applyClientDiscoveryFilters(
 
     // 12. Year Range Check & Future Release Cap (prevents 2029/2031 unfilmed entries unless Upcoming is explicitly requested)
     const curYr = new Date().getFullYear();
+    const hasActiveKeyword = Boolean(opts.keyword?.trim());
     const userRequestedFutureYears =
       (opts.yearFrom !== undefined && opts.yearFrom > curYr) ||
       (opts.yearTo !== undefined && opts.yearTo > curYr);
     const yr = parseYearNumber(film.year) ?? parseYearNumber(film.startYear);
     if (yr) {
-      if (!userRequestedFutureYears && yr > curYr) return false;
+      if (!userRequestedFutureYears && !hasActiveKeyword && yr > curYr) {
+        return false;
+      }
       if (opts.yearFrom !== undefined && yr < opts.yearFrom) return false;
       if (opts.yearTo !== undefined && yr > opts.yearTo) return false;
     }
-    if (!userRequestedFutureYears && film.premiereRu) {
+    if (!userRequestedFutureYears && !hasActiveKeyword && film.premiereRu) {
       const todayIso = new Date().toISOString().slice(0, 10);
       if (film.premiereRu.slice(0, 10) > todayIso && (!yr || yr >= curYr)) {
         return false;
       }
     }
-    if (
-      (opts.order === "TRENDING" || opts.lens === "TRENDING" || opts.trendingWindow) &&
-      !userRequestedFutureYears
-    ) {
-      if (yr && yr < (opts.yearFrom ?? curYr - 1)) return false;
+    // Never apply the 2-year rolling Trending cutoff when a search keyword is active!
+    const enforceTrendingYearWindow =
+      !hasActiveKeyword &&
+      !userRequestedFutureYears &&
+      opts.yearFrom === undefined &&
+      opts.yearTo === undefined &&
+      (opts.lens === "TRENDING" ||
+        Boolean(opts.trendingWindow) ||
+        (!opts.lens && opts.order === "TRENDING"));
+    if (enforceTrendingYearWindow) {
+      if (yr && yr < curYr - 1) return false;
       if (effRating <= 0 && votes < 20) return false;
     }
 
@@ -3943,29 +4121,41 @@ export async function searchFilms(
       .then((raw) => normalizeFilmsResponse(raw))
       .catch(() => ({ items: [] as Film[], total: 0, totalPages: 1 }));
 
-  // 1. Primary query using cleanQuery (stripped of trailing year like "2003" so Kinopoisk matches the title!)
+  // 1. Primary query using cleanQuery (stripped of trailing year like "2003" so Kinopoisk matches the title)
   const primaryQueryPromise = searchByKeywordApi(cleanQuery, page);
 
   const secondaryPromises: Promise<FilmsResponse>[] = [];
 
-  // 2. If user specified a release year (e.g. "oldboy 2003"), also query /v2.2/films with yearFrom/yearTo
-  if (targetYear !== null) {
-    secondaryPromises.push(
-      getFilmsByFilter({
-        keyword: cleanQuery,
-        yearFrom: targetYear,
-        yearTo: targetYear,
-        page: 1,
-      }).catch(() => ({ items: [], total: 0, totalPages: 1 })),
-    );
-  }
+  // 2. Also query `/v2.2/films` sorted by `NUM_VOTE` (Popularity) in parallel!
+  // Why: `/v2.1/films/search-by-keyword` often puts obscure unvoted TV specials/shorts titled "Harry Potter"
+  // ahead of "Harry Potter and the Prisoner of Azkaban". Querying `/v2.2/films?order=NUM_VOTE` guarantees
+  // the actual 500K-vote theatrical movies surface in the candidate pool immediately!
+  secondaryPromises.push(
+    getFilmsByFilter({
+      keyword: cleanQuery,
+      order: "NUM_VOTE",
+      ...(targetYear !== null
+        ? { yearFrom: targetYear, yearTo: targetYear }
+        : {}),
+      page,
+    }).catch(() => ({ items: [], total: 0, totalPages: 1 })),
+  );
 
-  // 3. Cross-language alias queries (e.g. "Money Heist" -> also queries "La casa de papel" & "Бумажный дом")
+  // 3. Cross-language & Franchise alias queries (e.g. "Harry Potter" -> "Гарри Поттер", "Money Heist" -> "La casa de papel" & "Бумажный дом")
   if (page === 1 && aliasQueries.length > 0) {
-    const maxAliases = isSuggestionMode ? 1 : 2;
+    const maxAliases = isSuggestionMode ? 2 : 3;
     for (const alias of aliasQueries.slice(0, maxAliases)) {
       if (alias.toLowerCase() !== cleanQuery.toLowerCase()) {
         secondaryPromises.push(searchByKeywordApi(alias, 1));
+        if (!isSuggestionMode && isRussian(alias)) {
+          secondaryPromises.push(
+            getFilmsByFilter({
+              keyword: alias,
+              order: "NUM_VOTE",
+              page: 1,
+            }).catch(() => ({ items: [], total: 0, totalPages: 1 })),
+          );
+        }
       }
     }
   }
@@ -4009,10 +4199,12 @@ export async function searchFilms(
   // 6. Parallel IMDb Search Bridge + Russian Translation Bridge
   const imdbBridgePromise =
     page === 1
-      ? fetchImdbSearchBridge(rawKeyword, isSuggestionMode ? 1400 : 2400)
+      ? fetchImdbSearchBridge(rawKeyword, isSuggestionMode ? 1500 : 2500)
       : Promise.resolve([]);
   const ruTranslationPromise =
-    page === 1 && !isRussian(cleanQuery) && (!isSuggestionMode || aliasQueries.length === 0)
+    page === 1 &&
+    !isRussian(cleanQuery) &&
+    !aliasQueries.some((a) => isRussian(a))
       ? translateQueryToRussian(cleanQuery)
       : Promise.resolve(null);
 
@@ -4032,27 +4224,33 @@ export async function searchFilms(
   // 7. Follow-up queries from IMDb Search Bridge & Russian Translation Bridge
   const bridgeFollowupPromises: Promise<FilmsResponse>[] = [];
   let imdbCorrectedTitle: string | null = null;
-  let imdbPersonName: string | null = null;
+  const imdbBridgeRankById = new Map<string, number>();
+  const imdbBridgeTitles: string[] = [];
 
   if (page === 1) {
-    // Only run secondary bridge follow-ups in suggestion mode if primary + secondary returned < 3 hits
-    const needsDeepBridge = !isSuggestionMode || combinedItems.length < 3;
-
     if (
-      needsDeepBridge &&
       ruTranslated &&
       ruTranslated.toLowerCase() !== cleanQuery.toLowerCase() &&
       !aliasQueries.includes(ruTranslated)
     ) {
       bridgeFollowupPromises.push(searchByKeywordApi(ruTranslated, 1));
+      if (!isSuggestionMode) {
+        bridgeFollowupPromises.push(
+          getFilmsByFilter({
+            keyword: ruTranslated,
+            order: "NUM_VOTE",
+            page: 1,
+          }).catch(() => ({ items: [], total: 0, totalPages: 1 })),
+        );
+      }
     }
 
-    const maxBridgeItems = isSuggestionMode ? 1 : 2;
-    for (const bridgeItem of imdbBridgeItems.slice(0, 3)) {
-      if (bridgeItem.kind === "person") {
-        if (!imdbPersonName) imdbPersonName = bridgeItem.title;
-        continue;
-      }
+    const maxImdbLookups = isSuggestionMode ? 3 : 6;
+    let imdbLookupCount = 0;
+
+    for (let idx = 0; idx < imdbBridgeItems.length; idx++) {
+      const bridgeItem = imdbBridgeItems[idx];
+      if (bridgeItem.kind === "person") continue;
       if (
         targetYear !== null &&
         bridgeItem.year !== null &&
@@ -4061,15 +4259,20 @@ export async function searchFilms(
         continue;
       }
 
-      if (!imdbCorrectedTitle && bridgeItem.title) {
-        imdbCorrectedTitle = bridgeItem.title;
+      if (bridgeItem.imdbId.startsWith("tt")) {
+        imdbBridgeRankById.set(bridgeItem.imdbId.toLowerCase(), idx);
+      }
+      if (bridgeItem.title) {
+        imdbBridgeTitles.push(bridgeItem.title);
+        if (!imdbCorrectedTitle) {
+          imdbCorrectedTitle = bridgeItem.title;
+        }
       }
 
-      if (!needsDeepBridge || bridgeFollowupPromises.length >= maxBridgeItems * 2) {
-        continue;
-      }
+      if (imdbLookupCount >= maxImdbLookups) continue;
 
       if (bridgeItem.imdbId.startsWith("tt")) {
+        imdbLookupCount += 1;
         bridgeFollowupPromises.push(
           getFilmsByFilter({ imdbId: bridgeItem.imdbId, page: 1 }).catch(
             () => ({
@@ -4080,42 +4283,16 @@ export async function searchFilms(
           ),
         );
       }
-
-      if (
-        !isSuggestionMode &&
-        bridgeItem.title &&
-        bridgeItem.title.toLowerCase() !== cleanQuery.toLowerCase() &&
-        bridgeItem.title.toLowerCase() !== (cleanCorrected || "").toLowerCase()
-      ) {
-        bridgeFollowupPromises.push(searchByKeywordApi(bridgeItem.title, 1));
-      }
     }
   }
 
-  // 8. Actor / Director Credit Resolution in parallel with bridge followups
-  const [bridgeFollowupResults, personSearchResult] = await Promise.all([
-    Promise.all(bridgeFollowupPromises),
-    page === 1
-      ? resolvePersonCreditsForSearch(
-          cleanQuery,
-          ruTranslated,
-          imdbPersonName,
-          isSuggestionMode,
-        )
-      : Promise.resolve({ matchedPerson: null, credits: [] as Film[] }),
-  ]);
-
+  const bridgeFollowupResults = await Promise.all(bridgeFollowupPromises);
   for (const bRes of bridgeFollowupResults) {
     combinedItems.push(...bRes.items);
   }
 
-  // 9. Fallback root token search if still sparse
-  if (
-    page === 1 &&
-    !isSuggestionMode &&
-    combinedItems.length < 3 &&
-    personSearchResult.credits.length === 0
-  ) {
+  // 8. Fallback root token search if still sparse
+  if (page === 1 && !isSuggestionMode && combinedItems.length < 3) {
     const fallbackTerm =
       cleanCorrected ||
       imdbCorrectedTitle ||
@@ -4139,19 +4316,15 @@ export async function searchFilms(
     combinedItems = [...analysis.localMatches, ...combinedItems];
   }
 
-  // Merge actor credits if an actor/director was matched
-  if (personSearchResult.credits.length > 0) {
-    combinedItems = [...personSearchResult.credits, ...combinedItems];
-  }
-
   const unique = deduplicateFilms(combinedItems);
 
-  // Determine effective corrected query for UI banner
+  // Determine effective corrected query for UI banner (only when query actually had a typo)
+  const qPrepared = getPreparedSearchToken(cleanQuery);
   const effectiveCorrectedQuery =
     analysis.correctedQuery ||
     (imdbCorrectedTitle &&
-    getPreparedSearchToken(imdbCorrectedTitle).norm !==
-      getPreparedSearchToken(cleanQuery).norm
+    getPreparedSearchToken(imdbCorrectedTitle).norm !== qPrepared.norm &&
+    !getPreparedSearchToken(imdbCorrectedTitle).norm.startsWith(qPrepared.norm)
       ? targetYear
         ? `${imdbCorrectedTitle} (${targetYear})`
         : imdbCorrectedTitle
@@ -4159,43 +4332,129 @@ export async function searchFilms(
 
   const extraComparisonQueries = [
     cleanCorrected,
-    imdbCorrectedTitle,
     ruTranslated,
     ...aliasQueries,
+    ...imdbBridgeTitles.slice(0, 3),
   ].filter((x): x is string => Boolean(x));
 
-  const actorCreditIds = new Set(
-    personSearchResult.credits.map((f) => f.kinopoiskId ?? f.filmId ?? 0),
-  );
+  const currentYear = new Date().getFullYear();
 
-  // Precompute relevance score once per film (O(N)) rather than inside .sort() comparator (O(N log N))
+  // 9. IMDb / Netflix-Grade Multi-Signal Relevance Ranking:
+  // Combines Title Match Score + Franchise Prefix Recognition + Log10 Vote Popularity + Bayesian Rating + IMDb Bridge Rank
+  // so major theatrical movies & flagship series always rank above obscure unvoted documentaries/shorts.
   const scoredItems = unique.map((f) => {
-    let s = computeFilmMatchScore(cleanQuery, f, extraComparisonQueries);
+    let titleMatch = computeFilmMatchScore(
+      cleanQuery,
+      f,
+      extraComparisonQueries,
+    );
 
-    const fid = f.kinopoiskId ?? f.filmId ?? 0;
-    if (actorCreditIds.has(fid)) {
-      s = Math.max(s, 82);
+    // Check if the film is a main installment of a searched franchise (e.g. "Harry Potter and the..." or "Гарри Поттер и...")
+    const candTitles = [f.nameEn, f.nameOriginal, f.nameRu].filter(
+      (t): t is string => Boolean(t),
+    );
+    const isFranchisePrefixMatch = candTitles.some((t) => {
+      const cNorm = getPreparedSearchToken(t).norm;
+      if (qPrepared.norm.length >= 4 && cNorm.startsWith(qPrepared.norm)) {
+        return true;
+      }
+      return extraComparisonQueries.some((eq) => {
+        const eqNorm = getPreparedSearchToken(eq).norm;
+        return eqNorm.length >= 4 && cNorm.startsWith(eqNorm);
+      });
+    });
+
+    if (isFranchisePrefixMatch && titleMatch < 94) {
+      titleMatch = 94;
     }
 
+    const votes = getEffectiveVotes(f);
+    const rating = f.ratingImdb ?? f.ratingKinopoisk ?? getEffectiveRating(f, "AUTO");
     const fYear = parseYearNumber(f.year) ?? parseYearNumber(f.startYear);
+
+    // Popularity & Cultural Significance Boost (0 .. +38 pts based on log10 vote count)
+    // A 500,000-vote blockbuster gets +36 pts; a 0-vote obscure documentary gets 0 pts.
+    const voteBoost =
+      votes >= 100
+        ? Math.min(38, Math.log10(votes) * 6.5)
+        : votes > 0
+          ? Math.log10(votes + 1) * 3
+          : 0;
+
+    // Bayesian Quality Boost (0 .. +14 pts for acclaimed rated titles)
+    const ratingBoost =
+      rating > 0 && votes >= 250
+        ? (rating - 5.5) * 2.5
+        : rating > 0
+          ? (rating - 6.0) * 1.2
+          : -6;
+
+    // IMDb Official Suggestion Bridge Rank Boost (+28 pts for top IMDb hit)
+    let imdbBridgeBoost = 0;
+    if (f.imdbId && imdbBridgeRankById.has(f.imdbId.toLowerCase())) {
+      const rankIdx = imdbBridgeRankById.get(f.imdbId.toLowerCase())!;
+      imdbBridgeBoost = Math.max(10, 28 - rankIdx * 3);
+    }
+
+    // Penalize unrated future/unreleased documentaries & shorts when user didn't ask for a future year
+    let penalty = 0;
+    if (targetYear === null && fYear && fYear > currentYear) {
+      penalty += 35;
+    }
+    if (votes === 0 && rating === 0) {
+      penalty += 22;
+    }
+    const isDocOrShort = (f.genres ?? []).some((g) => {
+      const gn = g.genre.trim().toLowerCase();
+      return (
+        gn === "документальный" ||
+        gn === "documentary" ||
+        gn === "короткометражка" ||
+        gn === "short film" ||
+        gn === "ток-шоу" ||
+        gn === "концерт"
+      );
+    });
+    if (isDocOrShort && votes < 15000) {
+      penalty += 28;
+    }
+
+    let yearBoost = 0;
     if (targetYear !== null) {
       if (fYear === targetYear) {
-        s += 80;
+        yearBoost = 85;
       } else if (fYear && Math.abs(fYear - targetYear) === 1) {
-        s += 25;
+        yearBoost = 25;
       } else if (fYear) {
-        s -= 50;
+        yearBoost = -55;
       } else {
-        s -= 20;
+        yearBoost = -20;
       }
     }
-    const rating = f.ratingImdb ?? f.ratingKinopoisk ?? 0;
-    return { film: f, score: s, rating };
+
+    const compositeScore =
+      titleMatch * 1.35 +
+      voteBoost +
+      ratingBoost +
+      imdbBridgeBoost +
+      yearBoost -
+      penalty;
+
+    return {
+      film: f,
+      compositeScore,
+      titleMatch,
+      votes,
+      rating,
+    };
   });
 
   scoredItems.sort((a, b) => {
-    if (Math.abs(a.score - b.score) >= 10) return b.score - a.score;
-    return b.score + b.rating * 1.5 - (a.score + a.rating * 1.5);
+    if (Math.abs(b.compositeScore - a.compositeScore) > 0.5) {
+      return b.compositeScore - a.compositeScore;
+    }
+    if (b.votes !== a.votes) return b.votes - a.votes;
+    return b.rating - a.rating;
   });
 
   const ranked = scoredItems.map((entry) => entry.film);
@@ -4216,7 +4475,6 @@ export async function searchFilms(
   const maxTotal = Math.max(
     primaryRes.total,
     ...secondaryResList.map((s) => s.total),
-    personSearchResult.matchedPerson?.creditsCount ?? 0,
     finalItems.length,
   );
   const maxPages = Math.max(
@@ -4229,7 +4487,7 @@ export async function searchFilms(
     items: finalItems,
     total: maxTotal,
     totalPages: maxPages,
-    matchedPerson: personSearchResult.matchedPerson,
+    matchedPerson: null,
     correctedQuery: effectiveCorrectedQuery,
     targetYear,
   };
@@ -4593,7 +4851,18 @@ export async function getApiKeyInfo(apiKey: string): Promise<ApiKeyResponse> {
     throw new Error(`API error: ${res.status}`);
   }
   markKeyValid(clean);
-  return res.json();
+  const data = (await res.json()) as ApiKeyResponse;
+  // Auto-recover from exhausted state if daily quota has reset or still has remaining calls!
+  if (
+    !data.dailyQuota ||
+    data.dailyQuota.value <= 0 ||
+    data.dailyQuota.used < data.dailyQuota.value
+  ) {
+    clearKeyExhausted(clean);
+  } else {
+    markExhausted(clean);
+  }
+  return data;
 }
 
 let inflightKeyVerification: Promise<boolean> | null = null;
@@ -4616,8 +4885,16 @@ export async function validateConfiguredApiKeys(
         await getApiKeyInfo(k);
         markKeyValid(k);
         anyValid = true;
-      } catch {
-        markKeyInvalid(k);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        // Only mark a key invalid on explicit 400/401/403/404 auth rejection.
+        // Never invalidate a key on 402 (quota), 429 (rate limit), or temporary network failure!
+        if (/Invalid API key|API error:\s*(400|401|403|404)/i.test(msg)) {
+          markKeyInvalid(k);
+        } else {
+          markKeyValid(k);
+          anyValid = true;
+        }
       }
     }),
   );
@@ -4630,13 +4907,18 @@ export async function validateConfiguredApiKeys(
 
 export async function verifyApiKeys(): Promise<boolean> {
   if (!hasApiKeys()) return false;
-  if (hasVerifiedApiKey()) return true;
+  syncExhaustedFromStorage();
+  const usable = getApiKeys();
+  const allFlaggedExhausted =
+    usable.length > 0 && usable.every((k) => exhausted.has(k));
+
+  // If all keys were previously marked exhausted, re-verify against /v1/api_keys
+  // so that as soon as daily quota resets, `exhausted` is cleared and content loads automatically!
+  if (hasVerifiedApiKey() && !allFlaggedExhausted) return true;
   if (inflightKeyVerification) return inflightKeyVerification;
 
-  inflightKeyVerification = validateConfiguredApiKeys(getApiKeys()).finally(
-    () => {
-      inflightKeyVerification = null;
-    },
-  );
+  inflightKeyVerification = validateConfiguredApiKeys(usable).finally(() => {
+    inflightKeyVerification = null;
+  });
   return inflightKeyVerification;
 }
