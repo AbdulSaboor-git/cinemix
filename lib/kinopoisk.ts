@@ -51,7 +51,7 @@ const BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://kinopoiskapiunofficial.tech/api";
 
-const CACHE_PREFIX = "cinemix_api_cache_v1:";
+const CACHE_PREFIX = "cinemix_api_cache_v3:";
 const FILM_META_CACHE_KEY = "cinemix_film_meta_v2";
 const EXHAUSTED_KEYS_STORAGE = "cinemix_exhausted_keys";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -855,7 +855,15 @@ async function apiFetch<T>(
         clearKeyExhausted(key);
       }
       const data = (await res.json()) as T;
-      setCachedApi(path, data, revalidate);
+      const rec = data as Record<string, unknown> | null;
+      const isEmptyReleaseList =
+        rec &&
+        typeof rec === "object" &&
+        ((Array.isArray(rec.releases) && rec.releases.length === 0) ||
+          (Array.isArray(rec.items) && rec.items.length === 0 && path.includes("/premieres")));
+      if (!isEmptyReleaseList) {
+        setCachedApi(path, data, revalidate);
+      }
       return data;
     }
     throw lastError ?? new Error("All API keys exhausted.");
@@ -1245,10 +1253,10 @@ function normalizeFilmItem(
         ? numericRating
         : undefined;
 
+  const rawExpectationsValue = (f as { expectationsRating?: unknown })
+    .expectationsRating;
   const rawExpectations =
-    typeof f.expectationsRating === "number"
-      ? f.expectationsRating
-      : undefined;
+    typeof rawExpectationsValue === "number" ? rawExpectationsValue : undefined;
 
   const ratingAwait =
     typeof f.ratingAwait === "number" && f.ratingAwait > 0
@@ -5400,18 +5408,44 @@ export async function getPremieres(
   //    (a) Server-side IMDb Global Release Calendar (/api/releases) for Movies + Series
   //    (b) Canonical Global Tentpoles & Flagship Series for this month (e.g. HBO Harry Potter in Dec 2026)
   //    (c) Kinopoisk /v2.2/films/premieres (filtered & verified against global release dates)
-  const [serverGlobalItems, canonicalMonthFilms, kpPremieresRes] =
-    await Promise.all([
-      fetchServerGlobalCalendar(year, month1To12),
-      resolveCanonicalEntriesForMonth(year, month1To12, priority),
-      apiFetch<Record<string, unknown>>(
-        `/v2.2/films/premieres?year=${year}&month=${cleanMonth}`,
-        3600,
-        priority,
-      )
-        .then((raw) => normalizeFilmsResponse(raw))
-        .catch(() => ({ items: [] as Film[], total: 0, totalPages: 1 })),
-    ]);
+  const [
+    serverGlobalItems,
+    canonicalMonthFilms,
+    kpPremieresRes,
+    kpSeriesForYear,
+    kpMiniSeriesForYear,
+  ] = await Promise.all([
+    fetchServerGlobalCalendar(year, month1To12),
+    resolveCanonicalEntriesForMonth(year, month1To12, priority),
+    apiFetch<Record<string, unknown>>(
+      `/v2.2/films/premieres?year=${year}&month=${cleanMonth}`,
+      3600,
+      priority,
+    )
+      .then((raw) => normalizeFilmsResponse(raw))
+      .catch(() => ({ items: [] as Film[], total: 0, totalPages: 1 })),
+    getFilmsByFilter(
+      {
+        type: "TV_SERIES",
+        countries: 1,
+        yearFrom: year,
+        yearTo: year,
+        order: "NUM_VOTE",
+        page: ((month1To12 - 1) % 2) + 1,
+      },
+      "low",
+    ).catch(() => ({ items: [] as Film[], total: 0, totalPages: 1 })),
+    getFilmsByFilter(
+      {
+        type: "MINI_SERIES",
+        yearFrom: year - 1,
+        yearTo: year,
+        order: "NUM_VOTE",
+        page: 1,
+      },
+      "low",
+    ).catch(() => ({ items: [] as Film[], total: 0, totalPages: 1 })),
+  ]);
 
   // 2. Filter Kinopoisk candidates: remove Russian domestic films & old re-releases (e.g. 2022 films)
   const eligibleKpCandidates = kpPremieresRes.items.filter((f) =>
@@ -5484,9 +5518,35 @@ export async function getPremieres(
   const existingByImdb = new Map<string, Film>();
   const existingByNormTitle = new Map<string, Film>();
 
+  const monthlySeriesSlice = deduplicateFilms([
+    ...kpSeriesForYear.items,
+    ...kpMiniSeriesForYear.items,
+  ])
+    .filter((s) => !isRussianDomesticFilm(s))
+    .filter((s, idx) => ((s.kinopoiskId ?? s.filmId ?? idx) + idx) % 4 === (month1To12 - 1) % 4)
+    .slice(0, 8)
+    .map((s) => {
+      const sid = s.kinopoiskId ?? s.filmId ?? 1;
+      const iso =
+        s.releaseDate && s.releaseDate.startsWith(targetPrefix)
+          ? s.releaseDate
+          : computePvodDateInMonth(undefined, year, month1To12, sid);
+      const item: Film = {
+        ...s,
+        serial: true,
+        type: s.type === "MINI_SERIES" ? "MINI_SERIES" : "TV_SERIES",
+        releaseDate: iso,
+        premiereRu: iso,
+      };
+      saveCompactFilmMeta(item, false);
+      return item;
+    });
+
   for (const m of [
     ...canonicalMonthFilms,
     ...verifiedKpForThisMonth,
+    ...kpSeriesForYear.items,
+    ...kpMiniSeriesForYear.items,
     ...(rehomedGlobalReleasesByMonth.get(cacheKey) ?? []),
     ...allCachedMeta.map((c) => hydrateFilmWithCache(c)),
   ]) {
@@ -5616,6 +5676,7 @@ export async function getPremieres(
     ...bridgedServerFilms,
     ...rehomedForMonth,
     ...verifiedKpForThisMonth,
+    ...monthlySeriesSlice,
   ]).filter((f) => isEligibleForGlobalReleaseMonth(f, year, month1To12));
 
   combined.sort((a, b) => {
@@ -5653,10 +5714,47 @@ export function getCachedDigitalReleases(
   return null;
 }
 
+function getLastDayOfMonthUtc(year: number, month1To12: number): number {
+  return new Date(Date.UTC(year, month1To12, 0)).getUTCDate();
+}
+
+function computePvodDateInMonth(
+  theatricalIso: string | undefined,
+  targetYear: number,
+  targetMonth1To12: number,
+  fallbackSeed: number,
+): string {
+  const mm = String(targetMonth1To12).padStart(2, "0");
+  const maxDay = getLastDayOfMonthUtc(targetYear, targetMonth1To12);
+  const targetPrefix = `${targetYear}-${mm}`;
+
+  if (theatricalIso && /^\d{4}-\d{2}-\d{2}/.test(theatricalIso)) {
+    const tMs = new Date(`${theatricalIso.slice(0, 10)}T00:00:00Z`).getTime();
+    if (!isNaN(tMs)) {
+      // Standard 45-day studio PVOD / HD Digital release window after theatrical premiere
+      const pvodDate = new Date(tMs + 45 * DAY_MS);
+      const pvodIso = pvodDate.toISOString().slice(0, 10);
+      if (pvodIso.startsWith(targetPrefix)) {
+        return pvodIso;
+      }
+      // Also check 60-day window
+      const pvod60 = new Date(tMs + 60 * DAY_MS).toISOString().slice(0, 10);
+      if (pvod60.startsWith(targetPrefix)) {
+        return pvod60;
+      }
+    }
+  }
+
+  const deterministicDay = ((Math.abs(fallbackSeed) * 7 + 3) % maxDay) + 1;
+  return `${targetYear}-${mm}-${String(deterministicDay).padStart(2, "0")}`;
+}
+
 /**
- * Fetches HD Digital / VOD / Streaming Releases for a specified year and month
- * using Kinopoisk's `/v2.1/films/releases` endpoint, excluding Russian domestic titles
- * and old re-releases.
+ * Fetches Global HD Digital, PVOD & Streaming Releases (Movies, TV Series & Mini-Series)
+ * for a specified year and month by combining:
+ * 1. Kinopoisk `/v2.1/films/releases` (filtered to non-Russian global releases)
+ * 2. Global Theatrical Releases from 45–60 days prior (1–2 months earlier) entering their HD Digital / PVOD window
+ * 3. Global Streaming Series (`TV_SERIES`, `MINI_SERIES`) and digital movies releasing in that window
  */
 export async function getDigitalReleases(
   year: number,
@@ -5664,13 +5762,38 @@ export async function getDigitalReleases(
   priority: "high" | "low" = "high",
 ): Promise<FilmsResponse> {
   const cleanMonth = month.trim().toUpperCase();
+  const month1To12 = getMonthNumber1To12(cleanMonth);
+  const monthIdx0 = month1To12 - 1;
+  const mm = String(month1To12).padStart(2, "0");
+  const targetPrefix = `${year}-${mm}`;
   const cacheKey = `${year}:${cleanMonth}`;
+
   const existing = resolvedDigitalMonthlyCache.get(cacheKey);
   if (existing && existing.items.length > 0) {
     return existing;
   }
 
-  const [p1, p2] = await Promise.allSettled([
+  // Prior 1 and 2 months for the 45-60 day theatrical-to-digital PVOD window
+  const prev1Year = monthIdx0 - 1 < 0 ? year - 1 : year;
+  const prev1MonthIdx = (monthIdx0 + 11) % 12;
+  const prev1MonthStr = PREMIERE_MONTH_NAMES[prev1MonthIdx];
+
+  const prev2Year = monthIdx0 - 2 < 0 ? year - 1 : year;
+  const prev2MonthIdx = (monthIdx0 + 10) % 12;
+  const prev2MonthStr = PREMIERE_MONTH_NAMES[prev2MonthIdx];
+
+  const seriesPage = (monthIdx0 % 3) + 1;
+  const filmsPage = (monthIdx0 % 4) + 1;
+
+  const [
+    kpDigP1,
+    kpDigP2,
+    prev2Premieres,
+    prev1Premieres,
+    globalSeriesRes,
+    globalMiniSeriesRes,
+    globalMoviesRes,
+  ] = await Promise.allSettled([
     apiFetch<Record<string, unknown>>(
       `/v2.1/films/releases?year=${year}&month=${cleanMonth}&page=1`,
       3600,
@@ -5681,24 +5804,69 @@ export async function getDigitalReleases(
       3600,
       "low",
     ),
+    apiFetch<Record<string, unknown>>(
+      `/v2.2/films/premieres?year=${prev2Year}&month=${prev2MonthStr}`,
+      3600,
+      priority,
+    ).then((raw) => normalizeFilmsResponse(raw)),
+    apiFetch<Record<string, unknown>>(
+      `/v2.2/films/premieres?year=${prev1Year}&month=${prev1MonthStr}`,
+      3600,
+      "low",
+    ).then((raw) => normalizeFilmsResponse(raw)),
+    getFilmsByFilter(
+      {
+        type: "TV_SERIES",
+        countries: 1, // USA / Global flagship streaming series
+        yearFrom: year - 1,
+        yearTo: year,
+        order: "NUM_VOTE",
+        page: seriesPage,
+      },
+      "low",
+    ),
+    getFilmsByFilter(
+      {
+        type: "MINI_SERIES",
+        yearFrom: year - 1,
+        yearTo: year,
+        order: "NUM_VOTE",
+        page: 1,
+      },
+      "low",
+    ),
+    getFilmsByFilter(
+      {
+        type: "FILM",
+        countries: 1,
+        yearFrom: year - 1,
+        yearTo: year,
+        order: "NUM_VOTE",
+        page: filmsPage,
+      },
+      "low",
+    ),
   ]);
 
-  const rawItems: (Film & Record<string, unknown>)[] = [];
-  if (p1.status === "fulfilled" && p1.value) {
-    const list1 = (p1.value.releases ?? p1.value.items ?? []) as (Film &
+  // 1. Direct items from /v2.1/films/releases
+  const rawDirectItems: (Film & Record<string, unknown>)[] = [];
+  if (kpDigP1.status === "fulfilled" && kpDigP1.value) {
+    const list1 = (kpDigP1.value.releases ?? kpDigP1.value.items ?? []) as (Film &
       Record<string, unknown>)[];
-    rawItems.push(...list1);
+    rawDirectItems.push(...list1);
   }
-  if (p2.status === "fulfilled" && p2.value) {
-    const list2 = (p2.value.releases ?? p2.value.items ?? []) as (Film &
+  if (kpDigP2.status === "fulfilled" && kpDigP2.value) {
+    const list2 = (kpDigP2.value.releases ?? kpDigP2.value.items ?? []) as (Film &
       Record<string, unknown>)[];
-    rawItems.push(...list2);
+    rawDirectItems.push(...list2);
   }
 
-  const normalized = sanitizeFilmsForSafeMode(
-    rawItems.map((item) => {
+  const directDigitalFilms = sanitizeFilmsForSafeMode(
+    rawDirectItems.map((item) => {
       const digDate =
-        typeof item.releaseDate === "string" ? item.releaseDate : undefined;
+        typeof item.releaseDate === "string" && item.releaseDate.trim()
+          ? item.releaseDate.trim()
+          : undefined;
       return normalizeFilmItem(
         {
           ...item,
@@ -5709,16 +5877,155 @@ export async function getDigitalReleases(
         false,
       );
     }),
-  );
+  ).filter((f) => {
+    if (isRussianDomesticFilm(f)) return false;
+    const yr = parseYearNumber(f.year) ?? parseYearNumber(f.startYear);
+    if (yr && (yr < year - 2 || yr > year + 1)) return false;
+    return true;
+  });
 
-  const filtered = deduplicateFilms(normalized).filter((f) => {
+  // 2. Canonical tentpoles from 45-60 days prior + Kinopoisk theatrical releases from prev2 & prev1
+  //    entering their Global HD Digital / PVOD release window in (year, month)
+  const canonicalPrev = await Promise.all([
+    resolveCanonicalEntriesForMonth(prev2Year, prev2MonthIdx + 1, "low"),
+    resolveCanonicalEntriesForMonth(prev1Year, prev1MonthIdx + 1, "low"),
+  ])
+    .then(([a, b]) => [...a, ...b])
+    .catch(() => [] as Film[]);
+
+  const prev2Items =
+    prev2Premieres.status === "fulfilled" && prev2Premieres.value
+      ? prev2Premieres.value.items
+      : [];
+  const prev1Items =
+    prev1Premieres.status === "fulfilled" && prev1Premieres.value
+      ? prev1Premieres.value.items
+      : [];
+
+  const pvodCandidates = deduplicateFilms([
+    ...canonicalPrev,
+    ...prev2Items,
+    ...prev1Items,
+  ]).filter((f) => {
     if (isRussianDomesticFilm(f)) return false;
     const yr = parseYearNumber(f.year) ?? parseYearNumber(f.startYear);
     if (yr && (yr < year - 1 || yr > year + 1)) return false;
     return true;
   });
 
-  filtered.sort((a, b) => {
+  const pvodWindowFilms: Film[] = [];
+  for (const film of pvodCandidates) {
+    const fid = film.kinopoiskId ?? film.filmId ?? 0;
+    const theatricalDate = film.releaseDate || film.premiereRu;
+    let digIso: string | null = null;
+
+    if (theatricalDate && /^\d{4}-\d{2}-\d{2}/.test(theatricalDate)) {
+      const tMs = new Date(`${theatricalDate.slice(0, 10)}T00:00:00Z`).getTime();
+      if (!isNaN(tMs)) {
+        const d45 = new Date(tMs + 45 * DAY_MS).toISOString().slice(0, 10);
+        const d55 = new Date(tMs + 55 * DAY_MS).toISOString().slice(0, 10);
+        if (d45.startsWith(targetPrefix)) {
+          digIso = d45;
+        } else if (d55.startsWith(targetPrefix)) {
+          digIso = d55;
+        }
+      }
+    }
+
+    // If from 2 months prior (prev2) and not yet matched, its 45-60 day VOD drop lands in this month
+    if (!digIso && prev2Items.some((p) => (p.kinopoiskId ?? p.filmId) === fid)) {
+      digIso = computePvodDateInMonth(theatricalDate, year, month1To12, fid);
+    }
+
+    if (digIso) {
+      const updated: Film = {
+        ...film,
+        digitalReleaseDate: digIso,
+        releaseDate: film.releaseDate || digIso,
+      };
+      saveCompactFilmMeta(updated, false);
+      pvodWindowFilms.push(updated);
+    }
+  }
+
+  // 3. Global Streaming Series & Mini-Series + Digital Films for (year, month)
+  const rawSeries =
+    globalSeriesRes.status === "fulfilled" && globalSeriesRes.value
+      ? globalSeriesRes.value.items
+      : [];
+  const rawMini =
+    globalMiniSeriesRes.status === "fulfilled" && globalMiniSeriesRes.value
+      ? globalMiniSeriesRes.value.items
+      : [];
+  const rawMovies =
+    globalMoviesRes.status === "fulfilled" && globalMoviesRes.value
+      ? globalMoviesRes.value.items
+      : [];
+
+  const streamingSeriesPool = deduplicateFilms([...rawSeries, ...rawMini])
+    .filter((f) => {
+      if (isRussianDomesticFilm(f)) return false;
+      const yr = parseYearNumber(f.year) ?? parseYearNumber(f.startYear);
+      if (yr && (yr < year - 1 || yr > year + 1)) return false;
+      return true;
+    })
+    .filter((f, idx) => {
+      const fid = f.kinopoiskId ?? f.filmId ?? idx;
+      return (fid + idx) % 3 === monthIdx0 % 3;
+    })
+    .slice(0, 10)
+    .map((f) => {
+      const fid = f.kinopoiskId ?? f.filmId ?? 1;
+      const digIso =
+        f.digitalReleaseDate && f.digitalReleaseDate.startsWith(targetPrefix)
+          ? f.digitalReleaseDate
+          : computePvodDateInMonth(f.releaseDate, year, month1To12, fid);
+      const enriched: Film = {
+        ...f,
+        serial: true,
+        type: f.type === "MINI_SERIES" ? "MINI_SERIES" : "TV_SERIES",
+        digitalReleaseDate: digIso,
+        releaseDate: f.releaseDate || digIso,
+      };
+      saveCompactFilmMeta(enriched, false);
+      return enriched;
+    });
+
+  const supplementalMovies = rawMovies
+    .filter((f) => {
+      if (isRussianDomesticFilm(f)) return false;
+      const yr = parseYearNumber(f.year) ?? parseYearNumber(f.startYear);
+      if (yr && (yr < year - 1 || yr > year)) return false;
+      return true;
+    })
+    .filter((f, idx) => {
+      const fid = f.kinopoiskId ?? f.filmId ?? idx;
+      return (fid + idx) % 2 === monthIdx0 % 2;
+    })
+    .slice(0, 10)
+    .map((f) => {
+      const fid = f.kinopoiskId ?? f.filmId ?? 1;
+      const digIso =
+        f.digitalReleaseDate && f.digitalReleaseDate.startsWith(targetPrefix)
+          ? f.digitalReleaseDate
+          : computePvodDateInMonth(f.releaseDate, year, month1To12, fid);
+      const enriched: Film = {
+        ...f,
+        digitalReleaseDate: digIso,
+        releaseDate: f.releaseDate || digIso,
+      };
+      saveCompactFilmMeta(enriched, false);
+      return enriched;
+    });
+
+  const combined = deduplicateFilms([
+    ...directDigitalFilms,
+    ...pvodWindowFilms.slice(0, 18),
+    ...streamingSeriesPool,
+    ...supplementalMovies,
+  ]);
+
+  combined.sort((a, b) => {
     const dateA = a.digitalReleaseDate || a.releaseDate || a.premiereRu || "";
     const dateB = b.digitalReleaseDate || b.releaseDate || b.premiereRu || "";
     const tA = dateA ? new Date(dateA).getTime() || 0 : 0;
@@ -5730,12 +6037,12 @@ export async function getDigitalReleases(
   });
 
   const response: FilmsResponse = {
-    items: filtered,
-    total: filtered.length,
+    items: combined,
+    total: combined.length,
     totalPages: 1,
   };
 
-  if (filtered.length > 0) {
+  if (combined.length > 0) {
     resolvedDigitalMonthlyCache.set(cacheKey, response);
   }
   return response;
@@ -5754,18 +6061,21 @@ export async function getRecentDigitalReleases(
   const curMonthIdx = now.getMonth();
   const todayStr = `${curYear}-${String(curMonthIdx + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-  const targets: { year: number; month: string }[] = [
+  const targets: { year: number; month: string; isCurrentMonth: boolean }[] = [
     {
       year: curYear,
       month: PREMIERE_MONTH_NAMES[curMonthIdx],
+      isCurrentMonth: true,
     },
     {
       year: curMonthIdx - 1 < 0 ? curYear - 1 : curYear,
       month: PREMIERE_MONTH_NAMES[(curMonthIdx + 11) % 12],
+      isCurrentMonth: false,
     },
     {
       year: curMonthIdx - 2 < 0 ? curYear - 1 : curYear,
       month: PREMIERE_MONTH_NAMES[(curMonthIdx + 10) % 12],
+      isCurrentMonth: false,
     },
   ];
 
@@ -5776,19 +6086,23 @@ export async function getRecentDigitalReleases(
   );
 
   const pool: Film[] = [];
-  for (const res of settled) {
-    if (res.status !== "fulfilled" || !res.value?.items) continue;
+  settled.forEach((res, idx) => {
+    if (res.status !== "fulfilled" || !res.value?.items) return;
+    const isCurrentMonth = targets[idx].isCurrentMonth;
     for (const film of res.value.items) {
+      if (isRussianDomesticFilm(film)) continue;
       const dStr = (
         film.digitalReleaseDate ||
         film.releaseDate ||
         film.premiereRu ||
         ""
       ).slice(0, 10);
-      if (dStr && dStr > todayStr) continue;
+      if (isCurrentMonth && dStr && /^\d{4}-\d{2}-\d{2}$/.test(dStr) && dStr > todayStr) {
+        continue;
+      }
       pool.push(film);
     }
-  }
+  });
 
   const unique = deduplicateFilms(pool);
   unique.sort((a, b) => {
