@@ -1296,7 +1296,7 @@ function FilmDetail({
                   posterUrlPreview: sf.posterUrlPreview,
                 })}
                 variant="scroll"
-                size="md"
+                size="lg"
               />
             ))}
           </div>
@@ -1317,7 +1317,7 @@ function FilmDetail({
                 key={rf.kinopoiskId ?? rf.filmId}
                 film={rf}
                 variant="scroll"
-                size="md"
+                size="lg"
               />
             ))}
           </div>
