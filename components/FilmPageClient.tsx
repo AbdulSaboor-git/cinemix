@@ -1296,7 +1296,7 @@ function FilmDetail({
                   posterUrlPreview: sf.posterUrlPreview,
                 })}
                 variant="scroll"
-                size="sm"
+                size="md"
               />
             ))}
           </div>
@@ -1307,7 +1307,7 @@ function FilmDetail({
       {related.length > 0 && (
         <div className="mt-10 md:mt-12">
           <SectionHeader title="SEQUELS & PREQUELS" count={related.length} />
-          <div className="flex gap-3 sm:gap-4 flex-wrap">
+          <div className="flex gap-3 overflow-x-auto pb-3 scrollbar-none">
             {Array.from(
               new Map(
                 related.map((rf) => [rf.kinopoiskId ?? rf.filmId, rf]),
@@ -1317,7 +1317,7 @@ function FilmDetail({
                 key={rf.kinopoiskId ?? rf.filmId}
                 film={rf}
                 variant="scroll"
-                size="sm"
+                size="md"
               />
             ))}
           </div>
