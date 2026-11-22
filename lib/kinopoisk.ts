@@ -4918,11 +4918,12 @@ export async function searchFilms(
     }
   }
 
-  // If user explicitly searched with a release year (e.g. "oldboy 2003"), prioritize matching years
+  // When actor/director credits are resolved, return their clean filmography directly
+  // (avoiding unrelated keyword hits or bogus movie-title "smart match" banners).
   let finalItems =
     personCredits.length > 0
       ? deduplicateFilms(
-          imdbPersonHint && topTitleMatch < 92
+          imdbPersonHint
             ? personCredits
             : [...personCredits, ...ranked],
         )
@@ -4954,7 +4955,7 @@ export async function searchFilms(
     total: maxTotal,
     totalPages: maxPages,
     matchedPerson: null,
-    correctedQuery: effectiveCorrectedQuery,
+    correctedQuery: personCredits.length > 0 ? null : effectiveCorrectedQuery,
     targetYear,
   };
 }

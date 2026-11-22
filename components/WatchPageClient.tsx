@@ -16,6 +16,7 @@ import {
   PlayCircleIcon,
   CalendarIcon,
   Share2,
+  Check,
 } from "lucide-react";
 import {
   getFilm,
@@ -37,6 +38,7 @@ import {
   addToHistory,
   toggleFavorite,
   toggleWatchLater,
+  toggleWatched,
 } from "@/lib/userLists";
 import {
   translateGenre,
@@ -351,7 +353,7 @@ export default function WatchPageClient({
   const savedServerRef = useRef<SavedServerSelection | null>(null);
   const needsIframeServerSyncRef = useRef<boolean>(false);
 
-  const { isFav, isWL, isRated, userRating } = useListStatus(
+  const { isFav, isWL, isWatched, isRated, userRating } = useListStatus(
     isNaN(id) ? 0 : id,
   );
 
@@ -842,6 +844,20 @@ export default function WatchPageClient({
     });
   };
 
+  const handleWatched = () => {
+    const added = toggleWatched(filmEntry);
+    toast.show(added ? "Marked as Watched" : "Removed from Watched", {
+      type: added ? "success" : "info",
+      description: name,
+      posterUrl: posterThumb,
+      dedupeKey: `watched-${id}`,
+      action: {
+        label: "Undo",
+        onClick: () => toggleWatched(filmEntry),
+      },
+    });
+  };
+
   return (
     <PageContainer className="relative">
       <div
@@ -1017,6 +1033,20 @@ export default function WatchPageClient({
                 }`}
               >
                 <Clock size={14} stroke={isWL ? "#60a5fa" : "currentColor"} />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleWatched}
+                aria-label={isWatched ? "Marked as Watched" : "Mark as Watched"}
+                title={isWatched ? "Watched (click to remove)" : "Mark as Watched"}
+                className={`btn btn-ghost h-8 w-8 p-0 inline-flex items-center justify-center gap-2 rounded-[9px] transition-all active:scale-90 ${
+                  isWatched
+                    ? "border-[rgba(34,197,94,0.45)] bg-[rgba(34,197,94,0.12)] text-[#4ade80]"
+                    : ""
+                }`}
+              >
+                <Check size={14} stroke={isWatched ? "#4ade80" : "currentColor"} strokeWidth={2.5} />
               </button>
 
               <button

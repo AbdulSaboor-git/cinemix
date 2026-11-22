@@ -23,6 +23,7 @@ import {
   RatedFilmEntry,
   FilmListEntry,
   ProfileSectionKey,
+  UserListSortOption,
   DEFAULT_PROFILE_SECTION_ORDER,
 } from "@/lib/session";
 import {
@@ -41,8 +42,7 @@ import {
   hasVerifiedApiKey,
   getProfileSectionOrder,
   saveProfileSectionOrder,
-  getProfileSectionSort,
-  saveProfileSectionSort,
+  getListSortPreference,
 } from "@/lib/preferences";
 import { verifyApiKeys } from "@/lib/kinopoisk";
 import PageContainer from "@/components/ui/PageContainer";
@@ -50,7 +50,7 @@ import PosterImage from "@/components/ui/PosterImage";
 import NoKeyBanner from "@/components/ui/NoKeyBanner";
 import RateFilmModal, { RateFilmTarget } from "@/components/RateFilmModal";
 
-type SectionPreviewSort = "RECENT" | "RATING" | "YEAR" | "TITLE";
+type SectionPreviewSort = UserListSortOption;
 
 function StatCard({
   label,
@@ -301,18 +301,22 @@ function sortSectionItems<T extends FilmListEntry>(
   sortMode: SectionPreviewSort,
 ): T[] {
   const copy = [...list];
-  if (sortMode === "RATING") {
+  if (sortMode === "USER_RATING_DESC") {
     return copy.sort((a, b) => {
-      const rA =
-        "user_rating" in a && typeof a.user_rating === "number"
-          ? a.user_rating
-          : (a.rating ?? 0);
-      const rB =
-        "user_rating" in b && typeof b.user_rating === "number"
-          ? b.user_rating
-          : (b.rating ?? 0);
+      const rA = "user_rating" in a && typeof a.user_rating === "number" ? a.user_rating : (a.rating ?? 0);
+      const rB = "user_rating" in b && typeof b.user_rating === "number" ? b.user_rating : (b.rating ?? 0);
       return rB - rA;
     });
+  }
+  if (sortMode === "USER_RATING_ASC") {
+    return copy.sort((a, b) => {
+      const rA = "user_rating" in a && typeof a.user_rating === "number" ? a.user_rating : (a.rating ?? 0);
+      const rB = "user_rating" in b && typeof b.user_rating === "number" ? b.user_rating : (b.rating ?? 0);
+      return rA - rB;
+    });
+  }
+  if (sortMode === "RATING") {
+    return copy.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
   }
   if (sortMode === "YEAR") {
     return copy.sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
@@ -437,10 +441,10 @@ export default function ProfileClient() {
   const [sectionSorts, setSectionSorts] = useState<
     Record<ProfileSectionKey, SectionPreviewSort>
   >(() => ({
-    ratings: getProfileSectionSort("ratings"),
-    history: getProfileSectionSort("history"),
-    favorites: getProfileSectionSort("favorites"),
-    watchlater: getProfileSectionSort("watchlater"),
+    ratings: getListSortPreference("ratings"),
+    history: getListSortPreference("history"),
+    favorites: getListSortPreference("favorites"),
+    watchlater: getListSortPreference("watchlater"),
   }));
   const [reorderDrawerOpen, setReorderDrawerOpen] = useState(false);
 
@@ -484,10 +488,10 @@ export default function ProfileClient() {
     setTasteStats(getTasteStats());
     setSectionOrder(getProfileSectionOrder());
     setSectionSorts({
-      ratings: getProfileSectionSort("ratings"),
-      history: getProfileSectionSort("history"),
-      favorites: getProfileSectionSort("favorites"),
-      watchlater: getProfileSectionSort("watchlater"),
+      ratings: getListSortPreference("ratings"),
+      history: getListSortPreference("history"),
+      favorites: getListSortPreference("favorites"),
+      watchlater: getListSortPreference("watchlater"),
     });
   };
 
@@ -545,36 +549,11 @@ export default function ProfileClient() {
     saveProfileSectionOrder(next);
   };
 
-  const handleMoveVisibleSection = (key: ProfileSectionKey, dir: -1 | 1) => {
-    const visibleKeys = sectionOrder.filter((k) => counts[k] > 0);
-    const visIdx = visibleKeys.indexOf(key);
-    if (visIdx === -1) return;
-    const swapTargetKey = visibleKeys[visIdx + dir];
-    if (!swapTargetKey) return;
-
-    const idxA = sectionOrder.indexOf(key);
-    const idxB = sectionOrder.indexOf(swapTargetKey);
-    if (idxA === -1 || idxB === -1) return;
-
-    const next = [...sectionOrder];
-    [next[idxA], next[idxB]] = [next[idxB], next[idxA]];
-    setSectionOrder(next);
-    saveProfileSectionOrder(next);
-  };
-
   const handleResetSectionOrder = () => {
     const def = [...DEFAULT_PROFILE_SECTION_ORDER];
     setSectionOrder(def);
     saveProfileSectionOrder(def);
     toast.info("Section order reset to default.");
-  };
-
-  const handleChangeSectionSort = (
-    key: ProfileSectionKey,
-    sort: SectionPreviewSort,
-  ) => {
-    setSectionSorts((prev) => ({ ...prev, [key]: sort }));
-    saveProfileSectionSort(key, sort);
   };
 
   const visibleSections = useMemo(
@@ -757,11 +736,9 @@ export default function ProfileClient() {
       )}
 
       {/* ── Ordered Profile Sections ── */}
-      {visibleSections.map((key, visIdx) => {
+      {visibleSections.map((key) => {
         const meta = SECTION_META[key];
-        const sortMode = sectionSorts[key] || "RECENT";
-        const isFirst = visIdx === 0;
-        const isLast = visIdx === visibleSections.length - 1;
+        const sortMode = sectionSorts[key] || "ADDED";
 
         if (key === "ratings") {
           const sortedRatings = sortSectionItems(allRatings, sortMode).slice(
@@ -785,56 +762,12 @@ export default function ProfileClient() {
                   </span>
                 </Link>
 
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <select
-                    value={sortMode}
-                    onChange={(e) =>
-                      handleChangeSectionSort(
-                        key,
-                        e.target.value as SectionPreviewSort,
-                      )
-                    }
-                    aria-label={`Sort ${meta.title}`}
-                    className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[6px] text-[10.5px] text-[var(--text-dim)] px-2 py-1 outline-none cursor-pointer"
-                  >
-                    <option value="RECENT">Recent</option>
-                    <option value="RATING">Top Rated</option>
-                    <option value="YEAR">Year</option>
-                    <option value="TITLE">Title A–Z</option>
-                  </select>
-
-                  {visibleSections.length > 1 && (
-                    <div className="inline-flex items-center gap-0.5">
-                      <button
-                        type="button"
-                        disabled={isFirst}
-                        onClick={() => handleMoveVisibleSection(key, -1)}
-                        title="Move section up"
-                        aria-label={`Move ${meta.title} up`}
-                        className="w-6 h-6 rounded-[5px] bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] hover:text-white disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center cursor-pointer"
-                      >
-                        <ArrowUp size={11} />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isLast}
-                        onClick={() => handleMoveVisibleSection(key, 1)}
-                        title="Move section down"
-                        aria-label={`Move ${meta.title} down`}
-                        className="w-6 h-6 rounded-[5px] bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] hover:text-white disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center cursor-pointer"
-                      >
-                        <ArrowDown size={11} />
-                      </button>
-                    </div>
-                  )}
-
-                  <Link
-                    href={meta.href}
-                    className="text-[11px] text-[var(--accent)] hover:underline font-medium no-underline ml-1"
-                  >
-                    See all
-                  </Link>
-                </div>
+                <Link
+                  href={meta.href}
+                  className="text-[11px] text-[var(--accent)] hover:underline font-medium no-underline flex-shrink-0"
+                >
+                  See all
+                </Link>
               </div>
 
               <div className="px-4 sm:px-5">
@@ -883,56 +816,12 @@ export default function ProfileClient() {
                 </span>
               </Link>
 
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                <select
-                  value={sortMode}
-                  onChange={(e) =>
-                    handleChangeSectionSort(
-                      key,
-                      e.target.value as SectionPreviewSort,
-                    )
-                  }
-                  aria-label={`Sort ${meta.title}`}
-                  className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-[6px] text-[10.5px] text-[var(--text-dim)] px-2 py-1 outline-none cursor-pointer"
-                >
-                  <option value="RECENT">Recent</option>
-                  <option value="RATING">Top Rated</option>
-                  <option value="YEAR">Year</option>
-                  <option value="TITLE">Title A–Z</option>
-                </select>
-
-                {visibleSections.length > 1 && (
-                  <div className="inline-flex items-center gap-0.5">
-                    <button
-                      type="button"
-                      disabled={isFirst}
-                      onClick={() => handleMoveVisibleSection(key, -1)}
-                      title="Move section up"
-                      aria-label={`Move ${meta.title} up`}
-                      className="w-6 h-6 rounded-[5px] bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] hover:text-white disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center cursor-pointer"
-                    >
-                      <ArrowUp size={11} />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isLast}
-                      onClick={() => handleMoveVisibleSection(key, 1)}
-                      title="Move section down"
-                      aria-label={`Move ${meta.title} down`}
-                      className="w-6 h-6 rounded-[5px] bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] hover:text-white disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center cursor-pointer"
-                    >
-                      <ArrowDown size={11} />
-                    </button>
-                  </div>
-                )}
-
-                <Link
-                  href={meta.href}
-                  className="text-[11px] text-[var(--accent)] hover:underline font-medium no-underline ml-1"
-                >
-                  See all
-                </Link>
-              </div>
+              <Link
+                href={meta.href}
+                className="text-[11px] text-[var(--accent)] hover:underline font-medium no-underline flex-shrink-0"
+              >
+                See all
+              </Link>
             </div>
 
             <div className="px-4 sm:px-5">

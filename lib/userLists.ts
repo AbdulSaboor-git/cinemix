@@ -200,6 +200,26 @@ export function removeFromHistory(filmId: number): void {
   saveSession(s);
 }
 
+/**
+ * Directly toggle a film in the Watched (history) list.
+ * Always honors explicit user action regardless of passive auto-history tracking.
+ */
+export function toggleWatched(entry: Omit<FilmListEntry, "added_at">): boolean {
+  const s = getSession();
+  const existing = s.lists.history.findIndex((e) => e.film_id === entry.film_id);
+  if (existing !== -1) {
+    s.lists.history.splice(existing, 1);
+    saveSession(s, { source: "list-toggle" });
+    return false;
+  }
+  s.lists.history = dedupe([
+    { ...entry, added_at: now() },
+    ...s.lists.history,
+  ]).slice(0, MAX_HISTORY);
+  saveSession(s, { source: "list-toggle" });
+  return true;
+}
+
 export function clearFavorites(): void {
   const s = getSession();
   s.lists.favorites = [];

@@ -21,7 +21,11 @@ import {
   getCachedFilmMeta,
 } from "@/lib/kinopoisk";
 import { getQuickCertBadge } from "@/lib/parentalGuide";
-import { toggleFavorite, toggleWatchLater } from "@/lib/userLists";
+import {
+  toggleFavorite,
+  toggleWatchLater,
+  toggleWatched,
+} from "@/lib/userLists";
 import { lockScroll, unlockScroll } from "@/lib/scrollLock";
 import { useToast } from "@/lib/toast";
 import PosterImage from "@/components/ui/PosterImage";
@@ -204,7 +208,7 @@ export function useHydratedFilm(
           obs.disconnect();
         }
       },
-      { rootMargin: "180px" },
+      { rootMargin: "40px" },
     );
     obs.observe(el);
     return () => obs.disconnect();
@@ -470,7 +474,8 @@ export function FilmLongPressPortal({
   const year = hydrated.year || hydrated.startYear;
   const certBadge = getQuickCertBadge(hydrated);
 
-  const { isFav, isWL, isRated, userRating, mounted } = useListStatus(id);
+  const { isFav, isWL, isWatched, isRated, userRating, mounted } =
+    useListStatus(id);
   const { toast } = useToast();
 
   const posterUrl = hydrated.posterUrlPreview || hydrated.posterUrl || null;
@@ -536,6 +541,33 @@ export function FilmLongPressPortal({
         action: {
           label: "Undo",
           onClick: () => toggleWatchLater(entry),
+        },
+      });
+    },
+    [id, name, posterUrl, entryYear, entryRating, toast],
+  );
+
+  const handleWatched = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const entry = {
+        film_id: id,
+        film_name: name,
+        poster_url: posterUrl,
+        year: entryYear,
+        rating: entryRating,
+      };
+      const added = toggleWatched(entry);
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(20);
+      }
+      toast.success(added ? "Marked as Watched" : "Removed from Watched", {
+        description: name,
+        posterUrl,
+        action: {
+          label: "Undo",
+          onClick: () => toggleWatched(entry),
         },
       });
     },
@@ -672,7 +704,7 @@ export function FilmLongPressPortal({
 
         {/* ── Floating Action Controls Below Popup Card ── */}
         <div className="w-[256px] flex flex-col gap-2.5">
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={handleFav}
@@ -697,9 +729,7 @@ export function FilmLongPressPortal({
                 strokeWidth={2.2}
                 className="shrink-0"
               />
-              <span className="truncate">
-                {isFav ? "Saved" : "Favorite"}
-              </span>
+              <span className="truncate">{isFav ? "Saved" : "Favorite"}</span>
             </button>
 
             <button
@@ -725,10 +755,34 @@ export function FilmLongPressPortal({
                 strokeWidth={2.2}
                 className="shrink-0"
               />
-              <span className="truncate">
-                {isWL ? "Listed" : "Later"}
-              </span>
+              <span className="truncate">{isWL ? "Listed" : "Later"}</span>
             </button>
+
+            {/* <button
+              type="button"
+              onClick={handleWatched}
+              style={{
+                transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+                transitionDelay: popupEntered ? "160ms" : "0ms",
+              }}
+              className={`flex items-center justify-center gap-1.5 py-3 px-2 rounded-[10px] border backdrop-blur-xl font-semibold text-[11.5px] active:scale-95 transition-all duration-300 cursor-pointer ${
+                popupEntered
+                  ? "opacity-100 translate-y-0 scale-100"
+                  : "opacity-0 -translate-y-3 scale-90"
+              } ${
+                isWatched
+                  ? "bg-[rgba(34,197,94,0.28)] border-[rgba(34,197,94,0.75)] text-[#4ade80]"
+                  : "bg-[rgba(24,24,28,0.85)] border-white/15 text-white/90"
+              }`}
+            >
+              <Check
+                size={15}
+                stroke={isWatched ? "#4ade80" : "currentColor"}
+                strokeWidth={2.4}
+                className="shrink-0"
+              />
+              <span className="truncate">{isWatched ? "Seen" : "Watch"}</span>
+            </button> */}
           </div>
 
           <Link
@@ -779,7 +833,7 @@ const FilmCard = memo(function FilmCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const posterRef = useRef<HTMLDivElement>(null);
 
-  const film = useHydratedFilm(rawFilm, cardRef, false, true);
+  const film = useHydratedFilm(rawFilm, cardRef, false, false);
 
   const id = film.kinopoiskId ?? film.filmId ?? 0;
   const name = useFilmTitle(film, autoTranslate);
@@ -856,6 +910,33 @@ const FilmCard = memo(function FilmCard({
         action: {
           label: "Undo",
           onClick: () => toggleWatchLater(entry),
+        },
+      });
+    },
+    [id, name, posterUrl, entryYear, entryRating, toast],
+  );
+
+  const handleWatched = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const entry = {
+        film_id: id,
+        film_name: name,
+        poster_url: posterUrl,
+        year: entryYear,
+        rating: entryRating,
+      };
+      const added = toggleWatched(entry);
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(20);
+      }
+      toast.success(added ? "Marked as Watched" : "Removed from Watched", {
+        description: name,
+        posterUrl,
+        action: {
+          label: "Undo",
+          onClick: () => toggleWatched(entry),
         },
       });
     },
@@ -1010,6 +1091,26 @@ const FilmCard = memo(function FilmCard({
                     strokeWidth={2.2}
                   />
                 </button>
+                {/* <button
+                  type="button"
+                  onClick={handleWatched}
+                  title={
+                    isWatched
+                      ? "Watched (click to remove)"
+                      : "Mark as Watched"
+                  }
+                  className={`flex items-center gap-[4px] rounded-[6px] px-[7px] py-[5px] text-[10px] font-semibold backdrop-blur-[8px] border transition-all duration-150 cursor-pointer ${
+                    isWatched
+                      ? "bg-[rgba(34,197,94,0.28)] border-[rgba(34,197,94,0.65)] text-[#4ade80]"
+                      : "bg-[rgba(0,0,0,0.68)] border-[rgba(255,255,255,0.16)] text-white hover:bg-[rgba(34,197,94,0.18)] hover:border-[rgba(34,197,94,0.5)] hover:text-[#4ade80]"
+                  }`}
+                >
+                  <Check
+                    size={13}
+                    stroke={isWatched ? "#4ade80" : "currentColor"}
+                    strokeWidth={2.5}
+                  />
+                </button> */}
                 {onQuickPeek && (
                   <button
                     type="button"

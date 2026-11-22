@@ -28,6 +28,7 @@ import {
   Copy,
   Maximize2,
   Film as FilmIcon,
+  Check,
 } from "lucide-react";
 import {
   getFilm,
@@ -96,6 +97,7 @@ import { getQuickCertBadge } from "@/lib/parentalGuide";
 import {
   toggleFavorite,
   toggleWatchLater,
+  toggleWatched,
   getRatingVerdict,
   TASTE_DIMENSIONS,
   RatedFilmEntry,
@@ -511,7 +513,7 @@ function FilmDetail({
     }
   }, [filmId, activeStaffDept, reviewFilter, reviewSort, activeTab]);
 
-  const { isFav, isWL, isRated, userRating, ratingEntry } =
+  const { isFav, isWL, isWatched, isRated, userRating, ratingEntry } =
     useListStatus(filmId);
   const [rateModalOpen, setRateModalOpen] = useState(false);
   const [parentalOpen, setParentalOpen] = useState(false);
@@ -576,6 +578,20 @@ function FilmDetail({
       action: {
         label: "Undo",
         onClick: () => toggleWatchLater(filmEntry),
+      },
+    });
+  };
+
+  const handleWatched = () => {
+    const added = toggleWatched(filmEntry);
+    toast.show(added ? "Marked as Watched" : "Removed from Watched", {
+      type: added ? "success" : "info",
+      description: name,
+      posterUrl: posterThumb,
+      dedupeKey: `watched-${filmId}`,
+      action: {
+        label: "Undo",
+        onClick: () => toggleWatched(filmEntry),
       },
     });
   };
@@ -886,7 +902,7 @@ function FilmDetail({
               </Link>
             </div>
 
-            <div className="grid grid-cols-4 sm:flex items-center gap-1.5 sm:gap-2.5">
+            <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2.5">
               <button
                 type="button"
                 onClick={handleFav}
@@ -939,6 +955,29 @@ function FilmDetail({
                 </span>
                 <span className="hidden sm:inline whitespace-nowrap">
                   {isWL ? "In Watch Later" : "Watch Later"}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleWatched}
+                title={
+                  isWatched ? "Watched (tap to remove)" : "Mark as Watched"
+                }
+                className={`flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
+                  isWatched
+                    ? "bg-[rgba(34,197,94,0.14)] border-[rgba(34,197,94,0.45)] text-[#4ade80]"
+                    : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(34,197,94,0.45)] hover:text-[#4ade80]"
+                }`}
+              >
+                <Check
+                  size={14}
+                  stroke="currentColor"
+                  strokeWidth={2.4}
+                  className="shrink-0"
+                />
+                <span className="whitespace-nowrap">
+                  {isWatched ? "Watched" : "Watched"}
                 </span>
               </button>
 
