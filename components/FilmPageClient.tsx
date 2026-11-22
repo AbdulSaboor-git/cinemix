@@ -135,6 +135,8 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
   const [loading, setLoading] = useState(() => !isNaN(id));
   const [error, setError] = useState(isNaN(id));
   const [keyEpoch, setKeyEpoch] = useState(0);
+  const [stage2Unlocked, setStage2Unlocked] = useState(false);
+  const stage2FetchedIdRef = React.useRef<number | null>(null);
 
   useEffect(() => {
     const syncKeyState = () => {
@@ -167,7 +169,6 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
     if (isNaN(id)) return;
     setNoKey(false);
     let mounted = true;
-    let stage2Timer: ReturnType<typeof setTimeout> | null = null;
 
     const seeded = hasVerifiedApiKey() ? buildInitialCachedFilm(id) : null;
     if (seeded) {
@@ -188,6 +189,8 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
     setAwards([]);
     setImages([]);
     setDistributions([]);
+    setStage2Unlocked(false);
+    stage2FetchedIdRef.current = null;
     window.scrollTo({ top: 0 });
 
     getFilm(id, "high")
@@ -224,45 +227,7 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
             .catch(() => {});
         }
 
-        // ── Stage 2 (Low Priority, Deferred): Below-the-fold Trivia, Reviews, Awards, Gallery, Similars ──
-        stage2Timer = setTimeout(() => {
-          if (!mounted) return;
-          if (fs.similars) {
-            getSimilarFilms(id, "low")
-              .then((d) => mounted && setSimilars(d.items || []))
-              .catch(() => {});
-          }
-          if (fs.sequels) {
-            getRelatedFilms(id, "low")
-              .then((r) => mounted && setRelated(r || []))
-              .catch(() => {});
-          }
-          if (fs.facts) {
-            getFilmFacts(id, "low")
-              .then((d) => mounted && setFacts(d.items || []))
-              .catch(() => {});
-          }
-          if (fs.reviews) {
-            getFilmReviews(id, 1, "DATE_DESC", "low")
-              .then((d) => mounted && setReviews(d.items || []))
-              .catch(() => {});
-          }
-          if (fs.awards) {
-            getFilmAwards(id, "low")
-              .then((d) => mounted && setAwards(d.items || []))
-              .catch(() => {});
-          }
-          if (fs.gallery) {
-            getFilmImages(id, "STILL", 1, "low")
-              .then((d) => mounted && setImages(d.items || []))
-              .catch(() => {});
-          }
-          if (fs.distributions) {
-            getFilmDistributions(id, "low")
-              .then((d) => mounted && setDistributions(d.items || []))
-              .catch(() => {});
-          }
-        }, 120);
+        // Stage 2 below-the-fold sections are triggered lazily on scroll (see effect below)
       })
       .catch(() => {
         if (mounted) {
@@ -278,9 +243,69 @@ export default function FilmPageClient({ filmId }: { filmId: string }) {
 
     return () => {
       mounted = false;
-      if (stage2Timer) clearTimeout(stage2Timer);
     };
   }, [id, keyEpoch]);
+
+  // Unlock Stage 2 below-the-fold fetches only once the user scrolls past the hero/watch CTA
+  useEffect(() => {
+    if (!film || isNaN(id) || stage2Unlocked) return;
+    if (isSafeModeActive() && isAdultContentFilm(film)) return;
+    const onScroll = () => {
+      if (window.scrollY > 180) {
+        setStage2Unlocked(true);
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [film, id, stage2Unlocked]);
+
+  useEffect(() => {
+    if (!film || isNaN(id) || !stage2Unlocked || !hasApiKeys()) return;
+    if (isSafeModeActive() && isAdultContentFilm(film)) return;
+    if (stage2FetchedIdRef.current === id) return;
+    stage2FetchedIdRef.current = id;
+
+    let mounted = true;
+    const fs = getPreferences().filmSections;
+    if (fs.similars) {
+      getSimilarFilms(id, "low")
+        .then((d) => mounted && setSimilars(d.items || []))
+        .catch(() => {});
+    }
+    if (fs.sequels) {
+      getRelatedFilms(id, "low")
+        .then((r) => mounted && setRelated(r || []))
+        .catch(() => {});
+    }
+    if (fs.facts) {
+      getFilmFacts(id, "low")
+        .then((d) => mounted && setFacts(d.items || []))
+        .catch(() => {});
+    }
+    if (fs.reviews) {
+      getFilmReviews(id, 1, "DATE_DESC", "low")
+        .then((d) => mounted && setReviews(d.items || []))
+        .catch(() => {});
+    }
+    if (fs.awards) {
+      getFilmAwards(id, "low")
+        .then((d) => mounted && setAwards(d.items || []))
+        .catch(() => {});
+    }
+    if (fs.gallery) {
+      getFilmImages(id, "STILL", 1, "low")
+        .then((d) => mounted && setImages(d.items || []))
+        .catch(() => {});
+    }
+    if (fs.distributions) {
+      getFilmDistributions(id, "low")
+        .then((d) => mounted && setDistributions(d.items || []))
+        .catch(() => {});
+    }
+    return () => {
+      mounted = false;
+    };
+  }, [film, id, stage2Unlocked]);
 
   if (noKey) return <NoKeyBanner />;
   if (loading && !film) return <LoadingSkeleton />;

@@ -1113,10 +1113,17 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedIdx >= 0 && suggestions[selectedIdx]) {
-      const film = suggestions[selectedIdx];
+      const picked = suggestions[selectedIdx];
       clearSuggestions();
       setSearchFocused(false);
-      router.push(`/film/${film.kinopoiskId ?? film.filmId}`);
+      searchInputRef.current?.blur();
+      setRecentTerms(saveRecentSearch(picked.title));
+      if (picked.filmId && picked.kind !== "person") {
+        router.push(`/film/${picked.filmId}`);
+      } else {
+        setSearchInput(picked.title);
+        pushExploreParams({ q: picked.title, keyword: undefined });
+      }
       return;
     }
     const trimmed = searchInput.trim();
@@ -1280,7 +1287,9 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
                 />
                 <input
                   ref={searchInputRef}
-                  type="text"
+                  type="search"
+                  enterKeyHint="search"
+                  autoComplete="off"
                   value={searchInput}
                   onChange={(e) => handleSearchInputChange(e.target.value)}
                   onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
@@ -1288,15 +1297,13 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
                     setSearchFocused(true);
                     if (
                       searchInput.trim().length >= 2 &&
-                      (suggestions.length > 0 ||
-                        semanticMeta ||
-                        sugMatchedPerson)
+                      suggestions.length > 0
                     ) {
                       setSugVisible(true);
                     }
                   }}
-                  placeholder="Search titles, franchises, release years, or themes…"
-                  className="input w-full text-[13px] sm:text-[14px] py-2 sm:py-2.5 pl-9 pr-9 rounded-[10px] bg-[var(--bg-elevated)] border-[var(--border)] focus:border-[var(--accent)]"
+                  placeholder="Search titles, actors, release years, or themes…"
+                  className="input w-full text-[16px] sm:text-[14px] py-2 sm:py-2.5 pl-9 pr-9 rounded-[10px] bg-[var(--bg-elevated)] border-[var(--border)] focus:border-[var(--accent)]"
                 />
                 {(searchInput || activeSearchQuery) && (
                   <button

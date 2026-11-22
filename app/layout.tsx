@@ -47,13 +47,14 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  viewportFit: "cover",
   themeColor: "#080808",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${bebas.variable} ${dmSans.variable}`}>
-      <body className="flex flex-col min-h-screen">
+      <body className="flex flex-col min-h-[100dvh]">
         <ToastProvider>
           <SessionInit />
           <Navbar />

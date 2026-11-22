@@ -227,7 +227,6 @@ function scoreCandidate(
   targetTitles: string[],
   targetYear: number | null,
   targetType?: string | null,
-  fromYearSpecificQuery = false,
 ): number {
   if (!item.id || !/^tt\d+$/i.test(item.id)) return -999;
   if (!isValidPosterUrl(item.i?.imageUrl)) return -999;
@@ -237,7 +236,9 @@ function scoreCandidate(
     qid.includes("videogame") ||
     qid.includes("video game") ||
     qid === "podcastseries" ||
-    qid === " podcastepisode"
+    qid === "podcastepisode" ||
+    qid.includes("musicvideo") ||
+    qid.includes("tvepisode")
   ) {
     return -999;
   }
@@ -245,84 +246,7 @@ function scoreCandidate(
   const candNorm = normalizeTitleForMatch(item.l);
   if (!candNorm) return -999;
 
-  const itemYear = extractItemStartYear(item);
-
-  // Strict Year Verification first:
-  // If we know the movie's release year (e.g. Oldboy 2003 vs Oldboy 2013),
-  // never allow a candidate from a different release era or without a year to win!
-  let yearScore = 0;
-  if (targetYear !== null) {
-    if (!itemYear) {
-      return -999;
-    }
-    const diff = Math.abs(itemYear - targetYear);
-    if (diff === 0) {
-      yearScore = 75;
-    } else if (diff === 1) {
-      // Allow ±1 year for festival vs theatrical release dates, but 55 pts lower than exact year
-      yearScore = 20;
-    } else {
-      // Strictly reject any title more than 1 year off when targetYear is known
-      return -999;
-    }
-  }
-
-  let titleScore = -30;
-  for (const t of targetTitles) {
-    const targetNorm = normalizeTitleForMatch(t);
-    if (!targetNorm) continue;
-
-    if (candNorm === targetNorm) {
-      titleScore = Math.max(titleScore, 70);
-      break;
-    }
-
-    // Space-insensitive exact match (e.g. "old boy" vs "oldboy", "spider man" vs "spiderman")
-    if (candNorm.replace(/\s+/g, "") === targetNorm.replace(/\s+/g, "")) {
-      titleScore = Math.max(titleScore, 66);
-      break;
-    }
-
-    // Match before colon (e.g. "Mission: Impossible - Dead Reckoning" vs "Mission: Impossible")
-    const candBase = normalizeTitleForMatch(item.l?.split(":")[0]);
-    const targetBase = normalizeTitleForMatch(t.split(":")[0]);
-    if (candBase && targetBase && candBase.length >= 4 && candBase === targetBase) {
-      titleScore = Math.max(titleScore, 44);
-    }
-
-    if (
-      (candNorm.startsWith(targetNorm) || targetNorm.startsWith(candNorm)) &&
-      Math.min(candNorm.length, targetNorm.length) >= 4
-    ) {
-      titleScore = Math.max(titleScore, 38);
-    }
-
-    const candWords = candNorm.split(" ").filter(Boolean);
-    const targetWords = new Set(targetNorm.split(" ").filter(Boolean));
-    if (candWords.length > 0 && targetWords.size > 0) {
-      const shared = candWords.filter((w) => targetWords.has(w)).length;
-      const ratio = shared / Math.max(candWords.length, targetWords.size);
-      if (ratio >= 0.75) {
-        titleScore = Math.max(titleScore, 30);
-      }
-    }
-  }
-
-  // If the candidate was returned by a specific "<origTitle> <year>" query on IMDb
-  // (e.g. "Oldeuboi 2003" -> IMDb returns "Oldboy" (2003), or "Gisaengchung 2019" -> "Parasite" (2019))
-  // and its year matches targetYear exactly, accept IMDb's native-to-English title mapping!
-  if (
-    titleScore < 0 &&
-    fromYearSpecificQuery &&
-    targetYear !== null &&
-    itemYear === targetYear
-  ) {
-    titleScore = 52;
-  }
-
-  if (titleScore < 0) return -999;
-
-  let typeScore = 0;
+  // Strict media type verification when targetType is known
   const normType = (targetType || "").toUpperCase();
   const isTargetSeries =
     normType === "TV_SERIES" ||
@@ -333,13 +257,73 @@ function scoreCandidate(
     qid.includes("tvminiseries") ||
     qid.includes("tv series") ||
     qid.includes("mini-series");
+  const isCandMovie =
+    qid === "movie" ||
+    qid === "feature" ||
+    qid === "tvmovie" ||
+    qid === "video";
 
   if (normType) {
-    if (isTargetSeries && isCandSeries) typeScore = 15;
-    else if (!isTargetSeries && !isCandSeries) typeScore = 12;
-    else typeScore = -12;
+    if (isTargetSeries && isCandMovie) return -999;
+    if (!isTargetSeries && isCandSeries) return -999;
   }
 
+  const itemYear = extractItemStartYear(item);
+
+  // Strict Year Verification: reject any candidate > 1 year off when targetYear is known
+  let yearScore = 0;
+  if (targetYear !== null) {
+    if (!itemYear) return -999;
+    const diff = Math.abs(itemYear - targetYear);
+    if (diff === 0) {
+      yearScore = 75;
+    } else if (diff === 1) {
+      yearScore = 25;
+    } else {
+      return -999;
+    }
+  }
+
+  // Strict Title Verification: only exact, space-insensitive exact, or exact-year colon-base match
+  let titleScore = -999;
+  for (const t of targetTitles) {
+    const targetNorm = normalizeTitleForMatch(t);
+    if (!targetNorm) continue;
+
+    if (candNorm === targetNorm) {
+      titleScore = Math.max(titleScore, 80);
+      break;
+    }
+
+    // Space-insensitive exact match (e.g. "old boy" vs "oldboy", "spider man" vs "spiderman")
+    if (candNorm.replace(/\s+/g, "") === targetNorm.replace(/\s+/g, "")) {
+      titleScore = Math.max(titleScore, 74);
+      break;
+    }
+
+    // Colon base-title match ONLY when exact release year matches (prevents sequel/remake swaps)
+    if (targetYear !== null && itemYear === targetYear) {
+      const candBase = normalizeTitleForMatch(item.l?.split(":")[0]);
+      const targetBase = normalizeTitleForMatch(t.split(":")[0]);
+      if (
+        candBase &&
+        targetBase &&
+        candBase.length >= 4 &&
+        candBase === targetBase
+      ) {
+        titleScore = Math.max(titleScore, 62);
+      }
+    }
+  }
+
+  if (titleScore < 62) return -999;
+
+  // Without a known release year, require exact normalized title equality to prevent misplaced posters
+  if (targetYear === null && titleScore < 74) {
+    return -999;
+  }
+
+  const typeScore = normType ? 12 : 0;
   const rankBonus =
     typeof item.rank === "number" && item.rank > 0
       ? Math.max(0, 8 - Math.log10(item.rank) * 2)
@@ -430,14 +414,13 @@ async function resolvePosterInternal(
         return res;
       }
 
-      if (uniqueTitles.length === 0) {
-        const fallbackCdn: PosterLookupResult = {
-          posterUrl: `https://images.metahub.space/poster/large/${cleanImdbId}/img`,
-          imdbId: cleanImdbId,
-        };
-        setCachedResult(cacheSignature, fallbackCdn);
-        return fallbackCdn;
-      }
+      // Strict IMDb ID lock: never fall through to title search when an exact IMDb ID is known
+      const fallbackCdn: PosterLookupResult = {
+        posterUrl: `https://images.metahub.space/poster/large/${cleanImdbId}/img`,
+        imdbId: cleanImdbId,
+      };
+      setCachedResult(cacheSignature, fallbackCdn);
+      return fallbackCdn;
     }
 
     // 2. Title + Year resolution (strictly distinguishing same-name remakes by year)
@@ -454,7 +437,7 @@ async function resolvePosterInternal(
       let bestCandidate: ImdbSuggestionItem | null = null;
       let bestScore = -999;
 
-      for (const { q: qStr, hasYear } of searchQueries) {
+      for (const { q: qStr } of searchQueries) {
         const suggestions = await fetchImdbSuggestions(qStr);
         for (const item of suggestions) {
           if (cleanImdbId && item.id?.toLowerCase() === cleanImdbId) {
@@ -475,7 +458,6 @@ async function resolvePosterInternal(
             uniqueTitles,
             validYear,
             query.type,
-            hasYear,
           );
           if (s > bestScore) {
             bestScore = s;
@@ -489,7 +471,7 @@ async function resolvePosterInternal(
         }
       }
 
-      const minRequiredScore = validYear ? 85 : 65;
+      const minRequiredScore = validYear ? 95 : 74;
       if (
         bestCandidate &&
         bestScore >= minRequiredScore &&
@@ -545,7 +527,9 @@ export async function GET(req: NextRequest) {
     }
     const suggestions = await fetchImdbSuggestions(rawQ);
     const items: ImdbSearchBridgeItem[] = [];
-    for (const s of suggestions) {
+    let personHint: string | null = null;
+    for (let i = 0; i < suggestions.length; i++) {
+      const s = suggestions[i];
       if (!s.id || !s.l) continue;
       const qid = (s.qid || s.q || "").toLowerCase();
       if (
@@ -555,7 +539,11 @@ export async function GET(req: NextRequest) {
       ) {
         continue;
       }
-      // Strictly include only movies & series (exclude person/actor records to prevent character-name false positives)
+      // Capture top-ranked actor/director name hint (0 Kinopoisk tokens) without mixing person cards into items
+      if (i <= 1 && /^nm\d+$/i.test(s.id) && !personHint) {
+        personHint = s.l.trim();
+        continue;
+      }
       const isTitle = /^tt\d+$/i.test(s.id);
       if (!isTitle) continue;
       items.push({
@@ -569,7 +557,7 @@ export async function GET(req: NextRequest) {
       if (items.length >= 10) break;
     }
     return NextResponse.json(
-      { items },
+      { items, personHint },
       {
         status: 200,
         headers: {

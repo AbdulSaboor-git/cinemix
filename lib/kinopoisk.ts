@@ -46,6 +46,7 @@ import {
   getCachedTranslation,
 } from "@/lib/translate";
 import { sanitizePosterUrl } from "@/components/posterFallback";
+import { idbGet, idbSet, idbClear } from "@/lib/idbCache";
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
@@ -670,6 +671,7 @@ function markExhausted(key: string) {
 
 export function clearApiCache(): void {
   memoryCache.clear();
+  void idbClear();
   pendingSessionWrites.clear();
   if (sessionWriteTimer) {
     clearTimeout(sessionWriteTimer);
@@ -763,10 +765,48 @@ function flushSessionWrites() {
   }
 }
 
+function getTieredTtlSeconds(path: string, fallbackSeconds: number): number {
+  if (
+    /^\/v2\.2\/films\/\d+(?:\/(?:facts|box_office|awards|distributions|seasons|similars|videos|images|reviews))?(?:\?|$)/.test(
+      path,
+    ) ||
+    /^\/v2\.1\/films\/\d+\/sequels_and_prequels(?:\?|$)/.test(path) ||
+    /^\/v1\/staff(?:\/\d+)?(?:\?|$)/.test(path)
+  ) {
+    return Math.max(fallbackSeconds, 30 * 24 * 60 * 60); // 30 days for immutable film/person data
+  }
+  if (
+    path.startsWith("/v2.2/films/filters") ||
+    path.startsWith("/v2.2/films/collections")
+  ) {
+    return Math.max(fallbackSeconds, 7 * 24 * 60 * 60); // 7 days for collections & filters
+  }
+  return Math.max(fallbackSeconds, 12 * 60 * 60); // 12 hours for searches, lists, premieres
+}
+
+async function getCachedApiAsync<T>(path: string): Promise<T | null> {
+  const syncHit = getCachedApi<T>(path);
+  if (syncHit !== null) return syncHit;
+  if (typeof window !== "undefined") {
+    const idbHit = await idbGet<T>(path);
+    if (idbHit !== null) {
+      memoryCache.set(path, {
+        data: idbHit,
+        expiresAt: Date.now() + 60 * 60 * 1000,
+      });
+      return idbHit;
+    }
+  }
+  return null;
+}
+
 function setCachedApi<T>(path: string, data: T, ttlSeconds: number) {
-  const entry = { data, expiresAt: Date.now() + ttlSeconds * 1000 };
+  const effectiveTtl = getTieredTtlSeconds(path, ttlSeconds);
+  const expiresAt = Date.now() + effectiveTtl * 1000;
+  const entry = { data, expiresAt };
   memoryCache.set(path, entry);
   if (typeof window !== "undefined") {
+    void idbSet(path, data, expiresAt);
     pendingSessionWrites.set(path, entry);
     if (!sessionWriteTimer) {
       sessionWriteTimer = setTimeout(flushSessionWrites, 250);
@@ -784,7 +824,7 @@ async function apiFetch<T>(
   }
 
   if (hasVerifiedApiKey()) {
-    const cached = getCachedApi<T>(path);
+    const cached = await getCachedApiAsync<T>(path);
     if (cached !== null) return cached;
   }
 
@@ -814,7 +854,8 @@ async function apiFetch<T>(
       await waitRateLimitSlot(priority);
       let res: Response;
       try {
-        res = await fetch(`${BASE_URL}${path}`, {
+        const targetUrl = typeof window !== "undefined" ? `/api/kp${path}` : `${BASE_URL}${path}`;
+        res = await fetch(targetUrl, {
           headers: { "X-API-KEY": key, "Content-Type": "application/json" },
           signal: AbortSignal.timeout(12000),
         });
@@ -2256,13 +2297,15 @@ export async function discoverFilms(
     }
   }
 
-  // Run smart search & live trending collections in parallel with filter queries
+  // Run smart search & live trending collections in parallel with filter queries.
+  // When rawKeyword is active, skip duplicate filter queries (searchFilms already queries the catalog).
+  const effectiveFilterQueries = rawKeyword ? [] : queriesToRun;
   const [smartSearchRes, liveColResults, ...settled] = await Promise.all([
     rawKeyword
       ? searchFilms(rawKeyword, page).catch(() => null)
       : Promise.resolve(null),
     Promise.all(livePopularCollectionPromises),
-    ...queriesToRun.map((q) =>
+    ...effectiveFilterQueries.map((q) =>
       getFilmsByFilter(q).then(
         (v) => ({ status: "fulfilled" as const, value: v }),
         () => ({ status: "rejected" as const, value: null }),
@@ -4269,23 +4312,36 @@ interface ImdbSearchBridgeResponse {
     kind: "movie" | "series" | "person" | "other";
     posterUrl: string | null;
   }[];
+  personHint?: string | null;
+}
+
+export interface ImdbBridgeFetchResult {
+  items: NonNullable<ImdbSearchBridgeResponse["items"]>;
+  personHint: string | null;
 }
 
 async function fetchImdbSearchBridge(
   query: string,
   timeoutMs = 2200,
-): Promise<NonNullable<ImdbSearchBridgeResponse["items"]>> {
-  if (typeof window === "undefined" || !query.trim()) return [];
+): Promise<ImdbBridgeFetchResult> {
+  if (typeof window === "undefined" || !query.trim()) {
+    return { items: [], personHint: null };
+  }
   try {
     const res = await fetch(
       `/api/poster?mode=search&q=${encodeURIComponent(query.trim())}`,
       { signal: AbortSignal.timeout(timeoutMs) },
     );
-    if (!res.ok) return [];
+    if (!res.ok) return { items: [], personHint: null };
     const data = (await res.json()) as ImdbSearchBridgeResponse;
-    return Array.isArray(data.items) ? data.items : [];
+    return {
+      items: Array.isArray(data.items) ? data.items : [],
+      personHint: typeof data.personHint === "string" && data.personHint.trim()
+        ? data.personHint.trim()
+        : null,
+    };
   } catch {
-    return [];
+    return { items: [], personHint: null };
   }
 }
 
@@ -4447,18 +4503,7 @@ async function resolvePersonCreditsForSearch(
       if (convertedFilms.length >= maxCreditsToReturn) break;
     }
 
-    // Only queue background metadata hydration on full search page (not on every suggestion keystroke)
-    if (!isSuggestionMode) {
-      for (let i = 0; i < Math.min(8, convertedFilms.length); i++) {
-        const fid = convertedFilms[i].kinopoiskId;
-        if (
-          fid &&
-          (!convertedFilms[i].year || !convertedFilms[i].genres?.length)
-        ) {
-          queueFilmMetaHydration(fid, i < 4);
-        }
-      }
-    }
+    // Background card hydration disabled to preserve daily API quota.
 
     const matchedPerson: MatchedPersonSummary = {
       personId: detail.personId || bestPerson.kinopoiskId,
@@ -4592,7 +4637,7 @@ export async function searchFilms(
   const imdbBridgePromise =
     page === 1
       ? fetchImdbSearchBridge(rawKeyword, isSuggestionMode ? 1500 : 2500)
-      : Promise.resolve([]);
+      : Promise.resolve({ items: [], personHint: null } as ImdbBridgeFetchResult);
   const ruTranslationPromise =
     page === 1 &&
     !isRussian(cleanQuery) &&
@@ -4600,13 +4645,15 @@ export async function searchFilms(
       ? translateQueryToRussian(cleanQuery)
       : Promise.resolve(null);
 
-  const [primaryRes, secondaryResList, imdbBridgeItems, ruTranslated] =
+  const [primaryRes, secondaryResList, imdbBridgeRes, ruTranslated] =
     await Promise.all([
       primaryQueryPromise,
       Promise.all(secondaryPromises),
       imdbBridgePromise,
       ruTranslationPromise,
     ]);
+  const imdbBridgeItems = imdbBridgeRes.items;
+  const imdbPersonHint = imdbBridgeRes.personHint;
 
   let combinedItems = [...primaryRes.items];
   for (const sec of secondaryResList) {
@@ -4637,7 +4684,7 @@ export async function searchFilms(
       }
     }
 
-    const maxImdbLookups = isSuggestionMode ? 3 : 6;
+    const maxImdbLookups = isSuggestionMode ? 1 : 3;
     let imdbLookupCount = 0;
 
     for (let idx = 0; idx < imdbBridgeItems.length; idx++) {
@@ -4850,9 +4897,36 @@ export async function searchFilms(
   });
 
   const ranked = scoredItems.map((entry) => entry.film);
+  const topTitleMatch = scoredItems[0]?.titleMatch ?? 0;
+
+  // Actor / Director Credit Resolution: list credits directly in results without showing a person profile card.
+  let personCredits: Film[] = [];
+  if (!isSuggestionMode && page === 1 && targetYear === null) {
+    const wordCount = cleanQuery.split(/\s+/).filter(Boolean).length;
+    const shouldCheckPerson =
+      Boolean(imdbPersonHint) || (wordCount >= 2 && topTitleMatch < 85);
+    if (shouldCheckPerson) {
+      const personRes = await resolvePersonCreditsForSearch(
+        cleanQuery,
+        ruTranslated,
+        imdbPersonHint,
+        false,
+      );
+      if (personRes.credits.length > 0) {
+        personCredits = personRes.credits;
+      }
+    }
+  }
 
   // If user explicitly searched with a release year (e.g. "oldboy 2003"), prioritize matching years
-  let finalItems = ranked;
+  let finalItems =
+    personCredits.length > 0
+      ? deduplicateFilms(
+          imdbPersonHint && topTitleMatch < 92
+            ? personCredits
+            : [...personCredits, ...ranked],
+        )
+      : ranked;
   if (targetYear !== null) {
     const yearMatched = ranked.filter((f) => {
       const fy = parseYearNumber(f.year) ?? parseYearNumber(f.startYear);
@@ -6300,8 +6374,12 @@ export async function getApiKeyInfo(apiKey: string): Promise<ApiKeyResponse> {
     if (clean) markKeyInvalid(clean);
     throw new Error("Invalid API key");
   }
+  const keyInfoUrl =
+    typeof window !== "undefined"
+      ? `/api/kp/v1/api_keys/${encodeURIComponent(clean)}`
+      : `${BASE_URL}/v1/api_keys/${encodeURIComponent(clean)}`;
   const res = await fetch(
-    `${BASE_URL}/v1/api_keys/${encodeURIComponent(clean)}`,
+    keyInfoUrl,
     {
       headers: { "X-API-KEY": clean, "Content-Type": "application/json" },
     },

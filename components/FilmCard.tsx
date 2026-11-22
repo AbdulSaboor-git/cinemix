@@ -779,7 +779,7 @@ const FilmCard = memo(function FilmCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const posterRef = useRef<HTMLDivElement>(null);
 
-  const film = useHydratedFilm(rawFilm, cardRef);
+  const film = useHydratedFilm(rawFilm, cardRef, false, true);
 
   const id = film.kinopoiskId ?? film.filmId ?? 0;
   const name = useFilmTitle(film, autoTranslate);

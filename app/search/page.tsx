@@ -1,4 +1,4 @@
-import SimpleExploreClient from "@/components/SimpleExploreClient";
+import { redirect } from "next/navigation";
 
 interface Props {
   searchParams: Promise<{
@@ -12,13 +12,12 @@ interface Props {
 
 export default async function SearchPage({ searchParams }: Props) {
   const p = await searchParams;
-  return (
-    <SimpleExploreClient
-      q={p.q}
-      page={p.page}
-      type={p.type}
-      order={p.sort}
-      rated={p.rated}
-    />
-  );
+  const sp = new URLSearchParams();
+  if (p.q) sp.set("q", p.q);
+  if (p.page) sp.set("page", p.page);
+  if (p.type) sp.set("type", p.type);
+  if (p.sort) sp.set("order", p.sort);
+  if (p.rated) sp.set("rated", p.rated);
+  const qs = sp.toString();
+  redirect(qs ? `/explore?${qs}` : "/explore");
 }

@@ -1,33 +1,34 @@
 "use client";
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
-  searchFilms,
   analyzeSemanticQuery,
   SemanticSearchAnalysis,
-  deduplicateFilms,
 } from "@/lib/kinopoisk";
-import { Film, MatchedPersonSummary } from "@/types/kinopoisk";
-import {
-  getPreferences,
-  hasApiKeys,
-  hasVerifiedApiKey,
-} from "@/lib/preferences";
+import { MatchedPersonSummary } from "@/types/kinopoisk";
+import { getPreferences } from "@/lib/preferences";
+import { isRussian } from "@/lib/translate";
 
 const RECENT_SEARCHES_KEY = "cinemix_recent_searches_v1";
 const MAX_RECENT_SEARCHES = 6;
 
-// In-memory LRU cache so re-typing or backspacing in the search bar is 0ms instant
+export interface SearchSuggestionItem {
+  key: string;
+  title: string;
+  year?: number | null;
+  kind?: "movie" | "series" | "person";
+  /** Present only when already matched in local cached catalog (0 API tokens). */
+  filmId?: number;
+}
+
+// In-memory LRU cache so re-typing or backspacing in the search bar is 0ms instant (0 Kinopoisk tokens)
 const suggestionQueryCache = new Map<
   string,
   {
-    items: Film[];
-    matchedPerson?: MatchedPersonSummary | null;
-    correctedQuery?: string | null;
-    targetYear?: number | null;
+    items: SearchSuggestionItem[];
     ts: number;
   }
 >();
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_TTL_MS = 10 * 60 * 1000;
 
 if (typeof window !== "undefined") {
   window.addEventListener("cinemix-cache-clear", () => {
@@ -41,7 +42,9 @@ export function getRecentSearches(): string[] {
     const raw = localStorage.getItem(RECENT_SEARCHES_KEY);
     const parsed = raw ? (JSON.parse(raw) as unknown) : [];
     return Array.isArray(parsed)
-      ? parsed.filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+      ? parsed.filter(
+          (x): x is string => typeof x === "string" && x.trim().length > 0,
+        )
       : [];
   } catch {
     return [];
@@ -74,8 +77,12 @@ export function clearRecentSearches(): void {
   }
 }
 
+function normKey(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, " ").trim();
+}
+
 export function useSearchSuggestions() {
-  const [suggestions, setSuggestions] = useState<Film[]>([]);
+  const [suggestions, setSuggestions] = useState<SearchSuggestionItem[]>([]);
   const [matchedPerson, setMatchedPerson] =
     useState<MatchedPersonSummary | null>(null);
   const [semanticMeta, setSemanticMeta] =
@@ -95,23 +102,12 @@ export function useSearchSuggestions() {
   }, []);
 
   const fetchSuggestions = useCallback((q: string, _limit?: number) => {
-    if (!hasApiKeys()) {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      reqIdRef.current += 1;
-      setSuggestions([]);
-      setMatchedPerson(null);
-      setSemanticMeta(null);
-      setSugVisible(false);
-      setSugLoading(false);
-      return;
-    }
     const prefs = getPreferences();
     if (!prefs.searchSuggestionsEnabled) return;
-    const limit = _limit ?? prefs.suggestionLimit;
-    // Bug #4 Fixed: Respect user's suggestionDebounceMs preference up to 1000ms (default 300ms)
+    const limit = _limit ?? prefs.suggestionLimit ?? 6;
     const debounce = Math.max(
-      80,
-      Math.min(prefs.suggestionDebounceMs || 300, 1000),
+      120,
+      Math.min(prefs.suggestionDebounceMs || 280, 1000),
     );
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -126,83 +122,136 @@ export function useSearchSuggestions() {
       return;
     }
 
-    // Step 1 (0ms Instant): Run client-side semantic + fuzzy local catalog analysis immediately
+    // Step 1 (0ms, 0 Kinopoisk tokens): Run local fuzzy/semantic analysis on cached catalog
     const analysis = analyzeSemanticQuery(trimmed);
     setSemanticMeta(analysis);
 
+    const localItems: SearchSuggestionItem[] = [];
+    const seenNorm = new Set<string>();
+    for (const f of analysis.localMatches) {
+      const title =
+        (f.nameEn && !isRussian(f.nameEn) ? f.nameEn : null) ||
+        (f.nameOriginal && !isRussian(f.nameOriginal) ? f.nameOriginal : null) ||
+        f.nameRu ||
+        "";
+      const cleanTitle = title.trim();
+      if (!cleanTitle) continue;
+      const nk = normKey(cleanTitle);
+      if (!nk || seenNorm.has(nk)) continue;
+      seenNorm.add(nk);
+      const isSeries =
+        Boolean(f.serial) ||
+        f.type === "TV_SERIES" ||
+        f.type === "MINI_SERIES" ||
+        f.type === "TV_SHOW";
+      localItems.push({
+        key: `local:${f.kinopoiskId ?? f.filmId ?? nk}`,
+        title: cleanTitle,
+        year: f.year ?? f.startYear ?? null,
+        kind: isSeries ? "series" : "movie",
+        filmId: f.kinopoiskId ?? f.filmId,
+      });
+      if (localItems.length >= limit) break;
+    }
+
     const cacheKey = `${trimmed.toLowerCase()}:${limit}`;
-    const cached = hasVerifiedApiKey()
-      ? suggestionQueryCache.get(cacheKey)
-      : undefined;
+    const cached = suggestionQueryCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
       setSuggestions(cached.items);
-      setMatchedPerson(cached.matchedPerson ?? null);
-      if (cached.correctedQuery && !analysis.correctedQuery) {
-        setSemanticMeta({
-          ...analysis,
-          correctedQuery: cached.correctedQuery,
-        });
-      }
-      setSugVisible(true);
+      setMatchedPerson(null);
+      setSugVisible(cached.items.length > 0);
       setSugLoading(false);
       setSelectedIdx(-1);
       return;
     }
 
-    // Show local fuzzy/semantic matches immediately in 0ms only when a verified key is active
-    if (
-      hasVerifiedApiKey() &&
-      (analysis.localMatches.length > 0 ||
-        analysis.correctedQuery ||
-        analysis.matchedConcept ||
-        analysis.targetYear !== null ||
-        analysis.relatedTerms.length > 0)
-    ) {
-      setSuggestions(analysis.localMatches.slice(0, limit));
-      setMatchedPerson(null);
+    if (localItems.length > 0) {
+      setSuggestions(localItems);
       setSugVisible(true);
     }
 
+    // Step 2 (Debounced, 0 Kinopoisk tokens): Query free IMDb Suggestion Bridge (/api/poster?mode=search)
     const currentReqId = ++reqIdRef.current;
     setSugLoading(true);
 
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await searchFilms(trimmed, 1, { mode: "suggestions" });
+        const res = await fetch(
+          `/api/poster?mode=search&q=${encodeURIComponent(trimmed)}`,
+          { signal: AbortSignal.timeout(2200) },
+        );
         if (reqIdRef.current !== currentReqId) return;
-        const merged = deduplicateFilms([
-          ...res.items,
-          ...analysis.localMatches,
-        ]).slice(0, limit);
 
+        const merged: SearchSuggestionItem[] = [];
+        const usedNorm = new Set<string>();
+
+        if (res.ok) {
+          const data = (await res.json()) as {
+            items?: {
+              imdbId: string;
+              title: string;
+              year: number | null;
+              kind: "movie" | "series" | "person" | "other";
+            }[];
+            personHint?: string | null;
+          };
+
+          // Include top actor/director name as a minimal searchable suggestion (tapping lists their credits)
+          if (data.personHint && data.personHint.trim()) {
+            const pNorm = normKey(data.personHint);
+            if (pNorm && !usedNorm.has(pNorm)) {
+              usedNorm.add(pNorm);
+              merged.push({
+                key: `person:${pNorm}`,
+                title: data.personHint.trim(),
+                kind: "person",
+              });
+            }
+          }
+
+          for (const it of data.items ?? []) {
+            const t = (it.title || "").trim();
+            if (!t) continue;
+            const nk = normKey(t);
+            if (!nk || usedNorm.has(nk)) continue;
+            usedNorm.add(nk);
+            // Reuse local filmId if already in local cached matches
+            const localMatch = localItems.find((l) => normKey(l.title) === nk);
+            merged.push({
+              key: `imdb:${it.imdbId}`,
+              title: t,
+              year: it.year ?? localMatch?.year ?? null,
+              kind: it.kind === "series" ? "series" : "movie",
+              filmId: localMatch?.filmId,
+            });
+            if (merged.length >= limit) break;
+          }
+        }
+
+        // Fill remaining slots from local cached matches
+        for (const l of localItems) {
+          if (merged.length >= limit) break;
+          const nk = normKey(l.title);
+          if (!usedNorm.has(nk)) {
+            usedNorm.add(nk);
+            merged.push(l);
+          }
+        }
+
+        const finalItems = merged.slice(0, limit);
         suggestionQueryCache.set(cacheKey, {
-          items: merged,
-          matchedPerson: res.matchedPerson ?? null,
-          correctedQuery: res.correctedQuery ?? analysis.correctedQuery,
-          targetYear: res.targetYear ?? analysis.targetYear,
+          items: finalItems,
           ts: Date.now(),
         });
 
-        setSuggestions(merged);
-        setMatchedPerson(res.matchedPerson ?? null);
-        if (res.correctedQuery && !analysis.correctedQuery) {
-          setSemanticMeta((prev) =>
-            prev ? { ...prev, correctedQuery: res.correctedQuery ?? null } : prev,
-          );
-        }
-        setSugVisible(true);
+        setSuggestions(finalItems);
+        setMatchedPerson(null);
+        setSugVisible(finalItems.length > 0);
         setSelectedIdx(-1);
       } catch {
         if (reqIdRef.current === currentReqId) {
-          if (!hasApiKeys()) {
-            setSuggestions([]);
-            setMatchedPerson(null);
-            setSemanticMeta(null);
-            setSugVisible(false);
-          } else if (analysis.localMatches.length === 0) {
-            setSuggestions([]);
-            setMatchedPerson(null);
-          }
+          setSuggestions(localItems);
+          setSugVisible(localItems.length > 0);
         }
       } finally {
         if (reqIdRef.current === currentReqId) {

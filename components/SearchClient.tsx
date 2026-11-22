@@ -311,9 +311,13 @@ export default function SearchClient({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedIdx >= 0 && suggestions[selectedIdx]) {
-      const film = suggestions[selectedIdx];
+      const picked = suggestions[selectedIdx];
       clearSuggestions();
-      router.push(`/film/${film.kinopoiskId ?? film.filmId}`);
+      if (picked.filmId && picked.kind !== "person") {
+        router.push(`/film/${picked.filmId}`);
+      } else {
+        router.push(`/explore?q=${encodeURIComponent(picked.title)}`);
+      }
       return;
     }
     const trimmed = search.trim();

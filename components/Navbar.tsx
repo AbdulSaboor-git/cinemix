@@ -286,10 +286,12 @@ export default function Navbar() {
     e.preventDefault();
     const selected = suggestions[selectedIdx];
     if (selected) {
-      saveRecentSearch(
-        selected.nameEn || selected.nameOriginal || selected.nameRu || search,
-      );
-      router.push(`/film/${selected.kinopoiskId ?? selected.filmId}`);
+      saveRecentSearch(selected.title || search.trim());
+      if (selected.filmId && selected.kind !== "person") {
+        router.push(`/film/${selected.filmId}`);
+      } else {
+        router.push(`/explore?q=${encodeURIComponent(selected.title)}`);
+      }
     } else if (search.trim()) {
       saveRecentSearch(search.trim());
       router.push(`/explore?q=${encodeURIComponent(search.trim())}`);
@@ -308,14 +310,7 @@ export default function Navbar() {
   };
 
   const showDropdown =
-    sugVisible &&
-    (suggestions.length > 0 ||
-      Boolean(matchedPerson) ||
-      sugLoading ||
-      Boolean(semanticMeta?.correctedQuery) ||
-      Boolean(semanticMeta?.matchedConcept) ||
-      Boolean(semanticMeta?.targetYear) ||
-      (semanticMeta?.relatedTerms?.length ?? 0) > 0);
+    sugVisible && (suggestions.length > 0 || sugLoading);
 
   const isActive = (href: string) => {
     const base = href.split("?")[0];
@@ -363,6 +358,9 @@ export default function Navbar() {
             <div className="relative">
               <input
                 ref={inputRef}
+                type="search"
+                enterKeyHint="search"
+                autoComplete="off"
                 value={search}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
@@ -463,12 +461,15 @@ export default function Navbar() {
             <div className="relative">
               <input
                 ref={mobileInputRef}
+                type="search"
+                enterKeyHint="search"
+                autoComplete="off"
                 value={search}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={(e) => handleKeyNav(e, suggestions.length)}
                 onFocus={() => search.trim().length >= 2 && setSugVisible(true)}
                 placeholder="Search titles, actors, years…"
-                className="w-full pl-10 pr-9 text-[14px] py-2.5 rounded-full input"
+                className="w-full pl-10 pr-9 text-[16px] sm:text-[14px] py-2.5 rounded-full input"
               />
               <Search
                 size={15}

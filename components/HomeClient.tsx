@@ -131,6 +131,9 @@ export default function HomeClient() {
 
   const [loaded, setLoaded] = useState<boolean>(false);
   const [secondaryLoaded, setSecondaryLoaded] = useState<boolean>(false);
+  const [stage2Requested, setStage2Requested] = useState<boolean>(false);
+  const stage2SentinelRef = useRef<HTMLDivElement>(null);
+  const stage2TriggeredRef = useRef<boolean>(false);
   const [noKey, setNoKey] = useState(false);
   const [keyEpoch, setKeyEpoch] = useState(0);
   const [sections, setSections] = useState<Preferences["homeSections"] | null>(
@@ -406,7 +409,6 @@ export default function HomeClient() {
     }
 
     let mounted = true;
-    let stage2Timer: ReturnType<typeof setTimeout> | null = null;
 
     verifyApiKeys().then((keyOk) => {
       if (!mounted) return;
@@ -460,10 +462,46 @@ export default function HomeClient() {
           setTop250Films(rawTop.filter((f) => !isRussianDomesticFilm(f)));
         }
         setLoaded(true);
+      });
+    });
 
-        // Stage 2 runs in LOW priority so navigating to Explore / Top 250 / Premieres preempts it in 0ms!
-        stage2Timer = setTimeout(() => {
-          if (!mounted) return;
+    return () => {
+      mounted = false;
+    };
+  }, [keyEpoch]);
+
+  // Observe below-the-fold sentinel so Stage 2 rows only fetch when the user scrolls down
+  useEffect(() => {
+    if (!loaded || secondaryLoaded || stage2Requested) return;
+    const el = stage2SentinelRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      setStage2Requested(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setStage2Requested(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: "500px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loaded, secondaryLoaded, stage2Requested]);
+
+  // Stage 2: Below-the-fold Home sections (fetched lazily on scroll to preserve daily API quota)
+  useEffect(() => {
+    if (!loaded || !sections || secondaryLoaded || !stage2Requested || !hasApiKeys()) {
+      return;
+    }
+    if (stage2TriggeredRef.current) return;
+    stage2TriggeredRef.current = true;
+    let mounted = true;
+    const s = sections;
+
+    (() => {
 
           Promise.allSettled([
             s.recentReleases
@@ -632,15 +670,13 @@ export default function HomeClient() {
               setSecondaryLoaded(true);
             },
           );
-        }, 150);
-      });
-    });
+    })();
 
     return () => {
       mounted = false;
-      if (stage2Timer) clearTimeout(stage2Timer);
+      stage2TriggeredRef.current = false;
     };
-  }, [keyEpoch]);
+  }, [loaded, sections, secondaryLoaded, stage2Requested]);
 
   const heroSlides = useMemo(() => {
     const sourcePool =
@@ -730,6 +766,9 @@ export default function HomeClient() {
             href="/profile/watchlater"
           />
         )}
+        {/* Sentinel that triggers Stage 2 below-the-fold section fetches on scroll */}
+        <div ref={stage2SentinelRef} aria-hidden="true" className="h-px w-full" />
+
         {s.recentReleases && recentReleaseFilms.length > 0 && (
           <FilmRow
             title="Recent Releases"

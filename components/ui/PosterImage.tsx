@@ -30,7 +30,7 @@ export interface PosterImageProps {
 
 // ─── Persistent Client-Side English Poster Cache & Micro-Batcher ─────────────
 
-const EN_POSTER_STORAGE_KEY = "cinemix_en_posters_v2";
+const EN_POSTER_STORAGE_KEY = "cinemix_en_posters_v3";
 const HIT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const MISS_WITH_IMDB_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const MISS_TITLE_ONLY_TTL_MS = 30 * 60 * 1000; // 30 minutes
