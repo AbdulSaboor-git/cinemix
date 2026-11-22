@@ -360,7 +360,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
   const prevPropsRef = useRef(props);
 
   useEffect(() => {
-    if (prevPropsRef.current !== props) {
+    if (JSON.stringify(prevPropsRef.current) !== JSON.stringify(props)) {
       prevPropsRef.current = props;
       setOptimisticParams(props);
     }
@@ -799,7 +799,21 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
         }
       });
 
-      setLoading(true);
+      const qs = sp.toString();
+      const href = qs ? `/explore?${qs}` : "/explore";
+
+      // If the submitted query & filters are identical to current state, do not trap loading=true
+      const currentSp = new URLSearchParams();
+      Object.entries(p).forEach(([k, v]) => {
+        if (k !== "page" && v !== undefined && v !== "") {
+          currentSp.set(k, v);
+        }
+      });
+      if (qs === currentSp.toString()) {
+        setLoading(false);
+        return;
+      }
+
       setLoadingMore(false);
       setStreamedPage(1);
       setOptimisticParams(cleanNext as ExploreSearchParams);
@@ -810,8 +824,6 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
         // ignore
       }
 
-      const qs = sp.toString();
-      const href = qs ? `/explore?${qs}` : "/explore";
       syncRouteInNavStack(href);
       startTransition(() => {
         router.push(href, { scroll: false });
@@ -831,7 +843,7 @@ export default function SimpleExploreClient(props: ExploreSearchParams) {
       p.countries,
       p.yearFrom,
       p.yearTo,
-      p.rated,
+      p,
       router,
     ],
   );
