@@ -1035,7 +1035,7 @@ export default function WatchPageClient({
                 <Clock size={14} stroke={isWL ? "#60a5fa" : "currentColor"} />
               </button>
 
-              <button
+              {/* <button
                 type="button"
                 onClick={handleWatched}
                 aria-label={isWatched ? "Marked as Watched" : "Mark as Watched"}
@@ -1047,7 +1047,7 @@ export default function WatchPageClient({
                 }`}
               >
                 <Check size={14} stroke={isWatched ? "#4ade80" : "currentColor"} strokeWidth={2.5} />
-              </button>
+              </button> */}
 
               <button
                 type="button"

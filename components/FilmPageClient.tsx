@@ -902,14 +902,14 @@ function FilmDetail({
               </Link>
             </div>
 
-            <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2.5">
+            <div className="grid grid-cols-6 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2.5">
               <button
                 type="button"
                 onClick={handleFav}
                 title={
                   isFav ? "In Favorites (tap to remove)" : "Add to Favorites"
                 }
-                className={`flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
+                className={`col-span-2 flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
                   isFav
                     ? "bg-[rgba(229,9,20,0.15)] border-[rgba(229,9,20,0.5)] text-[var(--accent)]"
                     : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(229,9,20,0.4)] hover:text-[var(--accent)]"
@@ -938,7 +938,7 @@ function FilmDetail({
                     ? "In Watch Later (tap to remove)"
                     : "Save to Watch Later"
                 }
-                className={`flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
+                className={`flex col-span-2 items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
                   isWL
                     ? "bg-[rgba(96,165,250,0.12)] border-[rgba(96,165,250,0.4)] text-[#60a5fa]"
                     : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(96,165,250,0.4)] hover:text-[#60a5fa]"
@@ -964,7 +964,7 @@ function FilmDetail({
                 title={
                   isWatched ? "Watched (tap to remove)" : "Mark as Watched"
                 }
-                className={`flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
+                className={`col-span-2 flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
                   isWatched
                     ? "bg-[rgba(34,197,94,0.14)] border-[rgba(34,197,94,0.45)] text-[#4ade80]"
                     : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[rgba(34,197,94,0.45)] hover:text-[#4ade80]"
@@ -989,7 +989,7 @@ function FilmDetail({
                     ? `Your rating: ${userRating.toFixed(1)}/10 (click to edit)`
                     : "Rate this title according to your taste"
                 }
-                className={`flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
+                className={`col-span-3 flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border cursor-pointer transition-all duration-150 min-w-0 ${
                   isRated && userRating !== null
                     ? "bg-[var(--user-rating-bg)] border-[var(--user-rating-border)] text-[var(--user-rating)]"
                     : "bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--user-rating-border)] hover:text-[var(--user-rating)]"
@@ -1014,7 +1014,7 @@ function FilmDetail({
                 onClick={handleShare}
                 title="Share film"
                 aria-label="Share film"
-                className="flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-hover)] hover:text-white cursor-pointer transition-all duration-150 min-w-0"
+                className="col-span-3 flex items-center justify-center gap-1.5 rounded-[10px] sm:rounded-[var(--radius)] px-2 sm:px-4 py-2.5 sm:py-[9px] text-[12px] sm:text-[13px] font-semibold border bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-hover)] hover:text-white cursor-pointer transition-all duration-150 min-w-0"
               >
                 <Share2 size={14} strokeWidth={2} className="shrink-0" />
                 <span className="whitespace-nowrap">Share</span>
