@@ -321,11 +321,15 @@ export default function Navbar() {
     <>
       {/* ── Top App Bar ── */}
       <nav
-        className={`fixed top-0 left-0 right-0 z-[199] flex items-center gap-3 px-3.5 md:px-[var(--page-x)] h-[var(--nav-height)] select-none backdrop-blur-[24px] [-webkit-backdrop-filter:blur(24px)] transition-[background-color,border-color,box-shadow] duration-300 border-b ${
+        className={`fixed top-0 left-0 right-0 z-[199] flex items-center gap-3 px-3.5 md:px-[var(--page-x)] select-none backdrop-blur-[24px] [-webkit-backdrop-filter:blur(24px)] transition-[background-color,border-color,box-shadow] duration-300 border-b ${
           scrolled
             ? "bg-[#08080a]/20 border-white/[0.1] shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
             : "bg-[#08080a]/10 border-transparent"
         }`}
+        style={{
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          height: "calc(var(--nav-height) + env(safe-area-inset-top, 0px))",
+        }}
       >
         <Logo />
 
@@ -455,7 +459,7 @@ export default function Navbar() {
         <div
           ref={mobileSearchRef}
           className="lg:hidden fixed left-0 right-0 z-[190] bg-[#0a0a0d]/95 backdrop-blur-[20px] [-webkit-backdrop-filter:blur(20px)] shadow-[0_12px_36px_rgba(0,0,0,0.75)] border-b border-[var(--border)] px-3.5 py-2.5 slide-down"
-          style={{ top: "var(--nav-height)" }}
+          style={{ top: "calc(var(--nav-height) + env(safe-area-inset-top, 0px))" }}
         >
           <form onSubmit={handleSubmit}>
             <div className="relative">

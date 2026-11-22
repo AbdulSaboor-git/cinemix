@@ -1,5 +1,6 @@
-import type { Metadata, Viewport } from "next";
+// @ts-expect-error CSS side-effect imports are handled by Next.js.
 import "./globals.css";
+import type { Metadata, Viewport } from "next";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import BackToTop from "@/components/BackToTop";
@@ -25,7 +26,15 @@ export const metadata: Metadata = {
   },
   description:
     "Discover and watch the greatest films and TV series of all time. Browse the Top 250, trending movies, popular series and more.",
-  keywords: ["movies", "films", "series", "cinema", "watch", "top 250", "streaming"],
+  keywords: [
+    "movies",
+    "films",
+    "series",
+    "cinema",
+    "watch",
+    "top 250",
+    "streaming",
+  ],
   manifest: "/site.webmanifest",
   icons: {
     icon: [
@@ -51,14 +60,24 @@ export const viewport: Viewport = {
   themeColor: "#080808",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en" className={`${bebas.variable} ${dmSans.variable}`}>
-      <body className="flex flex-col min-h-[100dvh]">
+      <body className="flex flex-col min-h-dvh">
         <ToastProvider>
           <SessionInit />
           <Navbar />
-          <main className="flex-1" style={{ paddingTop: "var(--nav-height)" }}>
+          <main
+            className="flex-1"
+            style={{
+              paddingTop:
+                "calc(var(--nav-height) + env(safe-area-inset-top, 0px))",
+            }}
+          >
             {children}
           </main>
           <Footer />
