@@ -1,4 +1,3 @@
-// @ts-expect-error CSS side-effect imports are handled by Next.js.
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import Navbar from "@/components/Navbar";
